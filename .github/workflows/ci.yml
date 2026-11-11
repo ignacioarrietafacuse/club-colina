@@ -1,0 +1,49 @@
+# El chequeo: un solo trabajo que corre `pnpm check` (lint, tipos, tests y build).
+# Ver docs/flujo-de-trabajo.md, "El chequeo (CI)". Solo usa acciones de GitHub.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # En un PR, un empuje nuevo cancela la corrida anterior. En main no se cancela nada.
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: club
+          POSTGRES_PASSWORD: club
+          POSTGRES_DB: club_colina_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U club"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://club:club@localhost:5432/club_colina_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Activar pnpm (corepack, versión de packageManager)
+        run: |
+          npm install --global corepack@latest
+          corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check

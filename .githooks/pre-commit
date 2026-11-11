@@ -1,0 +1,32 @@
+#!/bin/sh
+# Rechaza secretos, planillas e imágenes fuera de los recursos del frontend
+# (ver docs/flujo-de-trabajo.md, "Las rejas" y "Datos reales").
+estado=0
+archivos=$(git diff --cached --name-only --diff-filter=ACMR)
+for f in $archivos; do
+  base=$(basename "$f")
+  minus=$(printf '%s' "$f" | tr '[:upper:]' '[:lower:]')
+  case "$base" in
+    .env.example) ;;
+    .env*)
+      echo "pre-commit: $f parece un archivo de secretos (.env*)." >&2
+      estado=1
+      ;;
+  esac
+  case "$minus" in
+    *.xlsx|*.xls|*.xlsm|*.csv|*.ods)
+      echo "pre-commit: $f es una planilla. Los datos del club no entran al repo." >&2
+      estado=1
+      ;;
+    *.png|*.jpg|*.jpeg|*.gif|*.webp|*.heic|*.heif|*.bmp|*.tif|*.tiff|*.avif|*.ico|*.svg)
+      case "$f" in
+        frontend/public/*|frontend/src/assets/*) ;;
+        *)
+          echo "pre-commit: $f es una imagen fuera de frontend/public o frontend/src/assets." >&2
+          estado=1
+          ;;
+      esac
+      ;;
+  esac
+done
+exit $estado

@@ -1,0 +1,12 @@
+#!/bin/sh
+# Rechaza cualquier empuje directo a main (ver docs/flujo-de-trabajo.md, "Las rejas").
+# Fusionar un PR en GitHub no pasa por acá y sigue funcionando.
+while read -r _ref_local _sha_local ref_remota _sha_remota; do
+  case "$ref_remota" in
+    refs/heads/main)
+      echo "pre-push: no se empuja directo a main. Abre un PR desde una rama de trabajo." >&2
+      exit 1
+      ;;
+  esac
+done
+exit 0

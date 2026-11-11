@@ -5,7 +5,7 @@ import type { Config } from "../config";
 /** Base de tests. Siempre local: la guarda de host impide apuntar a otra cosa. */
 export function urlTest(): string {
   const url =
-    process.env.DATABASE_URL ?? "postgres://club@localhost:5432/club_colina_test";
+    process.env.DATABASE_URL ?? "postgres://club:club@localhost:5432/club_colina_test";
   verificarHostDestino(url, []);
   return url;
 }
