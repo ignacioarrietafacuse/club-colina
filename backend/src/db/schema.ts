@@ -1,0 +1,288 @@
+/**
+ * Esquema de la base (Etapa 1). Las migraciones se generan desde acá con `pnpm db:generar`
+ * y quedan en backend/migrations/. Una migración aplicada nunca se edita: se agrega otra.
+ *
+ * Los valores fijos van como text + CHECK (no como enum de Postgres) para que agregar un
+ * valor sea una migración que solo agrega.
+ */
+import { sql } from "drizzle-orm";
+import {
+  boolean,
+  check,
+  customType,
+  date,
+  index,
+  pgTable,
+  primaryKey,
+  smallint,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from "drizzle-orm/pg-core";
+import {
+  DISCIPLINAS,
+  ESTADOS_ENTRENADOR,
+  ESTADOS_PERSONA,
+  ESTADOS_SOLICITUD,
+  ESTADOS_VINCULO,
+  FOTO_MAX_BYTES,
+  FOTO_MIMES,
+  METODOS_PAGO,
+  ORIGENES,
+  TIPOS_SOLICITUD,
+} from "@club-colina/shared";
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+/** `columna IN ('a', 'b')` con los valores del contrato. */
+function enLista(columna: string, valores: readonly string[]) {
+  const lista = valores.map((v) => `'${v.replace(/'/g, "''")}'`).join(", ");
+  return sql.raw(`"${columna}" IN (${lista})`);
+}
+
+const tiempos = {
+  creado_en: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+  actualizado_en: timestamp("actualizado_en", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+};
+
+const RUT_CHECK = `"rut" ~ '^[0-9]{7,8}-[0-9K]$'`;
+const TELEFONO_CHECK = `"telefono" ~ '^[0-9]{9}$'`;
+const EMAIL_CHECK = `"email" = lower("email")`;
+
+/** Fotos de credencial. Van aparte para que las listas no arrastren bytea. */
+export const fotos = pgTable(
+  "fotos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    mime: text("mime").notNull(),
+    bytes: bytea("bytes").notNull(),
+    creado_en: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+  },
+  () => [
+    check("fotos_mime_check", enLista("mime", FOTO_MIMES)),
+    check("fotos_tamano_check", sql.raw(`octet_length("bytes") BETWEEN 1 AND ${FOTO_MAX_BYTES}`)),
+  ],
+);
+
+export const solicitudesRegistro = pgTable(
+  "solicitudes_registro",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    creada_en: timestamp("creada_en", { withTimezone: true }).notNull().defaultNow(),
+    /** Link privado (`/familia/:token`, o `/completar/:token` si es de un segundo apoderado). */
+    token_acceso: text("token_acceso").notNull().unique(),
+    /** Nulo solo en la solicitud de un segundo apoderado mientras no sube su foto. */
+    consentimiento_en: timestamp("consentimiento_en", { withTimezone: true }),
+    estado: text("estado", { enum: ESTADOS_SOLICITUD }).notNull().default("pendiente"),
+    revisada_en: timestamp("revisada_en", { withTimezone: true }),
+    tipo: text("tipo", { enum: TIPOS_SOLICITUD }).notNull().default("formulario"),
+    coincide_base: boolean("coincide_base").notNull().default(false),
+  },
+  (t) => [
+    check("solicitudes_estado_check", enLista("estado", ESTADOS_SOLICITUD)),
+    check("solicitudes_tipo_check", enLista("tipo", TIPOS_SOLICITUD)),
+    check(
+      "solicitudes_consentimiento_check",
+      sql.raw(`"tipo" = 'segundo_apoderado' OR "consentimiento_en" IS NOT NULL`),
+    ),
+    index("solicitudes_estado_idx").on(t.estado),
+  ],
+);
+
+export const categorias = pgTable(
+  "categorias",
+  {
+    id: smallint("id").primaryKey().generatedAlwaysAsIdentity(),
+    nombre: text("nombre").notNull(),
+    disciplina: text("disciplina", { enum: DISCIPLINAS }).notNull(),
+    anio_desde: smallint("anio_desde").notNull(),
+    anio_hasta: smallint("anio_hasta").notNull(),
+    /** false en U11 F: no se calcula por año, la asigna Mony. */
+    se_calcula: boolean("se_calcula").notNull().default(true),
+  },
+  (t) => [
+    unique("categorias_disciplina_nombre_key").on(t.disciplina, t.nombre),
+    check("categorias_disciplina_check", enLista("disciplina", DISCIPLINAS)),
+    check("categorias_anios_check", sql.raw(`"anio_desde" <= "anio_hasta"`)),
+  ],
+);
+
+export const apoderados = pgTable(
+  "apoderados",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    nombre: text("nombre"),
+    apellido: text("apellido"),
+    rut: text("rut").notNull().unique(),
+    telefono: text("telefono"),
+    email: text("email"),
+    metodo_pago: text("metodo_pago", { enum: METODOS_PAGO }),
+    foto_id: uuid("foto_id").references(() => fotos.id, { onDelete: "restrict" }),
+    credencial_token: text("credencial_token").unique(),
+    estado: text("estado", { enum: ESTADOS_PERSONA }).notNull().default("precargado"),
+    origen: text("origen", { enum: ORIGENES }).notNull(),
+    solicitud_id: uuid("solicitud_id").references(() => solicitudesRegistro.id, {
+      onDelete: "restrict",
+    }),
+    ...tiempos,
+  },
+  (t) => [
+    check("apoderados_rut_check", sql.raw(RUT_CHECK)),
+    check("apoderados_telefono_check", sql.raw(TELEFONO_CHECK)),
+    check("apoderados_email_check", sql.raw(EMAIL_CHECK)),
+    check("apoderados_metodo_pago_check", enLista("metodo_pago", METODOS_PAGO)),
+    check("apoderados_estado_check", enLista("estado", ESTADOS_PERSONA)),
+    check("apoderados_origen_check", enLista("origen", ORIGENES)),
+    check(
+      "apoderados_activo_completo_check",
+      sql.raw(
+        `"estado" <> 'activo' OR ("nombre" IS NOT NULL AND "apellido" IS NOT NULL AND "telefono" IS NOT NULL AND "foto_id" IS NOT NULL AND "credencial_token" IS NOT NULL)`,
+      ),
+    ),
+    index("apoderados_estado_idx").on(t.estado),
+    index("apoderados_solicitud_idx").on(t.solicitud_id),
+  ],
+);
+
+export const jugadores = pgTable(
+  "jugadores",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    nombre: text("nombre"),
+    apellido: text("apellido"),
+    rut: text("rut").notNull().unique(),
+    fecha_nacimiento: date("fecha_nacimiento"),
+    disciplina: text("disciplina", { enum: DISCIPLINAS }).notNull(),
+    categoria_id: smallint("categoria_id").references(() => categorias.id, {
+      onDelete: "restrict",
+    }),
+    /** Texto para distinguir "0" de "00". "99" = sin número asignado. */
+    numero_camiseta: text("numero_camiseta"),
+    postula_beca: boolean("postula_beca").notNull().default(false),
+    beca_mensualidad_pct: smallint("beca_mensualidad_pct").notNull().default(0),
+    beca_torneos_pct: smallint("beca_torneos_pct").notNull().default(0),
+    beca_campus_pct: smallint("beca_campus_pct").notNull().default(0),
+    telefono: text("telefono"),
+    email: text("email"),
+    metodo_pago: text("metodo_pago", { enum: METODOS_PAGO }),
+    /** Casilla "Ya no está en el club" del formulario; Mony lo confirma. */
+    marcado_retiro_en: timestamp("marcado_retiro_en", { withTimezone: true }),
+    foto_id: uuid("foto_id").references(() => fotos.id, { onDelete: "restrict" }),
+    credencial_token: text("credencial_token").unique(),
+    estado: text("estado", { enum: ESTADOS_PERSONA }).notNull().default("precargado"),
+    origen: text("origen", { enum: ORIGENES }).notNull(),
+    solicitud_id: uuid("solicitud_id").references(() => solicitudesRegistro.id, {
+      onDelete: "restrict",
+    }),
+    ...tiempos,
+  },
+  (t) => [
+    check("jugadores_rut_check", sql.raw(RUT_CHECK)),
+    check("jugadores_telefono_check", sql.raw(TELEFONO_CHECK)),
+    check("jugadores_email_check", sql.raw(EMAIL_CHECK)),
+    check("jugadores_disciplina_check", enLista("disciplina", DISCIPLINAS)),
+    check("jugadores_numero_check", sql.raw(`"numero_camiseta" ~ '^[0-9]{1,2}$'`)),
+    check(
+      "jugadores_becas_check",
+      sql.raw(
+        `"beca_mensualidad_pct" BETWEEN 0 AND 100 AND "beca_torneos_pct" BETWEEN 0 AND 100 AND "beca_campus_pct" BETWEEN 0 AND 100`,
+      ),
+    ),
+    check("jugadores_metodo_pago_check", enLista("metodo_pago", METODOS_PAGO)),
+    check("jugadores_estado_check", enLista("estado", ESTADOS_PERSONA)),
+    check("jugadores_origen_check", enLista("origen", ORIGENES)),
+    check(
+      "jugadores_activo_completo_check",
+      sql.raw(
+        `"estado" <> 'activo' OR ("nombre" IS NOT NULL AND "apellido" IS NOT NULL AND "fecha_nacimiento" IS NOT NULL AND "numero_camiseta" IS NOT NULL AND "foto_id" IS NOT NULL AND "credencial_token" IS NOT NULL)`,
+      ),
+    ),
+    index("jugadores_estado_idx").on(t.estado),
+    index("jugadores_categoria_idx").on(t.categoria_id),
+    index("jugadores_solicitud_idx").on(t.solicitud_id),
+  ],
+);
+
+export const jugadorApoderado = pgTable(
+  "jugador_apoderado",
+  {
+    jugador_id: uuid("jugador_id")
+      .notNull()
+      .references(() => jugadores.id, { onDelete: "cascade" }),
+    apoderado_id: uuid("apoderado_id")
+      .notNull()
+      .references(() => apoderados.id, { onDelete: "cascade" }),
+    paga_mensualidad: boolean("paga_mensualidad").notNull().default(false),
+    estado: text("estado", { enum: ESTADOS_VINCULO }).notNull().default("pendiente"),
+    creado_en: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.jugador_id, t.apoderado_id] }),
+    check("jugador_apoderado_estado_check", enLista("estado", ESTADOS_VINCULO)),
+    index("jugador_apoderado_apoderado_idx").on(t.apoderado_id),
+  ],
+);
+
+export const entrenadores = pgTable(
+  "entrenadores",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    nombre: text("nombre").notNull(),
+    apellido: text("apellido").notNull(),
+    rut: text("rut").notNull().unique(),
+    telefono: text("telefono").notNull(),
+    disciplina: text("disciplina", { enum: DISCIPLINAS }).notNull(),
+    foto_id: uuid("foto_id")
+      .notNull()
+      .references(() => fotos.id, { onDelete: "restrict" }),
+    /** Nulo cuando está inactivo. */
+    credencial_token: text("credencial_token").unique(),
+    estado: text("estado", { enum: ESTADOS_ENTRENADOR }).notNull().default("activo"),
+    ...tiempos,
+  },
+  () => [
+    check("entrenadores_rut_check", sql.raw(RUT_CHECK)),
+    check("entrenadores_telefono_check", sql.raw(TELEFONO_CHECK)),
+    check("entrenadores_disciplina_check", enLista("disciplina", DISCIPLINAS)),
+    check("entrenadores_estado_check", enLista("estado", ESTADOS_ENTRENADOR)),
+    check(
+      "entrenadores_activo_token_check",
+      sql.raw(`"estado" <> 'activo' OR "credencial_token" IS NOT NULL`),
+    ),
+  ],
+);
+
+export const usuarios = pgTable("usuarios", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  usuario: text("usuario").notNull().unique(),
+  nombre: text("nombre").notNull(),
+  /** argon2id. */
+  password_hash: text("password_hash").notNull(),
+  activo: boolean("activo").notNull().default(true),
+  ...tiempos,
+});
+
+export const sesiones = pgTable(
+  "sesiones",
+  {
+    /** sha256 (hex) del token de la cookie. La base nunca guarda el token. */
+    id: text("id").primaryKey(),
+    usuario_id: uuid("usuario_id")
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    creada_en: timestamp("creada_en", { withTimezone: true }).notNull().defaultNow(),
+    expira_en: timestamp("expira_en", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index("sesiones_usuario_idx").on(t.usuario_id),
+    index("sesiones_expira_idx").on(t.expira_en),
+  ],
+);

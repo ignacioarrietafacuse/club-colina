@@ -1,0 +1,23 @@
+node_modules
+dist
+dist-ssr
+coverage
+.output
+.vercel
+.railway
+*.log
+*.local
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+.tanstack/
+
+# Secretos y datos reales: nunca al repo (ver docs/flujo-de-trabajo.md)
+.env*
+!.env.example
+datos/
+uploads/
+*.xlsx
+*.xls
+*.csv
