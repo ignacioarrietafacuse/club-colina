@@ -1,0 +1,293 @@
+# Diseño aprobado — Etapa 1: registro y credenciales virtuales con QR
+
+**Estado:** Aprobado por Ignacio (2026-11-11). Es el núcleo de la Etapa 1 (urgente) del PRD v1.1.
+**Última actualización:** 2026-11-11 — se agrega la carga inicial desde la base del club y el formulario que reconoce el RUT.
+**Origen:** Mony pidió una forma de identificar a jugadores y apoderados cuando entran al Pucalán.
+**Efecto adicional:** el sistema parte con la base del club precargada. El formulario de registro completa lo que falta (foto, número de camiseta) y queda como el proceso permanente de ingreso.
+
+## Alcance de la Etapa 1
+- Jugadores, apoderados y entrenadores.
+- Carga inicial de la base del club (una sola vez).
+- Link de registro y generación de los QR.
+- Panel con datos reales de lo anterior. **Se eliminan todos los datos mock.**
+- Todo el resto (categorías completas, torneos y campus, uniformes, WhatsApp/Kapso, IA, leads, pagos) va en la Etapa 2, cuando Mony entregue la información. En el panel aparece como **"Pendiente"**.
+
+## Problema
+El club necesita verificar en la entrada del Pucalán que quien entra es jugador, apoderado o entrenador del club.
+
+## Solución (cómo la ve el club)
+- **Carga inicial:** la base que entregó Mony (inscripciones 2026) se importa al sistema. Cada persona queda **precargada**: existe en el panel, pero sin credencial.
+- Mony comparte el link de registro por los grupos de WhatsApp del club.
+- La persona escribe su RUT. **Si el sistema lo reconoce, solo le pide lo que falta y la foto.** Si no lo reconoce, llena el formulario completo.
+- **Jugadores nuevos:** cada vez que entra un jugador, Mony le manda el mismo link al apoderado.
+- Los jugadores adultos usan el mismo link.
+- **Entrenadores:** no llenan nada. Mony los crea a mano en el panel, descarga el QR de cada uno y se lo envía ella misma.
+- Lo que falte en una ficha lo puede completar la familia por el formulario o Mony directamente en el panel.
+- Mony aprueba cada registro desde el panel y completa lo que le corresponde a ella (becas). Recién ahí el QR empieza a servir.
+- En la entrada, quien controla escanea el QR con la cámara de su propio teléfono, sin instalar nada. Ve **solo la foto, el nombre y si es jugador, apoderado o entrenador**. Si el código no es válido o no está aprobado, aparece "Credencial no válida".
+
+## Decisiones
+- **Aprobación manual de Mony:** ningún QR funciona hasta que ella aprueba. Puede aprobar a la familia entera o persona por persona.
+- **Precargado no es activo:** quien viene de la base no tiene credencial ni cuenta como activo hasta que complete la foto y Mony apruebe.
+- **Reconocimiento por RUT:** el formulario parte pidiendo el RUT. Si está en la base, se saltan las preguntas ya respondidas.
+- **No se muestran datos guardados:** al reconocer un RUT, el formulario no muestra RUT, teléfonos, correos ni fechas. Solo muestra el primer nombre de cada hijo, para que el apoderado sepa a quién le está subiendo la foto.
+- **El hijo no tiene proceso propio:** el apoderado lo inscribe completo (con foto) y recibe su QR. No hay cuentas de jugador.
+- **Jugadores adultos:** se registran solos con el mismo formulario. Si la base trae un apoderado para un jugador adulto, se respeta ese vínculo.
+- **Entrenadores:** tienen su propia sección en el panel. Mony los crea a mano (datos y foto), quedan activos de inmediato, y ella descarga el QR y se lo envía a cada uno. No usan el link de registro.
+- **Foto obligatoria** para cada persona. Sin foto no se activa la credencial.
+- **Número de camiseta obligatorio.** Quien aún no tiene número asignado pone **99** (se les indica en el mensaje de WhatsApp y en el propio formulario).
+- **Categoría calculada:** se calcula por año de nacimiento en ambas ramas (tabla en `categorias`). El formulario solo pregunta la categoría cuando no se puede calcular: el año no calza con ninguna categoría o la fecha de nacimiento falta o es errónea. Mony la puede corregir al aprobar.
+- **No se pide** parentesco ni datos de salud. El correo del apoderado no se pide en el formulario; viene de la base cuando existe.
+- **Sí se pide** quién paga la mensualidad (Forpay cobra por apoderado), rama y número de camiseta.
+- **Mony completa al aprobar:** becas; también puede corregir categoría, número y método de pago.
+- **Becas:** las asigna solo Mony, por jugador, con porcentaje libre y separado para cada concepto:
+  - **Mensualidad:** puede tener beca.
+  - **Torneos:** puede tener beca.
+  - **Campus y clínicas de técnica** (campamento de verano, entrenamiento extra pagado con un entrenador, etc.): puede tener beca.
+  - **Uniformes:** nunca tienen beca.
+- **Sección "Torneos y campus":** la sección Torneos del panel se llama así y maneja también campus y clínicas (Etapa 2).
+- **Sin Kapso en la Etapa 1:** el link se comparte a mano. Kapso y toda la integración de WhatsApp van en la Etapa 2.
+- **Sin datos mock:** el panel solo muestra información real; lo no construido dice "Pendiente".
+
+## Carga inicial desde la base del club
+La base es la exportación del formulario de inscripción 2026: 177 jugadores de básquet y 50 de vóley, con 208 apoderados distintos. La versión limpia y estandarizada es `Base_datos_club_colina_limpia.xlsx`.
+
+### Qué se importa
+| Destino | Campos |
+|---|---|
+| Jugador | nombre, apellido, RUT, fecha de nacimiento, rama, categoría (básquet: la de la base; vóley: calculada por año), si postula a beca |
+| Apoderado | nombre, RUT, teléfono, correo, método de pago |
+| Vínculo | jugador con su apoderado, marcado como quien paga la mensualidad |
+
+- El nombre del apoderado viene en una sola celda. Se separa en nombre y apellido por el primer espacio; Mony lo corrige si queda mal.
+- En jugadores adultos sin apoderado, el teléfono, el correo y el método de pago van en la ficha del jugador.
+
+### Qué no se importa
+- Condición de salud, colegio y clínica. Son datos sensibles o que el sistema no usa (Ley 21.719).
+- Estado de fichaje. No está en el alcance del PRD.
+- Segundo teléfono del apoderado.
+
+### Qué no trae la base
+- Foto y número de camiseta: los completa la familia por el formulario o Mony en el panel.
+- Categoría de vóley: se calculó por año de nacimiento. Dos jugadoras quedan sin categoría (una nacida en 2017, que correspondería a U10, y una con fecha errónea): el formulario se la pregunta.
+
+**Vigencia:** Mony confirmó que la base está al día, aunque se le puede haber pasado alguien. Por eso se mantienen la casilla "Ya no está en el club" del formulario y la lista de precargados sin registrarse en el panel.
+
+### Reglas de la importación
+- Se hace una sola vez, con un script del backend. Se puede volver a correr sin duplicar (la llave es el RUT).
+- El archivo no entra al repositorio.
+- **Datos incoherentes: no se cargan.** No se le pide a Mony corregir la planilla. El dato dudoso queda vacío en la ficha y el formulario se lo pregunta a la familia cuando vaya a sacar su QR (son los 33 puntos de la hoja "Por revisar").
+  - Teléfono incompleto, correo mal escrito, fecha de nacimiento errónea, nombre de apoderado faltante o método de pago ambiguo: ese campo queda vacío.
+  - Apoderado con RUT no válido, o igual al del hijo menor: no se carga el apoderado. El jugador queda precargado sin apoderado.
+  - Jugador con RUT no válido: no se carga el jugador (4 casos). Su familia llena el formulario completo, como un jugador nuevo.
+  - Jugador adulto sin datos de contacto: se carga igual; el formulario le pide el teléfono.
+- **Hijo precargado sin apoderado:** el apoderado no es reconocido por su RUT y llena sus propios datos. Al escribir el RUT del hijo, el sistema lo reconoce y le pide solo lo que falta.
+- Número de camiseta: queda vacío en los precargados (no se inventa un 99).
+- Todos quedan en estado **precargado** y con origen "base 2026".
+
+### Estandarización
+- **RUT:** se guarda siempre como `12345678-9`, sin puntos, con guion y K mayúscula. El formulario y el panel aceptan cualquier forma de escribirlo y lo convierten. Se valida el dígito verificador en el formulario y en el backend.
+- **Teléfono:** 9 dígitos, sin +56.
+- **Correo:** en minúsculas.
+- **Método de pago:** Forpay mensual / Transferencia anual / Tarjeta de crédito anual. Confirmados por Mony (2026-11-11).
+
+## Flujo
+1. La persona abre el link y escribe su RUT.
+2. **RUT reconocido:** ve solo las preguntas que faltan y la foto. **RUT no reconocido:** llena el formulario completo.
+3. Al enviar recibe un **link privado** donde ve el estado ("pendiente de aprobación") y, una vez aprobado, sus QR (los de toda la familia, en el caso del apoderado).
+4. Mony revisa la solicitud en el panel, asigna becas si corresponde y aprueba. Las que calzan con la base aparecen marcadas "Coincide con la base".
+5. Los QR quedan activos. El apoderado reenvía el QR al hijo si este tiene celular.
+
+**Otros apoderados:** el primero ingresa nombre, apellido, RUT y teléfono del segundo. Queda creado sin foto y su credencial no se activa hasta que suba la suya desde un link personal que el primero le reenvía.
+
+**Mismo hijo inscrito por dos apoderados:** el RUT del jugador es único. Al segundo se le avisa que el jugador ya está inscrito y que quedará vinculado como apoderado (sin mostrarle datos). Mony aprueba el vínculo.
+
+**Suplantación:** alguien que conozca el RUT de un apoderado podría enviar fotos en su nombre. No ve ningún dato, y la credencial no se activa sin que Mony revise la foto y apruebe. La consulta de RUT tiene un límite de intentos.
+
+## Formulario
+**Paso 1 — RUT:** la persona escribe su RUT. El sistema valida el dígito verificador y busca si está precargada.
+
+### Si el RUT está en la base
+Solo se pregunta lo que no esté en la ficha. Lo habitual:
+
+**Apoderado**
+- Su foto.
+- Casilla "soy quien paga la mensualidad".
+- Nombre, apellido o teléfono, solo si faltan.
+
+**Por cada hijo precargado** (identificado por su primer nombre)
+- Foto.
+- Número de camiseta (texto de ayuda: "Si aún no tiene número asignado, escribe 99").
+- Casilla "Ya no está en el club", que lo saca del registro y lo deja marcado para que Mony lo confirme.
+
+**Jugador adulto**
+- Su foto y su número de camiseta.
+- Teléfono, solo si falta.
+
+Después puede agregar a un hijo que no esté en la base (formulario completo de hijo) y a otro apoderado.
+
+### Si el RUT no está en la base
+**Quién eres:** apoderado o jugador mayor de edad.
+
+**Tus datos:** nombre, apellido, teléfono, foto.
+- Apoderado: además, casilla "soy quien paga la mensualidad".
+- Jugador adulto: además, fecha de nacimiento, rama y número de camiseta.
+
+**Tus hijos** (solo apoderados; uno o más): primero el RUT del hijo. Si está precargado, se pide solo lo que falta y la foto. Si no, nombre, apellido, fecha de nacimiento, rama (Basketball / Voleibol), número de camiseta y foto.
+
+### En ambos casos
+**Otro apoderado** (solo apoderados; opcional): nombre, apellido, RUT, teléfono, y a cuáles de los hijos corresponde.
+
+**Consentimiento:** casilla de uso de datos y fotos para identificación en el club. Enviar.
+
+## Modelo de datos
+Tablas definitivas del sistema (no temporales). Postgres en Railway.
+
+### `apoderados`
+| Campo | Nota |
+|---|---|
+| id, nombre, apellido | |
+| rut | único; formato `12345678-9` |
+| telefono | 9 dígitos; sirve después para identificarlo en WhatsApp |
+| email | nulo; viene de la base, no se pide en el formulario |
+| metodo_pago | nulo; viene de la base o lo completa Mony |
+| foto_path | nulo hasta que la suba |
+| credencial_token | aleatorio, único; es lo que va en el QR |
+| estado | precargado / pendiente / activo / rechazado / inactivo |
+| origen | base_2026 / formulario |
+| solicitud_id | con qué registro llegó; nulo mientras esté precargado |
+
+### `jugadores`
+| Campo | Nota |
+|---|---|
+| id, nombre, apellido | |
+| rut | único; formato `12345678-9`; evita duplicados |
+| fecha_nacimiento | la edad se calcula, no se guarda |
+| disciplina | basketball / voleibol |
+| categoria_id | se calcula por año de nacimiento; nulo si no se puede calcular (el formulario la pregunta). Mony puede corregirla |
+| numero_camiseta | nulo solo en precargados; obligatorio para aprobar. **99 = sin número asignado** |
+| postula_beca | verdadero si lo marcó en la inscripción; orienta a Mony al aprobar |
+| beca_mensualidad_pct | entero 0–100, por defecto 0. Lo define solo Mony |
+| beca_torneos_pct | entero 0–100, por defecto 0. Lo define solo Mony |
+| beca_campus_pct | entero 0–100, por defecto 0. Aplica a campus y clínicas de técnica |
+| telefono | obligatorio solo para el jugador adulto |
+| email | nulo; no se pide |
+| metodo_pago | solo para el jugador adulto sin apoderado |
+| foto_path, credencial_token, estado, origen, solicitud_id | igual que en apoderados |
+
+**Estados:** precargado (viene de la base, sin completar) → pendiente (envió el formulario) → activo (Mony aprobó). Rechazado e inactivo como antes.
+
+**Por qué la beca va en el jugador y no en el apoderado:** un apoderado puede tener un hijo becado y otro no, o con porcentajes distintos. Como el cobro de la mensualidad es una sola suscripción por apoderado, su monto se calcula sumando la mensualidad de cada hijo con su descuento.
+
+**Por qué tres porcentajes y no uno:** un jugador puede estar becado en la mensualidad y no en torneos, o al revés. Tres columnas es lo más simple; no hace falta una tabla de becas. No existe columna para uniformes porque nunca se becan.
+
+**Alcance por ahora:** los porcentajes solo se guardan. El cálculo del monto a cobrar se implementa en la Etapa 2.
+
+### `entrenadores`
+| Campo | Nota |
+|---|---|
+| id, nombre, apellido | |
+| rut | único |
+| telefono | |
+| disciplina | basketball / voleibol |
+| foto_path | la sube Mony al crearlo |
+| credencial_token | igual que en apoderados |
+| estado | activo / inactivo (no pasa por aprobación) |
+
+No tiene `solicitud_id`: lo crea Mony directamente en el panel.
+
+En la Etapa 2, las categorías y los torneos apuntan a esta tabla para su entrenador responsable.
+
+### `jugador_apoderado` (muchos a muchos)
+| Campo | Nota |
+|---|---|
+| jugador_id, apoderado_id | |
+| paga_mensualidad | verdadero si ese apoderado paga por ese jugador |
+| estado | pendiente / activo, para aprobar vínculos nuevos |
+
+### `categorias`
+| Campo | Nota |
+|---|---|
+| id, nombre, disciplina | |
+| anio_desde, anio_hasta | años de nacimiento que cubre; con esto se calcula la categoría |
+
+| Rama | Categoría | Años de nacimiento |
+|---|---|---|
+| Básquet | U9 | 2017–2018 |
+| Básquet | U11 | 2015–2016 |
+| Básquet | U11 F | 2015–2016 (femenina; la asigna Mony) |
+| Básquet | U13 | 2013–2014 |
+| Básquet | U15 | 2011–2012 |
+| Básquet | U17 | 2009–2010 |
+| Básquet | U21 | 2005–2008 |
+| Vóley | U12 | 2015–2016 |
+| Vóley | U14 | 2013–2014 |
+| Vóley | U16 | 2011–2012 |
+| Vóley | U18 | 2009–2010 |
+
+- Básquet: sacado de la base. U11 F es la única categoría femenina (confirmado por Mony) y no se calcula sola.
+- Vóley: no tiene U10 (Mony, 2026-11-11). Los años se establecieron por decisión de Ignacio (2026-11-11), sin confirmación de Mony; si ella los corrige, se ajusta esta tabla y se recalcula.
+- Año fuera de la tabla (por ejemplo, vóley 2017): sin categoría; el formulario la pregunta.
+
+Horarios, lugar y entrenador se agregan en la Etapa 2.
+
+### `solicitudes_registro`
+| Campo | Nota |
+|---|---|
+| id, creada_en | |
+| token_acceso | link privado de quien se registró, distinto del token del QR |
+| consentimiento_en | fecha y hora en que aceptó el uso de datos y fotos |
+| estado, revisada_en | |
+
+**Dos tokens distintos:** `credencial_token` va en el QR y es público (solo muestra foto, nombre y rol). `token_acceso` es el link privado (muestra los QR propios o de la familia). Si se pierde, Mony lo reenvía desde el panel.
+
+## Diseño técnico
+- **Verificación:** página pública `panel.clubcolina.cl/c/{token}`. Muestra foto + nombre + rol (Jugador / Apoderado / Entrenador) solo si la persona está en estado activo.
+- **No se muestra al escanear:** categoría, número, becas, estado de pago, RUT, teléfono ni familiares.
+- **Consulta de RUT del formulario:** responde solo si está o no en la base y qué campos faltan (más el primer nombre de los hijos). Nunca devuelve los datos guardados. Con límite de intentos.
+- **Panel de Mony:**
+  - Login.
+  - Solicitudes pendientes con foto y datos: aprobar / rechazar, asignar becas por jugador (mensualidad, torneos, campus/clínicas) y corregir categoría y número. Etiqueta "Coincide con la base" en las que vienen de un RUT precargado.
+  - Secciones Jugadores y Apoderados con datos reales. Filtros por estado (incluye "Precargado") y por "Faltan datos".
+  - Ficha editable: Mony puede completar cualquier dato que falte, incluida la foto, sin esperar a la familia.
+  - Lista de precargados que aún no se registran, para insistir por los grupos y detectar retirados. Mony puede marcarlos inactivos.
+  - Las becas se pueden cambiar después desde la ficha del jugador.
+  - Sección Entrenadores: botón para crear un entrenador (nombre, apellido, RUT, teléfono, rama, foto) y botón para descargar su QR como imagen.
+  - Dashboard: jugadores activos, apoderados, entrenadores, solicitudes pendientes y precargados sin registrarse, con números reales; el resto de las tarjetas con la etiqueta "Pendiente".
+  - Secciones de la Etapa 2 (Categorías, Torneos y campus, Uniformes, IA y Conversaciones, Leads, Pagos): visibles en el menú, con estado "Pendiente — disponible en la próxima etapa".
+- **Datos mock:** se eliminan todos del frontend.
+- **Becas:** visibles solo en el panel. No aparecen en el link privado ni en la credencial.
+- **Número 99:** el sistema lo trata como "sin número asignado": el panel lo muestra así, permite filtrar a esos jugadores y queda excluido de la validación de números repetidos. Mony lo reemplaza cuando se asigna el número real.
+- **Validación de números repetidos** (mismo año de nacimiento ± 1): queda para la Etapa 2 (uniformes). Por ahora el número solo se registra.
+- **Revocación:** al dar de baja a alguien se invalida su token. Se puede regenerar si se filtra un QR.
+- **Fotos:** en el almacenamiento del backend en Railway, nunca en una URL pública fija; se sirven solo a través de la página de verificación y del panel.
+- **Costo/servicios externos:** ninguno nuevo.
+
+## Torneos y campus (Etapa 2)
+Los campus y clínicas de técnica son actividades pagadas aparte de la mensualidad: campamento de verano, clínicas de técnica, entrenamientos extra con un entrenador.
+
+- **Sin sección nueva:** se manejan en la misma sección que los torneos, llamada **"Torneos y campus"**.
+- **Misma tabla:** `torneos` con un campo `tipo` (torneo / campus / clínica). El resto de la estructura es compartida: nombre, fechas, precio, participantes y pago.
+- **Beca según tipo:** tipo torneo aplica `beca_torneos_pct`; tipo campus o clínica aplica `beca_campus_pct`.
+- En la Etapa 1 solo se guarda el porcentaje de beca.
+
+## Pendiente del club
+- **Para la Etapa 1 (no bloquea):** que Mony confirme los años de cada categoría de vóley.
+- **Respondido por Mony (2026-11-11):** la base está al día (puede faltar alguien), U11 F es la única categoría femenina y los tres métodos de pago están confirmados.
+- **Para la Etapa 2:** el resto de la información y documentos listados en el PRD (sección 38).
+
+## Fuera de alcance
+- Apple Wallet / Google Wallet.
+- App propia de escaneo.
+- Registro de entradas y salidas.
+- Bloqueo de acceso por morosidad o mostrar estado de pago.
+- QR rotativos o con expiración.
+- Envío automático por WhatsApp (Kapso): Etapa 2.
+- Cálculo de montos con beca: Etapa 2.
+- Gestión de torneos, campus y clínicas: Etapa 2.
+- Estado de fichaje de los jugadores.
+- Datos de salud, colegio y clínica.
+
+## Notas
+- Fotos y datos de menores: los entrega el apoderado, con consentimiento registrado, y se muestra lo mínimo (Ley 21.719).
+- Los datos precargados vienen de la inscripción 2026 que cada familia llenó para el club. El consentimiento para fotos y credencial se registra cuando la familia completa el formulario.
