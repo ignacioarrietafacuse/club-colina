@@ -9,233 +9,480 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as UniformesRouteImport } from './routes/uniformes'
-import { Route as TorneosRouteImport } from './routes/torneos'
-import { Route as PagosRouteImport } from './routes/pagos'
-import { Route as LeadsRouteImport } from './routes/leads'
-import { Route as JugadoresRouteImport } from './routes/jugadores'
-import { Route as CategoriasRouteImport } from './routes/categorias'
-import { Route as AsistenteRouteImport } from './routes/asistente'
-import { Route as ApoderadosRouteImport } from './routes/apoderados'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as PanelRouteImport } from './routes/_panel'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as RegistroRouteImport } from './routes/registro'
+import { Route as PanelIndexRouteImport } from './routes/_panel/index'
+import { Route as PanelCategoriasRouteImport } from './routes/_panel/categorias'
+import { Route as PanelConversacionesRouteImport } from './routes/_panel/conversaciones'
+import { Route as PanelLeadsRouteImport } from './routes/_panel/leads'
+import { Route as PanelPagosRouteImport } from './routes/_panel/pagos'
+import { Route as PanelTorneosRouteImport } from './routes/_panel/torneos'
+import { Route as PanelUniformesRouteImport } from './routes/_panel/uniformes'
+import { Route as CTokenRouteImport } from './routes/c.$token'
+import { Route as CompletarTokenRouteImport } from './routes/completar.$token'
+import { Route as FamiliaTokenRouteImport } from './routes/familia.$token'
+import { Route as PanelApoderadosIndexRouteImport } from './routes/_panel/apoderados/index'
+import { Route as PanelApoderadosIdRouteImport } from './routes/_panel/apoderados/$id'
+import { Route as PanelEntrenadoresIndexRouteImport } from './routes/_panel/entrenadores/index'
+import { Route as PanelEntrenadoresIdRouteImport } from './routes/_panel/entrenadores/$id'
+import { Route as PanelJugadoresIndexRouteImport } from './routes/_panel/jugadores/index'
+import { Route as PanelJugadoresIdRouteImport } from './routes/_panel/jugadores/$id'
+import { Route as PanelJugadoresSolicitudesIndexRouteImport } from './routes/_panel/jugadores/solicitudes/index'
+import { Route as PanelJugadoresSolicitudesIdRouteImport } from './routes/_panel/jugadores/solicitudes/$id'
 
-const UniformesRoute = UniformesRouteImport.update({
-  id: '/uniformes',
-  path: '/uniformes',
+const PanelRoute = PanelRouteImport.update({
+  id: '/_panel',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TorneosRoute = TorneosRouteImport.update({
-  id: '/torneos',
-  path: '/torneos',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PagosRoute = PagosRouteImport.update({
-  id: '/pagos',
-  path: '/pagos',
+const RegistroRoute = RegistroRouteImport.update({
+  id: '/registro',
+  path: '/registro',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LeadsRoute = LeadsRouteImport.update({
-  id: '/leads',
-  path: '/leads',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const JugadoresRoute = JugadoresRouteImport.update({
-  id: '/jugadores',
-  path: '/jugadores',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CategoriasRoute = CategoriasRouteImport.update({
-  id: '/categorias',
-  path: '/categorias',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AsistenteRoute = AsistenteRouteImport.update({
-  id: '/asistente',
-  path: '/asistente',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApoderadosRoute = ApoderadosRouteImport.update({
-  id: '/apoderados',
-  path: '/apoderados',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const IndexRoute = IndexRouteImport.update({
+const PanelIndexRoute = PanelIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => PanelRoute,
+} as any)
+const PanelCategoriasRoute = PanelCategoriasRouteImport.update({
+  id: '/categorias',
+  path: '/categorias',
+  getParentRoute: () => PanelRoute,
+} as any)
+const PanelConversacionesRoute = PanelConversacionesRouteImport.update({
+  id: '/conversaciones',
+  path: '/conversaciones',
+  getParentRoute: () => PanelRoute,
+} as any)
+const PanelLeadsRoute = PanelLeadsRouteImport.update({
+  id: '/leads',
+  path: '/leads',
+  getParentRoute: () => PanelRoute,
+} as any)
+const PanelPagosRoute = PanelPagosRouteImport.update({
+  id: '/pagos',
+  path: '/pagos',
+  getParentRoute: () => PanelRoute,
+} as any)
+const PanelTorneosRoute = PanelTorneosRouteImport.update({
+  id: '/torneos',
+  path: '/torneos',
+  getParentRoute: () => PanelRoute,
+} as any)
+const PanelUniformesRoute = PanelUniformesRouteImport.update({
+  id: '/uniformes',
+  path: '/uniformes',
+  getParentRoute: () => PanelRoute,
+} as any)
+const CTokenRoute = CTokenRouteImport.update({
+  id: '/c/$token',
+  path: '/c/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CompletarTokenRoute = CompletarTokenRouteImport.update({
+  id: '/completar/$token',
+  path: '/completar/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FamiliaTokenRoute = FamiliaTokenRouteImport.update({
+  id: '/familia/$token',
+  path: '/familia/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PanelApoderadosIndexRoute = PanelApoderadosIndexRouteImport.update({
+  id: '/apoderados/',
+  path: '/apoderados/',
+  getParentRoute: () => PanelRoute,
+} as any)
+const PanelApoderadosIdRoute = PanelApoderadosIdRouteImport.update({
+  id: '/apoderados/$id',
+  path: '/apoderados/$id',
+  getParentRoute: () => PanelRoute,
+} as any)
+const PanelEntrenadoresIndexRoute = PanelEntrenadoresIndexRouteImport.update({
+  id: '/entrenadores/',
+  path: '/entrenadores/',
+  getParentRoute: () => PanelRoute,
+} as any)
+const PanelEntrenadoresIdRoute = PanelEntrenadoresIdRouteImport.update({
+  id: '/entrenadores/$id',
+  path: '/entrenadores/$id',
+  getParentRoute: () => PanelRoute,
+} as any)
+const PanelJugadoresIndexRoute = PanelJugadoresIndexRouteImport.update({
+  id: '/jugadores/',
+  path: '/jugadores/',
+  getParentRoute: () => PanelRoute,
+} as any)
+const PanelJugadoresIdRoute = PanelJugadoresIdRouteImport.update({
+  id: '/jugadores/$id',
+  path: '/jugadores/$id',
+  getParentRoute: () => PanelRoute,
+} as any)
+const PanelJugadoresSolicitudesIndexRoute =
+  PanelJugadoresSolicitudesIndexRouteImport.update({
+    id: '/jugadores/solicitudes/',
+    path: '/jugadores/solicitudes/',
+    getParentRoute: () => PanelRoute,
+  } as any)
+const PanelJugadoresSolicitudesIdRoute =
+  PanelJugadoresSolicitudesIdRouteImport.update({
+    id: '/jugadores/solicitudes/$id',
+    path: '/jugadores/solicitudes/$id',
+    getParentRoute: () => PanelRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/apoderados': typeof ApoderadosRoute
-  '/asistente': typeof AsistenteRoute
-  '/categorias': typeof CategoriasRoute
-  '/jugadores': typeof JugadoresRoute
-  '/leads': typeof LeadsRoute
-  '/pagos': typeof PagosRoute
-  '/torneos': typeof TorneosRoute
-  '/uniformes': typeof UniformesRoute
+  '/': typeof PanelIndexRoute
+  '/login': typeof LoginRoute
+  '/registro': typeof RegistroRoute
+  '/categorias': typeof PanelCategoriasRoute
+  '/conversaciones': typeof PanelConversacionesRoute
+  '/leads': typeof PanelLeadsRoute
+  '/pagos': typeof PanelPagosRoute
+  '/torneos': typeof PanelTorneosRoute
+  '/uniformes': typeof PanelUniformesRoute
+  '/c/$token': typeof CTokenRoute
+  '/completar/$token': typeof CompletarTokenRoute
+  '/familia/$token': typeof FamiliaTokenRoute
+  '/apoderados/$id': typeof PanelApoderadosIdRoute
+  '/entrenadores/$id': typeof PanelEntrenadoresIdRoute
+  '/jugadores/$id': typeof PanelJugadoresIdRoute
+  '/apoderados/': typeof PanelApoderadosIndexRoute
+  '/entrenadores/': typeof PanelEntrenadoresIndexRoute
+  '/jugadores/': typeof PanelJugadoresIndexRoute
+  '/jugadores/solicitudes/$id': typeof PanelJugadoresSolicitudesIdRoute
+  '/jugadores/solicitudes/': typeof PanelJugadoresSolicitudesIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/apoderados': typeof ApoderadosRoute
-  '/asistente': typeof AsistenteRoute
-  '/categorias': typeof CategoriasRoute
-  '/jugadores': typeof JugadoresRoute
-  '/leads': typeof LeadsRoute
-  '/pagos': typeof PagosRoute
-  '/torneos': typeof TorneosRoute
-  '/uniformes': typeof UniformesRoute
+  '/login': typeof LoginRoute
+  '/registro': typeof RegistroRoute
+  '/categorias': typeof PanelCategoriasRoute
+  '/conversaciones': typeof PanelConversacionesRoute
+  '/leads': typeof PanelLeadsRoute
+  '/pagos': typeof PanelPagosRoute
+  '/torneos': typeof PanelTorneosRoute
+  '/uniformes': typeof PanelUniformesRoute
+  '/c/$token': typeof CTokenRoute
+  '/completar/$token': typeof CompletarTokenRoute
+  '/familia/$token': typeof FamiliaTokenRoute
+  '/': typeof PanelIndexRoute
+  '/apoderados/$id': typeof PanelApoderadosIdRoute
+  '/entrenadores/$id': typeof PanelEntrenadoresIdRoute
+  '/jugadores/$id': typeof PanelJugadoresIdRoute
+  '/apoderados': typeof PanelApoderadosIndexRoute
+  '/entrenadores': typeof PanelEntrenadoresIndexRoute
+  '/jugadores': typeof PanelJugadoresIndexRoute
+  '/jugadores/solicitudes/$id': typeof PanelJugadoresSolicitudesIdRoute
+  '/jugadores/solicitudes': typeof PanelJugadoresSolicitudesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/apoderados': typeof ApoderadosRoute
-  '/asistente': typeof AsistenteRoute
-  '/categorias': typeof CategoriasRoute
-  '/jugadores': typeof JugadoresRoute
-  '/leads': typeof LeadsRoute
-  '/pagos': typeof PagosRoute
-  '/torneos': typeof TorneosRoute
-  '/uniformes': typeof UniformesRoute
+  '/_panel': typeof PanelRouteWithChildren
+  '/login': typeof LoginRoute
+  '/registro': typeof RegistroRoute
+  '/_panel/categorias': typeof PanelCategoriasRoute
+  '/_panel/conversaciones': typeof PanelConversacionesRoute
+  '/_panel/leads': typeof PanelLeadsRoute
+  '/_panel/pagos': typeof PanelPagosRoute
+  '/_panel/torneos': typeof PanelTorneosRoute
+  '/_panel/uniformes': typeof PanelUniformesRoute
+  '/c/$token': typeof CTokenRoute
+  '/completar/$token': typeof CompletarTokenRoute
+  '/familia/$token': typeof FamiliaTokenRoute
+  '/_panel/': typeof PanelIndexRoute
+  '/_panel/apoderados/$id': typeof PanelApoderadosIdRoute
+  '/_panel/entrenadores/$id': typeof PanelEntrenadoresIdRoute
+  '/_panel/jugadores/$id': typeof PanelJugadoresIdRoute
+  '/_panel/apoderados/': typeof PanelApoderadosIndexRoute
+  '/_panel/entrenadores/': typeof PanelEntrenadoresIndexRoute
+  '/_panel/jugadores/': typeof PanelJugadoresIndexRoute
+  '/_panel/jugadores/solicitudes/$id': typeof PanelJugadoresSolicitudesIdRoute
+  '/_panel/jugadores/solicitudes/': typeof PanelJugadoresSolicitudesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/apoderados'
-    | '/asistente'
+    | '/login'
+    | '/registro'
     | '/categorias'
-    | '/jugadores'
+    | '/conversaciones'
     | '/leads'
     | '/pagos'
     | '/torneos'
     | '/uniformes'
+    | '/c/$token'
+    | '/completar/$token'
+    | '/familia/$token'
+    | '/apoderados/$id'
+    | '/entrenadores/$id'
+    | '/jugadores/$id'
+    | '/apoderados/'
+    | '/entrenadores/'
+    | '/jugadores/'
+    | '/jugadores/solicitudes/$id'
+    | '/jugadores/solicitudes/'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/'
-    | '/apoderados'
-    | '/asistente'
+    | '/login'
+    | '/registro'
     | '/categorias'
-    | '/jugadores'
+    | '/conversaciones'
     | '/leads'
     | '/pagos'
     | '/torneos'
     | '/uniformes'
+    | '/c/$token'
+    | '/completar/$token'
+    | '/familia/$token'
+    | '/'
+    | '/apoderados/$id'
+    | '/entrenadores/$id'
+    | '/jugadores/$id'
+    | '/apoderados'
+    | '/entrenadores'
+    | '/jugadores'
+    | '/jugadores/solicitudes/$id'
+    | '/jugadores/solicitudes'
   id:
     | '__root__'
-    | '/'
-    | '/apoderados'
-    | '/asistente'
-    | '/categorias'
-    | '/jugadores'
-    | '/leads'
-    | '/pagos'
-    | '/torneos'
-    | '/uniformes'
+    | '/_panel'
+    | '/login'
+    | '/registro'
+    | '/_panel/categorias'
+    | '/_panel/conversaciones'
+    | '/_panel/leads'
+    | '/_panel/pagos'
+    | '/_panel/torneos'
+    | '/_panel/uniformes'
+    | '/c/$token'
+    | '/completar/$token'
+    | '/familia/$token'
+    | '/_panel/'
+    | '/_panel/apoderados/$id'
+    | '/_panel/entrenadores/$id'
+    | '/_panel/jugadores/$id'
+    | '/_panel/apoderados/'
+    | '/_panel/entrenadores/'
+    | '/_panel/jugadores/'
+    | '/_panel/jugadores/solicitudes/$id'
+    | '/_panel/jugadores/solicitudes/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  ApoderadosRoute: typeof ApoderadosRoute
-  AsistenteRoute: typeof AsistenteRoute
-  CategoriasRoute: typeof CategoriasRoute
-  JugadoresRoute: typeof JugadoresRoute
-  LeadsRoute: typeof LeadsRoute
-  PagosRoute: typeof PagosRoute
-  TorneosRoute: typeof TorneosRoute
-  UniformesRoute: typeof UniformesRoute
+  PanelRoute: typeof PanelRouteWithChildren
+  LoginRoute: typeof LoginRoute
+  RegistroRoute: typeof RegistroRoute
+  CTokenRoute: typeof CTokenRoute
+  CompletarTokenRoute: typeof CompletarTokenRoute
+  FamiliaTokenRoute: typeof FamiliaTokenRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/uniformes': {
-      id: '/uniformes'
-      path: '/uniformes'
-      fullPath: '/uniformes'
-      preLoaderRoute: typeof UniformesRouteImport
+    '/_panel': {
+      id: '/_panel'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof PanelRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/torneos': {
-      id: '/torneos'
-      path: '/torneos'
-      fullPath: '/torneos'
-      preLoaderRoute: typeof TorneosRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/pagos': {
-      id: '/pagos'
-      path: '/pagos'
-      fullPath: '/pagos'
-      preLoaderRoute: typeof PagosRouteImport
+    '/registro': {
+      id: '/registro'
+      path: '/registro'
+      fullPath: '/registro'
+      preLoaderRoute: typeof RegistroRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/leads': {
-      id: '/leads'
-      path: '/leads'
-      fullPath: '/leads'
-      preLoaderRoute: typeof LeadsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/jugadores': {
-      id: '/jugadores'
-      path: '/jugadores'
-      fullPath: '/jugadores'
-      preLoaderRoute: typeof JugadoresRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/categorias': {
-      id: '/categorias'
-      path: '/categorias'
-      fullPath: '/categorias'
-      preLoaderRoute: typeof CategoriasRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/asistente': {
-      id: '/asistente'
-      path: '/asistente'
-      fullPath: '/asistente'
-      preLoaderRoute: typeof AsistenteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/apoderados': {
-      id: '/apoderados'
-      path: '/apoderados'
-      fullPath: '/apoderados'
-      preLoaderRoute: typeof ApoderadosRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/': {
-      id: '/'
+    '/_panel/': {
+      id: '/_panel/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+      preLoaderRoute: typeof PanelIndexRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/_panel/categorias': {
+      id: '/_panel/categorias'
+      path: '/categorias'
+      fullPath: '/categorias'
+      preLoaderRoute: typeof PanelCategoriasRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/_panel/conversaciones': {
+      id: '/_panel/conversaciones'
+      path: '/conversaciones'
+      fullPath: '/conversaciones'
+      preLoaderRoute: typeof PanelConversacionesRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/_panel/leads': {
+      id: '/_panel/leads'
+      path: '/leads'
+      fullPath: '/leads'
+      preLoaderRoute: typeof PanelLeadsRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/_panel/pagos': {
+      id: '/_panel/pagos'
+      path: '/pagos'
+      fullPath: '/pagos'
+      preLoaderRoute: typeof PanelPagosRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/_panel/torneos': {
+      id: '/_panel/torneos'
+      path: '/torneos'
+      fullPath: '/torneos'
+      preLoaderRoute: typeof PanelTorneosRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/_panel/uniformes': {
+      id: '/_panel/uniformes'
+      path: '/uniformes'
+      fullPath: '/uniformes'
+      preLoaderRoute: typeof PanelUniformesRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/c/$token': {
+      id: '/c/$token'
+      path: '/c/$token'
+      fullPath: '/c/$token'
+      preLoaderRoute: typeof CTokenRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/completar/$token': {
+      id: '/completar/$token'
+      path: '/completar/$token'
+      fullPath: '/completar/$token'
+      preLoaderRoute: typeof CompletarTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/familia/$token': {
+      id: '/familia/$token'
+      path: '/familia/$token'
+      fullPath: '/familia/$token'
+      preLoaderRoute: typeof FamiliaTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_panel/apoderados/': {
+      id: '/_panel/apoderados/'
+      path: '/apoderados'
+      fullPath: '/apoderados/'
+      preLoaderRoute: typeof PanelApoderadosIndexRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/_panel/apoderados/$id': {
+      id: '/_panel/apoderados/$id'
+      path: '/apoderados/$id'
+      fullPath: '/apoderados/$id'
+      preLoaderRoute: typeof PanelApoderadosIdRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/_panel/entrenadores/': {
+      id: '/_panel/entrenadores/'
+      path: '/entrenadores'
+      fullPath: '/entrenadores/'
+      preLoaderRoute: typeof PanelEntrenadoresIndexRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/_panel/entrenadores/$id': {
+      id: '/_panel/entrenadores/$id'
+      path: '/entrenadores/$id'
+      fullPath: '/entrenadores/$id'
+      preLoaderRoute: typeof PanelEntrenadoresIdRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/_panel/jugadores/': {
+      id: '/_panel/jugadores/'
+      path: '/jugadores'
+      fullPath: '/jugadores/'
+      preLoaderRoute: typeof PanelJugadoresIndexRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/_panel/jugadores/$id': {
+      id: '/_panel/jugadores/$id'
+      path: '/jugadores/$id'
+      fullPath: '/jugadores/$id'
+      preLoaderRoute: typeof PanelJugadoresIdRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/_panel/jugadores/solicitudes/': {
+      id: '/_panel/jugadores/solicitudes/'
+      path: '/jugadores/solicitudes'
+      fullPath: '/jugadores/solicitudes/'
+      preLoaderRoute: typeof PanelJugadoresSolicitudesIndexRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/_panel/jugadores/solicitudes/$id': {
+      id: '/_panel/jugadores/solicitudes/$id'
+      path: '/jugadores/solicitudes/$id'
+      fullPath: '/jugadores/solicitudes/$id'
+      preLoaderRoute: typeof PanelJugadoresSolicitudesIdRouteImport
+      parentRoute: typeof PanelRoute
     }
   }
 }
 
+interface PanelRouteChildren {
+  PanelCategoriasRoute: typeof PanelCategoriasRoute
+  PanelConversacionesRoute: typeof PanelConversacionesRoute
+  PanelLeadsRoute: typeof PanelLeadsRoute
+  PanelPagosRoute: typeof PanelPagosRoute
+  PanelTorneosRoute: typeof PanelTorneosRoute
+  PanelUniformesRoute: typeof PanelUniformesRoute
+  PanelIndexRoute: typeof PanelIndexRoute
+  PanelApoderadosIdRoute: typeof PanelApoderadosIdRoute
+  PanelEntrenadoresIdRoute: typeof PanelEntrenadoresIdRoute
+  PanelJugadoresIdRoute: typeof PanelJugadoresIdRoute
+  PanelApoderadosIndexRoute: typeof PanelApoderadosIndexRoute
+  PanelEntrenadoresIndexRoute: typeof PanelEntrenadoresIndexRoute
+  PanelJugadoresIndexRoute: typeof PanelJugadoresIndexRoute
+  PanelJugadoresSolicitudesIdRoute: typeof PanelJugadoresSolicitudesIdRoute
+  PanelJugadoresSolicitudesIndexRoute: typeof PanelJugadoresSolicitudesIndexRoute
+}
+
+const PanelRouteChildren: PanelRouteChildren = {
+  PanelCategoriasRoute: PanelCategoriasRoute,
+  PanelConversacionesRoute: PanelConversacionesRoute,
+  PanelLeadsRoute: PanelLeadsRoute,
+  PanelPagosRoute: PanelPagosRoute,
+  PanelTorneosRoute: PanelTorneosRoute,
+  PanelUniformesRoute: PanelUniformesRoute,
+  PanelIndexRoute: PanelIndexRoute,
+  PanelApoderadosIdRoute: PanelApoderadosIdRoute,
+  PanelEntrenadoresIdRoute: PanelEntrenadoresIdRoute,
+  PanelJugadoresIdRoute: PanelJugadoresIdRoute,
+  PanelApoderadosIndexRoute: PanelApoderadosIndexRoute,
+  PanelEntrenadoresIndexRoute: PanelEntrenadoresIndexRoute,
+  PanelJugadoresIndexRoute: PanelJugadoresIndexRoute,
+  PanelJugadoresSolicitudesIdRoute: PanelJugadoresSolicitudesIdRoute,
+  PanelJugadoresSolicitudesIndexRoute: PanelJugadoresSolicitudesIndexRoute,
+}
+
+const PanelRouteWithChildren = PanelRoute._addFileChildren(PanelRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  ApoderadosRoute: ApoderadosRoute,
-  AsistenteRoute: AsistenteRoute,
-  CategoriasRoute: CategoriasRoute,
-  JugadoresRoute: JugadoresRoute,
-  LeadsRoute: LeadsRoute,
-  PagosRoute: PagosRoute,
-  TorneosRoute: TorneosRoute,
-  UniformesRoute: UniformesRoute,
+  PanelRoute: PanelRouteWithChildren,
+  LoginRoute: LoginRoute,
+  RegistroRoute: RegistroRoute,
+  CTokenRoute: CTokenRoute,
+  CompletarTokenRoute: CompletarTokenRoute,
+  FamiliaTokenRoute: FamiliaTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
