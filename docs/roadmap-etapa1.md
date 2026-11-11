@@ -21,20 +21,28 @@ La Ola 1 solo puede ir en paralelo porque la Ola 0 deja fijados el contrato de l
 | Monorepo | pnpm workspaces: `frontend/`, `backend/`, `shared/`, `docs/` | `shared/` agrega una carpeta al PRD, pero es lo que permite trabajar front y back en paralelo |
 | Contrato | `shared/` con esquemas zod y tipos de cada endpoint. Front y back importan de ahí | Si alguien rompe el contrato, falla la compilación |
 | Mismo origen | Vercel reescribe `/api/*` al backend en Railway | Cookies de sesión propias (first-party) tanto en `*.vercel.app` como en `panel.clubcolina.cl`, sin CORS. Un solo registro DNS |
-| Fotos | Se comprimen en el navegador (lado mayor 1024 px, JPEG ~80 %) antes de subir. Se guardan en un volumen de Railway y se sirven solo a través del backend | Subidas rápidas desde el celular y evita límites de tamaño en el proxy |
+| Frontend | SPA con Vite + TanStack Router (rutas por archivo), sin TanStack Start, Nitro ni nada de Lovable (decisión de Ignacio, 2026-11-11) | El SSR de Lovable no aporta nada acá; una SPA estática en Vercel es lo más simple y no deja funciones de servidor |
+| Fotos | Se comprimen en el navegador (lado mayor 1024 px, JPEG ~80 %) antes de subir | Subidas rápidas desde el celular y evita límites de tamaño en el proxy |
+| Fotos en Postgres | Tabla `fotos` aparte (id, mime, bytes, creado_en); las fichas apuntan con `foto_id`. Se sirven solo a través del backend. Sin volumen de fotos (decisión de Ignacio, 2026-11-11) | Un solo volumen y un solo respaldo; la foto y su ficha no se desincronizan; las listas no arrastran bytea. Son ~70 MB |
 | Auth | Usuario y contraseña (argon2), tabla `sesiones`, cookie httpOnly. Usuarios creados por script | Lo más simple que es seguro para 1 o 2 usuarios |
 | Base de datos | Drizzle ORM; migraciones SQL en `backend/migrations/` | Esquema tipado y migraciones legibles |
 | QR | Se genera en el navegador (librería `qrcode`) desde `{BASE_URL}/c/{credencial_token}` | El backend no genera imágenes |
 | URL base | Variable de entorno `PUBLIC_BASE_URL` | Se cambia al dominio final en la Ola 3 sin tocar código |
 | Envíos | Ni correo ni WhatsApp en la Etapa 1 | El link privado se muestra en pantalla; Mony lo copia desde el panel si alguien lo pierde |
-| Respaldos | Diario y semanal en Railway, para el volumen de Postgres y el de fotos | Ver `flujo-de-trabajo.md` |
+| Respaldos | Diario y semanal en Railway, para el volumen de Postgres (que guarda también las fotos) | Ver `flujo-de-trabajo.md` |
 
-## Contrato de la API (borrador; la Ola 0 lo cierra)
+## Contrato de la API
+
+Cerrado en la Ola 0 y aprobado por Ignacio (2026-11-11). La versión que vale es la de
+`shared/src/contrato.ts`; esta lista es un resumen. Cambios respecto del borrador: se
+agregan `GET /api/public/categorias` y `POST /api/panel/:tipo/:id/activar`, y
+`GET /api/panel/fotos/:id` pasa a ser `GET /api/panel/:tipo/:id/foto`.
 
 **Público** (sin login)
 - `POST /api/public/rut-lookup` `{rut}` → si está precargado, el tipo y qué campos faltan, más el primer nombre de los hijos y sus faltantes. Nunca devuelve datos guardados. Con límite de intentos.
 - `POST /api/public/solicitudes` (multipart: datos + fotos) → `{token_acceso}`.
 - `GET /api/public/familia/:token_acceso` → estado de la solicitud y de cada persona (nombre, rol, estado y `credencial_token` si está activa).
+- `GET /api/public/categorias` → `[{id, nombre, disciplina}]`, para cuando el formulario tiene que preguntar la categoría.
 - `GET|POST /api/public/completar/:token` → link personal del segundo apoderado para subir su foto.
 - `GET /api/public/credencial/:credencial_token` → `{nombre, rol}` solo si está activa; si no, 404 genérico.
 - `GET /api/public/credencial/:credencial_token/foto`.
@@ -48,9 +56,8 @@ La Ola 1 solo puede ir en paralelo porque la Ola 0 deja fijados el contrato de l
 - `GET|PATCH /api/panel/jugadores[/:id]`, con filtros por estado, "faltan datos" y "sin número (99)".
 - `GET|PATCH /api/panel/apoderados[/:id]`.
 - `GET|POST|PATCH /api/panel/entrenadores[/:id]`.
-- `POST /api/panel/:tipo/:id/foto`, `POST /api/panel/:tipo/:id/regenerar-token`, `POST /api/panel/:tipo/:id/desactivar`.
+- `GET|POST /api/panel/:tipo/:id/foto`, `POST /api/panel/:tipo/:id/regenerar-token`, `POST /api/panel/:tipo/:id/activar`, `POST /api/panel/:tipo/:id/desactivar`.
 - `GET /api/panel/categorias`.
-- `GET /api/panel/fotos/:id`.
 
 ## Ola 0 — Cimientos (1 sesión, Fable u Opus)
 
@@ -65,14 +72,14 @@ La Ola 1 solo puede ir en paralelo porque la Ola 0 deja fijados el contrato de l
 6. Módulos comunes del backend:
    - `rut`: normalizar y validar el dígito verificador, y generar RUT ficticios para tests.
    - `tokens`: 32 bytes aleatorios en base64url.
-   - `archivos`: guardar y leer en el volumen.
+   - `fotos`: guardar, leer y borrar en Postgres (tabla `fotos`), verificando el tipo por contenido.
    - Límite de intentos (`@fastify/rate-limit`).
    - Todos con tests.
 7. `shared/` con el contrato completo en zod.
 8. **Esqueleto de rutas.** En el backend, los plugins `auth`, `panel` y `public` registrados y vacíos. En el frontend, el router con todas las rutas declaradas apuntando a páginas vacías: `/login`, el panel, `/registro`, `/familia/:token`, `/completar/:token` y `/c/:token`.
 9. Todo lo de la sección "Qué instala la Ola 0" de `flujo-de-trabajo.md`: hooks, permisos, agente revisor, CI, plantilla de PR, guarda de host y `CLAUDE.md` con la tabla de propiedad de carpetas de la Ola 1.
 10. Deploy:
-    - Railway: Postgres, el servicio backend y un volumen para fotos, con respaldos diario y semanal en los dos volúmenes.
+    - Railway: Postgres y el servicio backend, con respaldos diario y semanal en el volumen de Postgres (las fotos van dentro).
     - Vercel: apuntando a `frontend/`, con la reescritura de `/api`.
     - Prueba rápida: `/api/health` y la subida de una foto de prueba ficticia desde la URL de `vercel.app`, que después se borra.
 
@@ -91,7 +98,7 @@ Reglas para todas:
 | S1 Backend panel | `backend-panel` | `backend/src/routes/auth/`, `backend/src/routes/panel/`, `backend/src/services/panel/`, `backend/scripts/crear-usuario.ts` | Login y sesiones, endpoints del panel, aprobar y rechazar (estados, vínculos, generación de `credencial_token`), revocar y regenerar, dashboard |
 | S2 Backend público | `backend-publico` | `backend/src/routes/public/`, `backend/src/services/registro/` | Consulta de RUT, creación de solicitudes (paso de precargado a pendiente, hijo inscrito por dos apoderados, casilla "Ya no está en el club"), link de familia, link del segundo apoderado, verificación. Tests de que ninguna respuesta pública filtra RUT, teléfono ni fechas |
 | S3 Importación | `importacion` | `backend/scripts/importar-base-2026.ts` y sus tests | Script idempotente (llave: RUT), con `--dry-run`, siguiendo las reglas de la sección "Carga inicial" del diseño. Tests con datos sintéticos, nunca con la planilla real. Imprime un resumen de cargados y omitidos con el motivo, sin datos personales |
-| S4 Frontend panel | `frontend-panel` | `frontend/src/pages/panel/`, `frontend/src/components/panel/`, `frontend/src/lib/api/` | Quitar todos los mocks, dejar las secciones de la Etapa 2 como "Pendiente", login, solicitudes, jugadores, apoderados, entrenadores (con descarga del QR en PNG), dashboard |
+| S4 Frontend panel | `frontend-panel` | `frontend/src/pages/panel/`, `frontend/src/components/panel/`, `frontend/src/lib/api/` | Quitar todos los mocks, dejar las secciones de la Etapa 2 como "Pendiente", login, solicitudes, jugadores, apoderados, entrenadores, descarga del QR en PNG de cualquier persona activa, dashboard |
 | S5 Frontend público | `frontend-publico` | `frontend/src/pages/public/`, `frontend/src/components/public/` | Formulario por pasos según el diseño, compresión de fotos, link de familia con los QR, link del segundo apoderado, página `/c/:token`. Pensado primero para celular |
 
 `frontend/src/lib/api/` (el cliente tipado) lo crea S4. S5 lo usa en modo solo lectura y, si le falta algo, lo pide.

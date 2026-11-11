@@ -123,7 +123,7 @@ Reglas:
 
 Un respaldo es una copia de la base de datos y de las fotos, guardada aparte. Es lo único que permite recuperar los datos si un script, una migración o un agente los daña: el código se recupera de git, los datos no.
 
-Se usan los respaldos de volumen de Railway, en el volumen de Postgres y en el de fotos:
+Se usan los respaldos de volumen de Railway, en el volumen de Postgres, que guarda también las fotos (tabla `fotos`):
 
 | Respaldo | Cuándo | Cuánto dura |
 |---|---|---|
@@ -132,7 +132,7 @@ Se usan los respaldos de volumen de Railway, en el volumen de Postgres y en el d
 | Manual | Antes de una migración destructiva, de la importación de la base 2026 y de cualquier script que modifique muchas filas. Lo crea el agente como primer paso | El agente lo borra cuando se verificó que todo salió bien |
 
 - El mensual no se activa: no aporta para este proyecto.
-- **Costo:** los respaldos son incrementales; solo se paga por los datos que cambiaron entre una copia y otra, a la misma tarifa por GB que el volumen. Con unos 100 MB de fotos y una base de pocos MB es de centavos y entra en la cuota del plan Pro. No se acumulan copias: como máximo hay 6 diarias y unas 4 semanales.
+- **Costo:** los respaldos son incrementales; solo se paga por los datos que cambiaron entre una copia y otra, a la misma tarifa por GB que el volumen. Con una base de unos 100 MB, casi todo fotos, es de centavos y entra en la cuota del plan Pro. No se acumulan copias: como máximo hay 6 diarias y unas 4 semanales.
 - **Límite:** vaciar o borrar un volumen elimina todos sus respaldos. Por eso esa acción pide el OK de Ignacio.
 - **Probar una restauración una vez** antes del lanzamiento. Un respaldo que nunca se restauró es una suposición.
 
@@ -226,7 +226,7 @@ Además de lo que dice `roadmap-etapa1.md`:
 
 **Configuración en las plataformas.** La hace la sesión de la Ola 0 con las herramientas que tenga; lo que no pueda hacer desde la sesión se lo deja a Ignacio como lista, con el paso exacto:
 - GitHub: borrar ramas automáticamente al fusionar; permitir solo acciones de GitHub y verificadas.
-- Railway: "Wait for CI", comando de migración previo al despliegue, y respaldos diario y semanal en los dos volúmenes.
+- Railway: "Wait for CI", comando de migración previo al despliegue, y respaldos diario y semanal en el volumen de Postgres.
 - Vercel: confirmar que solo `main` publica a producción.
 
 ## Bitácora de decisiones
@@ -246,3 +246,4 @@ Cada decisión sobre cómo se trabaja se anota acá, con fecha y razón, en el m
 | 2026-11-11 | Las vistas previas de Vercel hablan con el backend de producción | Evita un segundo backend. A cambio, en la vista previa solo se mira |
 | 2026-11-11 | Los scripts que escriben exigen `--produccion` fuera de `localhost` | Un comando contra producción es una decisión, nunca un descuido |
 | 2026-11-11 | Respaldos diario (6 días) y semanal (1 mes) en Railway, más uno manual antes de lo riesgoso; sin mensual | Cubre los accidentes no planificados; al ser incrementales y borrarse solos, el costo es de centavos |
+| 2026-11-11 | Las fotos van en Postgres (tabla `fotos`), sin volumen aparte | Un solo volumen que respaldar y restaurar; la foto y su ficha se guardan en la misma transacción |

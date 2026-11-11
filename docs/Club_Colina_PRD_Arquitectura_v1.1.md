@@ -188,9 +188,9 @@ Cada jugador tendrá una ficha.
 - Edad (calculada).
 - Disciplina (rama).
 - Categoría.
-- Número de camiseta (obligatorio; 99 = sin número asignado).
+- Número de camiseta (obligatorio para aprobar; vacío solo en los precargados desde la base 2026; 99 = sin número asignado).
 - Foto.
-- Estado (pendiente / activo / rechazado / inactivo).
+- Estado (precargado / pendiente / activo / rechazado / inactivo).
 - Apoderados asociados.
 - Teléfono cuando corresponda (obligatorio en jugadores adultos).
 - Correo cuando corresponda.
@@ -213,7 +213,7 @@ No registrar asistencia, estadísticas deportivas, resultados, rendimiento ni pa
 - Teléfono.
 - Correo (opcional; no se pide en el registro).
 - Foto.
-- Estado (pendiente / activo / rechazado / inactivo).
+- Estado (precargado / pendiente / activo / rechazado / inactivo).
 - Método de pago (lo completa el club al aprobar).
 - Jugadores asociados, indicando por cuáles paga la mensualidad.
 - Estado general de pagos (Etapa 2).
@@ -237,7 +237,7 @@ Funcionalidad pedida por el club para identificar a jugadores, apoderados y entr
 
 **Aprobación**
 - Ningún registro queda activo hasta que el club lo aprueba en el panel.
-- Al aprobar, el club completa las becas y puede corregir categoría y número. El método de pago se agrega cuando el club defina sus opciones.
+- Al aprobar, el club completa las becas y puede corregir categoría, número y método de pago. El método de pago es uno de tres: Forpay mensual, Transferencia anual o Tarjeta de crédito anual (confirmados por el club, 2026-11-11). Viene de la base 2026 cuando existe; si no, lo completa el club.
 
 **Credencial**
 - Cada jugador y apoderado aprobado tiene un QR. Los entrenadores lo tienen desde que el club los crea.
@@ -560,8 +560,8 @@ La arquitectura debe mantenerse pequeña.
 - Mecanismo concreto por definir al implementar, con la opción más simple que sea segura.
 
 **Archivos**
-- Almacenamiento en Railway, servido a través del backend (nunca URLs públicas fijas).
-- Usos: fotos de credenciales (Etapa 1); comprobantes de transferencia, documentos de torneos y archivos de procesos específicos (Etapa 2).
+- Las fotos de credenciales (Etapa 1) se guardan en Postgres, en una tabla `fotos` aparte a la que apuntan las fichas, y se sirven solo a través del backend (nunca URLs públicas fijas). Así hay un solo volumen y un solo respaldo, y la foto y su ficha no pueden desincronizarse. Son unas 450 fotos comprimidas, cerca de 70 MB.
+- Comprobantes de transferencia, documentos de torneos y archivos de procesos específicos (Etapa 2): dónde se guardan se decide al implementarlos.
 
 ## 24. Backend propio [v1.1]
 
@@ -801,7 +801,7 @@ A medida que cada sección se construye, su estado "Pendiente" se reemplaza por 
 **Necesario para la Etapa 2**
 
 *Registro*
-- Métodos de pago que el club registra al aprobar, y qué más quiere completar en ese paso.
+- Qué más quiere completar el club al aprobar (los métodos de pago ya están confirmados, sección 9A).
 
 *Uniformes*
 - Cómo se actualizan los estados del pedido después del envío al proveedor.
@@ -826,7 +826,7 @@ A medida que cada sección se construye, su estado "Pendiente" se reemplaza por 
 - Requisitos para probarse en el club.
 - Horarios y lugar de entrenamiento de cada categoría.
 
-No se piden listados de jugadores, apoderados, entrenadores ni números de camiseta: los jugadores y apoderados se levantan con el formulario de registro (sección 9A) y los entrenadores los crea el club en el panel (sección 9B).
+Jugadores y apoderados: el club ya entregó la base de inscripciones 2026, que se importa una sola vez como "precargados" (`docs/diseno-credenciales-qr.md`, "Carga inicial"); el formulario de registro completa lo que falta (foto y número de camiseta) y queda como proceso permanente de ingreso (sección 9A). No se piden listados de entrenadores ni números de camiseta: los entrenadores los crea el club en el panel (sección 9B).
 
 ## 39. Alcance por etapa [v1.1]
 
@@ -861,7 +861,7 @@ No agregar funcionalidades fuera de este alcance sin validación.
 
 **Etapa 1**
 - El club puede identificar a jugadores, apoderados y entrenadores en la entrada.
-- La base de jugadores y apoderados queda cargada por las propias familias, sin planillas.
+- La base de jugadores y apoderados queda cargada: se importa una sola vez desde la base de inscripciones 2026 y las propias familias la completan con el formulario, sin que el club tenga que corregir planillas.
 - El panel no muestra ningún dato que no sea real.
 
 **Sistema completo**
