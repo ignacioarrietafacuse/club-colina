@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { construirApp } from "../app";
 import { configTest, dbTest } from "../test/db";
 import { generarToken } from "./tokens";
-import { CABECERA_PROXY, LIMITES } from "./limite-intentos";
+import { CABECERA_IP, CABECERA_PROXY, LIMITES, llaveIp } from "./limite-intentos";
 
 const { db, cerrar } = dbTest();
 afterAll(cerrar);
@@ -18,6 +18,14 @@ async function appConRuta(secreto?: string) {
   app.post("/api/prueba-login", { config: { rateLimit: { ...LIMITES.login, max: 2 } } }, async () => ({
     ok: true,
   }));
+  app.post(
+    "/api/prueba-login-ip",
+    {
+      onRequest: app.rateLimit({ ...LIMITES.loginPorIp, max: 3 }),
+      config: { rateLimit: { ...LIMITES.login, max: 2 } },
+    },
+    async () => ({ ok: true }),
+  );
   return app;
 }
 
@@ -41,13 +49,13 @@ describe("límite de intentos: la llave es la IP real", () => {
     await app.close();
   });
 
-  it("directo a Railway manda x-real-ip; inventar x-vercel-forwarded-for sin secreto no sirve", async () => {
+  it("directo a Railway manda x-real-ip; inventar la IP sin secreto no sirve", async () => {
     const app = await appConRuta(SECRETO);
     const real = { "x-real-ip": "198.51.100.7" };
     const r = await codigos(app, [
-      { ...real, "x-vercel-forwarded-for": "203.0.113.1" },
-      { ...real, "x-vercel-forwarded-for": "203.0.113.2" },
-      { ...real, "x-vercel-forwarded-for": "203.0.113.3", [CABECERA_PROXY]: "secreto-equivocado" },
+      { ...real, [CABECERA_IP]: "203.0.113.1", "x-vercel-forwarded-for": "203.0.113.4" },
+      { ...real, [CABECERA_IP]: "203.0.113.2" },
+      { ...real, [CABECERA_IP]: "203.0.113.3", [CABECERA_PROXY]: "secreto-equivocado" },
     ]);
     expect(r).toEqual([200, 200, 429]);
     // Otra IP real tiene su propio contador.
@@ -59,9 +67,37 @@ describe("límite de intentos: la llave es la IP real", () => {
     const app = await appConRuta(SECRETO);
     // x-real-ip es la salida de Vercel, la misma para todos.
     const vercel = { "x-real-ip": "98.92.0.1", [CABECERA_PROXY]: SECRETO };
-    const a = { ...vercel, "x-vercel-forwarded-for": "203.0.113.10" };
-    const b = { ...vercel, "x-vercel-forwarded-for": "203.0.113.11" };
+    const a = { ...vercel, [CABECERA_IP]: "203.0.113.10" };
+    const b = { ...vercel, [CABECERA_IP]: "203.0.113.11" };
     expect(await codigos(app, [a, a, b, b, a])).toEqual([200, 200, 200, 200, 429]);
+    await app.close();
+  });
+
+  it("con secreto, una IP inválida cae a x-real-ip y no abre un contador nuevo", async () => {
+    const app = await appConRuta(SECRETO);
+    const base = { "x-real-ip": "98.92.0.9", [CABECERA_PROXY]: SECRETO };
+    const r = await codigos(app, [
+      { ...base, [CABECERA_IP]: "no-es-ip" },
+      { ...base, [CABECERA_IP]: "" },
+      { ...base, [CABECERA_IP]: "otra-cosa" },
+    ]);
+    expect(r).toEqual([200, 200, 429]);
+    await app.close();
+  });
+
+  it("las direcciones del mismo /64 comparten contador; una IPv4 mapeada cuenta como IPv4", async () => {
+    expect(llaveIp("2001:db8:abcd:12:1::1")).toBe("2001:db8:abcd:12::/64");
+    expect(llaveIp("2001:0db8:abcd:0012:ffff:ffff:ffff:ffff")).toBe("2001:db8:abcd:12::/64");
+    expect(llaveIp("2001:db8::1")).toBe("2001:db8:0:0::/64");
+    expect(llaveIp("::ffff:203.0.113.5")).toBe("203.0.113.5");
+    expect(llaveIp("203.0.113.5")).toBe("203.0.113.5");
+    const app = await appConRuta();
+    const r = await codigos(app, [
+      { "x-real-ip": "2001:db8:abcd:12::1" },
+      { "x-real-ip": "2001:db8:abcd:12::2" },
+      { "x-real-ip": "2001:db8:abcd:12:ffff::3" },
+    ]);
+    expect(r).toEqual([200, 200, 429]);
     await app.close();
   });
 
@@ -69,9 +105,9 @@ describe("límite de intentos: la llave es la IP real", () => {
     const app = await appConRuta();
     const h = { "x-real-ip": "98.92.0.2", [CABECERA_PROXY]: "cualquiera" };
     const r = await codigos(app, [
-      { ...h, "x-vercel-forwarded-for": "203.0.113.20" },
-      { ...h, "x-vercel-forwarded-for": "203.0.113.21" },
-      { ...h, "x-vercel-forwarded-for": "203.0.113.22" },
+      { ...h, [CABECERA_IP]: "203.0.113.20" },
+      { ...h, [CABECERA_IP]: "203.0.113.21" },
+      { ...h, [CABECERA_IP]: "203.0.113.22" },
     ]);
     expect(r).toEqual([200, 200, 429]);
     await app.close();
@@ -110,6 +146,22 @@ describe("límite de intentos: la llave es la IP real", () => {
     expect((await login("mony")).statusCode).toBe(429);
     // Otro usuario desde la misma IP tiene su propio contador.
     expect((await login("otro")).statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("el login también tiene un tope solo por IP, aunque cambie el usuario", async () => {
+    const app = await appConRuta();
+    const r: number[] = [];
+    for (const usuario of ["a", "b", "c", "d"]) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/prueba-login-ip",
+        headers: { origin: "https://panel.ejemplo.test", "x-real-ip": "198.51.100.40" },
+        payload: { usuario, password: "x" },
+      });
+      r.push(res.statusCode);
+    }
+    expect(r).toEqual([200, 200, 200, 429]);
     await app.close();
   });
 });
