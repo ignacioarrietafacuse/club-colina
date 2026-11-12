@@ -99,21 +99,23 @@ export async function borrarSesion(db: Ejecutor, token: string | undefined): Pro
   await db.delete(sesiones).where(eq(sesiones.id, hashToken(token)));
 }
 
-function opcionesCookie(request: FastifyRequest) {
-  return {
-    path: "/",
-    httpOnly: true,
-    sameSite: "lax" as const,
-    secure: request.server.config.NODE_ENV === "production",
-  };
+/**
+ * `__Host-sesion` exige `Secure`, `Path=/` y nada de `Domain`; si falta algo, el navegador la
+ * descarta. `Secure` va también en local: los navegadores la aceptan en http://localhost.
+ */
+const OPCIONES_COOKIE = {
+  path: "/",
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: true,
+};
+
+export function ponerCookieSesion(reply: FastifyReply, token: string, expira: Date) {
+  reply.setCookie(COOKIE_SESION, token, { ...OPCIONES_COOKIE, expires: expira });
 }
 
-export function ponerCookieSesion(request: FastifyRequest, reply: FastifyReply, token: string, expira: Date) {
-  reply.setCookie(COOKIE_SESION, token, { ...opcionesCookie(request), expires: expira });
-}
-
-export function borrarCookieSesion(request: FastifyRequest, reply: FastifyReply) {
-  reply.clearCookie(COOKIE_SESION, opcionesCookie(request));
+export function borrarCookieSesion(reply: FastifyReply) {
+  reply.clearCookie(COOKIE_SESION, OPCIONES_COOKIE);
 }
 
 /**

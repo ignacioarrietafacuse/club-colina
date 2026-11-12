@@ -9,6 +9,7 @@ import { and, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
 import type { z } from "zod";
 import type { Db, Ejecutor } from "../../db/cliente";
 import { apoderados, categorias, fichasPrevias, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
+import { CANDADO_SOLICITUDES } from "../../lib/candados";
 import { ErrorApi } from "../../lib/errores";
 import { guardarFoto } from "../../lib/fotos";
 import { generarToken, hashToken } from "../../lib/tokens";
@@ -27,13 +28,6 @@ import {
 
 export type DatosSolicitud = z.output<typeof solicitudDatos>;
 type Hijo = DatosSolicitud["hijos"][number];
-
-/**
- * Candado de Postgres para procesar una solicitud a la vez. Son pocas y cortas; así los avisos
- * (`hay_solicitud_posterior`, `hijo_con_otro_apoderado`) se calculan sobre datos que no cambian
- * a mitad de camino.
- */
-const CANDADO_SOLICITUDES = 7_402_031;
 
 const conflicto = () =>
   new ErrorApi(409, "conflicto", "Los datos cambiaron desde la consulta. Vuelve a escribir tu RUT.");

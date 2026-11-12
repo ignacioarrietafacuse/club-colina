@@ -50,13 +50,14 @@ const SMALLINT_MAX = 32767;
 // ---------------------------------------------------------------------------
 
 /**
- * Si el jugador tiene un apoderado vigente: un vínculo con un apoderado precargado, pendiente o
- * activo (lista de permitidos: un estado nuevo no cuenta hasta decidirlo). Un apoderado rechazado o dado de baja no sirve de contacto, así que entonces el
- * jugador adulto necesita su propio teléfono.
+ * Si el jugador tiene un apoderado vigente: un apoderado **activo** con un vínculo **activo**
+ * (decisión de Ignacio, 2026-11-12: un pendiente no cuenta). Un apoderado precargado o pendiente,
+ * o un vínculo que Mony todavía no aprobó, no están verificados, y un apoderado rechazado o dado
+ * de baja no sirve de contacto: en esos casos el jugador adulto necesita su propio teléfono.
  */
 // Escrito con alias explícitos: drizzle no califica las columnas cuando la consulta tiene una
 // sola tabla, y en la subconsulta "estado" o "id" serían ambiguos.
-export const tieneApoderadoVigente = sql<boolean>`exists (select 1 from jugador_apoderado ja inner join apoderados a on a.id = ja.apoderado_id where ja.jugador_id = ${sql.raw('"jugadores"."id"')} and a.estado in ('precargado', 'pendiente', 'activo'))`;
+export const tieneApoderadoVigente = sql<boolean>`exists (select 1 from jugador_apoderado ja inner join apoderados a on a.id = ja.apoderado_id where ja.jugador_id = ${sql.raw('"jugadores"."id"')} and a.estado = 'activo' and ja.estado = 'activo')`;
 
 /** Las categorías, para calcular la que corresponde por año. Son una decena de filas. */
 export function cargarCategorias(db: Ejecutor): Promise<CategoriaRegla[]> {

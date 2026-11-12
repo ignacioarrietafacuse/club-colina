@@ -343,7 +343,7 @@ export const credencialResponse = z.object({ nombre_completo: z.string(), rol })
 // ---------------------------------------------------------------------------
 
 export const usuario = z.object({ id, nombre: z.string() });
-/** POST /api/auth/login — deja la cookie `sesion`. */
+/** POST /api/auth/login — deja la cookie `__Host-sesion`. */
 export const loginRequest = z.object({
   usuario: z.string().trim().min(1).max(100),
   password: z.string().min(1).max(200),
@@ -351,7 +351,11 @@ export const loginRequest = z.object({
 export const loginResponse = z.object({ usuario });
 /** GET /api/auth/me */
 export const meResponse = z.object({ usuario });
-export const COOKIE_SESION = "sesion";
+/**
+ * Prefijo `__Host-`: el navegador la acepta solo con `Secure`, `Path=/` y sin `Domain`, así que
+ * nadie puede pisarla desde un subdominio ni desde http.
+ */
+export const COOKIE_SESION = "__Host-sesion";
 
 // ---------------------------------------------------------------------------
 // Panel (con sesión)
@@ -572,9 +576,15 @@ export const aprobarRequest = z.object({
   vinculos: z.array(z.object({ jugador_id: id, apoderado_id: id })).default([]),
 });
 
-/** POST /api/panel/solicitudes/:id/rechazar — sin `personas` se rechaza todo lo pendiente. */
+/**
+ * POST /api/panel/solicitudes/:id/rechazar — sin `personas` ni `vinculos` se rechaza todo lo
+ * pendiente. Con alguno de los dos, solo lo indicado: un vínculo pendiente de la solicitud se puede
+ * rechazar solo (se borra) y sus personas siguen pendientes, salvo quien era de la solicitud solo
+ * por ese vínculo (un precargado que ella completó): esa persona vuelve a como estaba.
+ */
 export const rechazarRequest = z.object({
-  personas: z.array(z.object({ rol: z.enum(["jugador", "apoderado"]), id })).optional(),
+  personas: z.array(z.object({ rol: z.enum(["jugador", "apoderado"]), id })).max(50).optional(),
+  vinculos: z.array(z.object({ jugador_id: id, apoderado_id: id })).max(50).optional(),
 });
 
 /**
@@ -589,7 +599,9 @@ export const fotoSubidaResponse = z.object({ tiene_foto: z.literal(true) });
 export const regenerarTokenResponse = z.object({ credencial_token: token });
 /**
  * POST /api/panel/:tipo/:id/activar — activa a un precargado completado en el panel o reactiva
- * a un inactivo. Exige lo mismo que la aprobación y genera un `credencial_token` nuevo.
+ * a un inactivo. Exige lo mismo que la aprobación y genera un `credencial_token` nuevo. Al activar
+ * a un precargado, sus vínculos de la base (sin solicitud) que sigan pendientes pasan a activos si
+ * el otro extremo ya está activo.
  * POST /api/panel/:tipo/:id/desactivar — estado inactivo y token anulado.
  */
 export const cambioEstadoResponse = z.object({
@@ -649,6 +661,8 @@ export const API = {
     regenerarToken: (t: TipoPersona, i: string) => `/api/panel/${t}/${seg(i)}/regenerar-token`,
     activar: (t: TipoPersona, i: string) => `/api/panel/${t}/${seg(i)}/activar`,
     desactivar: (t: TipoPersona, i: string) => `/api/panel/${t}/${seg(i)}/desactivar`,
+    /** DELETE: Mony confirma que el jugador sigue en el club y le quita la marca "ya no está". Responde `jugadorDetalle`. */
+    marcaRetiro: (i: string) => `/api/panel/jugadores/${seg(i)}/marca-retiro`,
     categorias: "/api/panel/categorias",
   },
 } as const;
