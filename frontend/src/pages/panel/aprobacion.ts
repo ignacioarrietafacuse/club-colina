@@ -54,8 +54,23 @@ export function vinculoAprobable(
 }
 
 /**
+ * Las dos personas del vínculo vienen en esta solicitud. Si no (un hijo de otra familia nombrado
+ * por RUT), su estado no se ve acá: el vínculo parte desmarcado y Mony lo marca a mano.
+ */
+export function vinculoConocido(
+  v: { jugador_id: string; apoderado_id: string },
+  s: SolicitudDetalle,
+): boolean {
+  return (
+    s.jugadores.some((j) => j.id === v.jugador_id) &&
+    s.apoderados.some((a) => a.id === v.apoderado_id)
+  );
+}
+
+/**
  * Solo lo pendiente se aprueba o rechaza; parte marcado con los valores que ya trae, salvo quien
- * no tiene foto (no se puede aprobar) y los vínculos con una persona rechazada.
+ * no tiene foto (no se puede aprobar), un hijo marcado «ya no está», los vínculos con una persona
+ * rechazada y los vínculos hacia alguien que no viene en la solicitud (denegar por defecto).
  */
 export function formInicial(s: SolicitudDetalle): FormAprobacion {
   const jugadores: Record<string, FormJugador> = {};
@@ -79,7 +94,9 @@ export function formInicial(s: SolicitudDetalle): FormAprobacion {
   }
   const vinculos: Record<string, boolean> = {};
   for (const v of s.vinculos) {
-    if (v.estado === "pendiente") vinculos[llaveVinculo(v)] = vinculoAprobable(v, s);
+    if (v.estado === "pendiente") {
+      vinculos[llaveVinculo(v)] = vinculoAprobable(v, s) && vinculoConocido(v, s);
+    }
   }
   return { jugadores, apoderados, vinculos };
 }
@@ -96,12 +113,18 @@ export function vinculoVa(form: FormAprobacion, llave: string): boolean {
   return (!jugador || jugador.marcado) && (!apoderado || apoderado.marcado);
 }
 
-/** Estados de las personas y vínculos: si cambian, el formulario armado ya no sirve. */
+/**
+ * Lo que decide qué se puede aprobar: estados, retiro, faltantes y avisos de personas, vínculos
+ * y la solicitud. Si cambia, el formulario armado ya no sirve.
+ */
 export function firmaSolicitud(s: SolicitudDetalle): string {
+  const lista = (x: readonly string[]) => [...x].sort().join(",");
   return [
-    s.estado,
-    ...s.jugadores.map((j) => `j:${j.id}:${j.estado}`),
-    ...s.apoderados.map((a) => `a:${a.id}:${a.estado}`),
+    `s:${s.estado}:${lista(s.avisos)}`,
+    ...s.jugadores.map(
+      (j) => `j:${j.id}:${j.estado}:${j.marcado_retiro_en ?? ""}:${lista(j.faltantes)}`,
+    ),
+    ...s.apoderados.map((a) => `a:${a.id}:${a.estado}:${lista(a.faltantes)}`),
     ...s.vinculos.map((v) => `v:${llaveVinculo(v)}:${v.estado}`),
   ]
     .sort()
