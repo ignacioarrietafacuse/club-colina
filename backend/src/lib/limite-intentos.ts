@@ -12,7 +12,6 @@ export const LIMITES = {
   publicoLectura: { max: 120, timeWindow: "1 minute" },
   completar: { max: 10, timeWindow: "1 hour" },
   login: { max: 5, timeWindow: "1 minute" },
-  diagnostico: { max: 10, timeWindow: "1 minute" },
 } as const;
 
 export async function registrarLimiteIntentos(app: FastifyInstance) {

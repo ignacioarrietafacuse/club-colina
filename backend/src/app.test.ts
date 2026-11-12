@@ -2,25 +2,13 @@ import { PassThrough } from "node:stream";
 import { afterAll, describe, expect, it } from "vitest";
 import { construirApp } from "./app";
 import { LIMITES } from "./lib/limite-intentos";
-import { configTest, dbTest, JPEG_PRUEBA } from "./test/db";
+import { configTest, dbTest } from "./test/db";
 import { generarToken } from "./lib/tokens";
 import { generarRutFicticio } from "@club-colina/shared";
 import { jugadores } from "./db/schema";
 
 const { db, cerrar } = dbTest();
 afterAll(cerrar);
-
-function multipartFoto(bytes: Buffer) {
-  const limite = "----limite" + Date.now();
-  const cuerpo = Buffer.concat([
-    Buffer.from(
-      `--${limite}\r\nContent-Disposition: form-data; name="foto"; filename="f.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`,
-    ),
-    bytes,
-    Buffer.from(`\r\n--${limite}--\r\n`),
-  ]);
-  return { payload: cuerpo, headers: { "content-type": `multipart/form-data; boundary=${limite}` } };
-}
 
 describe("app", () => {
   it("GET /api/health responde ok con la base arriba", async () => {
@@ -102,60 +90,6 @@ describe("app", () => {
     const log = lineas.join("");
     expect(log).toContain("[censurado]");
     for (const t of tokens) expect(log).not.toContain(t);
-  });
-
-  it("las rutas de diagnóstico no existen sin DIAGNOSTICO_TOKEN", async () => {
-    const app = await construirApp({ config: configTest(), db });
-    const r = await app.inject({ method: "POST", url: "/api/diagnostico/foto", ...multipartFoto(JPEG_PRUEBA) });
-    expect(r.statusCode).toBe(404);
-    await app.close();
-  });
-
-  it("con DIAGNOSTICO_TOKEN suben, leen y borran una foto, y exigen el token", async () => {
-    const secreto = generarToken();
-    const app = await construirApp({ config: configTest({ DIAGNOSTICO_TOKEN: secreto }), db });
-    const sinToken = await app.inject({ method: "POST", url: "/api/diagnostico/foto", ...multipartFoto(JPEG_PRUEBA) });
-    expect(sinToken.statusCode).toBe(404);
-
-    const { payload, headers } = multipartFoto(JPEG_PRUEBA);
-    const subida = await app.inject({
-      method: "POST",
-      url: "/api/diagnostico/foto",
-      payload,
-      headers: { ...headers, "x-diagnostico-token": secreto },
-    });
-    expect(subida.statusCode).toBe(201);
-    const { id } = subida.json();
-    const h = { "x-diagnostico-token": secreto };
-    const lectura = await app.inject({ method: "GET", url: `/api/diagnostico/foto/${id}`, headers: h });
-    expect(lectura.statusCode).toBe(200);
-    expect(lectura.headers["content-type"]).toBe("image/jpeg");
-    expect(lectura.rawPayload.equals(JPEG_PRUEBA)).toBe(true);
-    const borrado = await app.inject({ method: "DELETE", url: `/api/diagnostico/foto/${id}`, headers: h });
-    expect(borrado.statusCode).toBe(204);
-    const otra = await app.inject({ method: "GET", url: `/api/diagnostico/foto/${id}`, headers: h });
-    expect(otra.statusCode).toBe(404);
-
-    const red = await app.inject({
-      method: "GET",
-      url: "/api/diagnostico/cabeceras",
-      headers: { ...h, "x-forwarded-for": "203.0.113.7", cookie: "sesion=x" },
-    });
-    expect(red.statusCode).toBe(200);
-    expect(red.json().cabeceras).toEqual({ "x-forwarded-for": "203.0.113.7" });
-    // trustProxy: false → la IP es la del socket, no la que dice la cabecera.
-    expect(red.json().ip).not.toBe("203.0.113.7");
-
-    const noImagen = multipartFoto(Buffer.from("<svg/>"));
-    const mala = await app.inject({
-      method: "POST",
-      url: "/api/diagnostico/foto",
-      payload: noImagen.payload,
-      headers: { ...noImagen.headers, ...h },
-    });
-    expect(mala.statusCode).toBe(400);
-    expect(mala.json().error.codigo).toBe("archivo_invalido");
-    await app.close();
   });
 
   it("todo /api/panel niega sin sesión, también lo que no existe", async () => {
