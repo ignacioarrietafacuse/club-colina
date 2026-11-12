@@ -12,7 +12,7 @@ import {
   llaveVinculo,
   RECHAZO_TOTAL,
   esDeEstaSolicitud,
-  firmaTrasQuitarMarca,
+  alcanceRechazoTotal,
   fotoPorLinkReenviado,
   vinculoAprobable,
   vinculoConocido,
@@ -334,17 +334,33 @@ describe("quién se decide desde esta solicitud", () => {
 });
 
 describe("quitar la marca de retiro", () => {
-  it("el formulario sigue sirviendo solo si no cambió nada más", () => {
-    const antes = solicitud({ jugadores: [jugador(J1, { marcado_retiro_en: AHORA })] });
-    const ficha = jugador(J1);
-    const esperada = firmaTrasQuitarMarca(antes, ficha);
-    expect(esperada).toBe(firmaSolicitud(solicitud({ jugadores: [jugador(J1)] })));
-    expect(esperada).not.toBe(firmaSolicitud(antes));
-    // Otro cambio a la vez (un aviso nuevo) sigue dejándolo desfasado.
-    expect(
-      firmaSolicitud(solicitud({ jugadores: [jugador(J1)], avisos: ["hay_solicitud_posterior"] })),
-    ).not.toBe(esperada);
-    // El jugador sigue desmarcado en el formulario que ya estaba armado.
-    expect(formInicial(antes).jugadores[J1]?.marcado).toBe(false);
+  it("al rehacer el formulario, el jugador al que se le quitó la marca parte sin marcar", () => {
+    // Después del DELETE el detalle llega sin la marca: sin la lista, partiría marcado.
+    const despues = solicitud({ jugadores: [jugador(J1)] });
+    expect(formInicial(despues).jugadores[J1]?.marcado).toBe(true);
+    const form = formInicial(despues, new Set([J1]));
+    expect(form.jugadores[J1]?.marcado).toBe(false);
+    // Su vínculo tampoco parte marcado, y nada de él va en la aprobación.
+    expect(form.vinculos[llaveVinculo({ jugador_id: J1, apoderado_id: A1 })]).toBe(false);
+    const r = armarAprobacion(form, nombres);
+    expect(r.ok && r.datos.jugadores).toEqual([]);
+    expect(r.ok && r.datos.vinculos).toEqual([]);
+  });
+});
+
+describe("alcance de «Rechazar todo lo pendiente»", () => {
+  const OTRA = "55555555-5555-4555-8555-555555555555";
+
+  it("seguras: solo las pendientes con solicitud_id de esta; el resto, en condicional", () => {
+    const s = solicitud({
+      jugadores: [jugador(J1), jugador(J2, { solicitud_id: null })],
+      apoderados: [{ ...solicitud().apoderados[0]!, solicitud_id: OTRA }],
+    });
+    expect(alcanceRechazoTotal(s)).toEqual({ seguras: [J1], posibles: [J2, A1] });
+  });
+
+  it("no nombra a quien ya no está pendiente", () => {
+    const s = solicitud({ jugadores: [jugador(J1, { estado: "activo" })] });
+    expect(alcanceRechazoTotal(s)).toEqual({ seguras: [A1], posibles: [] });
   });
 });
