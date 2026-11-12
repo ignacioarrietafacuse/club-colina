@@ -1,7 +1,7 @@
 import type { Usuario } from "@club-colina/shared";
 import type { QueryClient } from "@tanstack/react-query";
 import { redirect } from "@tanstack/react-router";
-import { consultarSesion } from "./sesion";
+import { consultarSesion, olvidarSesion } from "./sesion";
 
 /**
  * Guarda de las rutas del panel. Denegar por defecto: deja pasar solo si `GET /api/auth/me`
@@ -19,6 +19,10 @@ export async function guardaPanel({
   } catch {
     usuario = null;
   }
-  if (!usuario) throw redirect({ to: "/login" });
+  if (!usuario) {
+    // Lo que haya quedado de una sesión anterior no sobrevive al login de otra persona.
+    olvidarSesion(context.queryClient);
+    throw redirect({ to: "/login" });
+  }
   return { usuario };
 }

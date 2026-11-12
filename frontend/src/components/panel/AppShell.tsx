@@ -9,11 +9,14 @@ export function AppShell({
   nombreUsuario,
   onSalir,
   saliendo,
+  errorSalir,
 }: {
   children: ReactNode;
   nombreUsuario: string;
   onSalir: () => void;
   saliendo: boolean;
+  /** Si el servidor no cerró la sesión: la sesión sigue abierta y hay que decirlo. */
+  errorSalir?: string;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
@@ -96,7 +99,17 @@ export function AppShell({
         )}
 
         <div className="flex-1 min-w-0">
-          <main className="p-4 sm:p-6 lg:p-8 max-w-[1500px] mx-auto animate-in-up">{children}</main>
+          <main className="p-4 sm:p-6 lg:p-8 max-w-[1500px] mx-auto animate-in-up">
+            {errorSalir && (
+              <p
+                role="alert"
+                className="mb-4 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive"
+              >
+                {errorSalir}
+              </p>
+            )}
+            {children}
+          </main>
         </div>
       </div>
     </div>

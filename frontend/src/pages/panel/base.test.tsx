@@ -3,7 +3,7 @@ import { createMemoryHistory, isRedirect } from "@tanstack/react-router";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { esItemActivo, nav } from "@/components/panel/navegacion";
-import { ErrorApi } from "@/lib/api";
+import { ErrorApi, reintentar } from "@/lib/api";
 import { crearRouter } from "@/router";
 import { CategoriasPage } from "./CategoriasPage";
 import { ConversacionesPage } from "./ConversacionesPage";
@@ -12,7 +12,13 @@ import { guardaPanel } from "./guarda";
 import { LeadsPage } from "./LeadsPage";
 import { mensajeLogin } from "./login";
 import { PagosPage } from "./PagosPage";
-import { CLAVE_SESION, esSesionVencida, olvidarSesion } from "./sesion";
+import {
+  cerrarSesion,
+  CLAVE_SESION,
+  esSesionVencida,
+  olvidarSesion,
+  vigilarSesion,
+} from "./sesion";
 import { TorneosPage } from "./TorneosPage";
 import { UniformesPage } from "./UniformesPage";
 
@@ -100,6 +106,101 @@ describe("sesión", () => {
     queryClient.setQueryData(["panel", "jugadores"], [{ id: ID }]);
     olvidarSesion(queryClient);
     expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+  });
+});
+
+describe("vencimiento y cierre de sesión", () => {
+  const error401 = () => new ErrorApi(401, "no_autenticado", "x");
+
+  it("un 401 de una consulta avisa una sola vez, aunque fallen varias", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const alVencer = vi.fn();
+    const dejar = vigilarSesion(queryClient, alVencer);
+    for (const clave of ["a", "b"]) {
+      await queryClient
+        .fetchQuery({ queryKey: ["panel", clave], queryFn: () => Promise.reject(error401()) })
+        .catch(() => undefined);
+    }
+    expect(alVencer).toHaveBeenCalledTimes(1);
+    dejar();
+  });
+
+  it("un 401 de una acción también avisa", async () => {
+    const queryClient = new QueryClient();
+    const alVencer = vi.fn();
+    vigilarSesion(queryClient, alVencer);
+    await queryClient
+      .getMutationCache()
+      .build(queryClient, { mutationFn: () => Promise.reject(error401()) })
+      .execute(undefined)
+      .catch(() => undefined);
+    expect(alVencer).toHaveBeenCalledTimes(1);
+  });
+
+  it("un 403 o un 500 no cierran la sesión", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const alVencer = vi.fn();
+    vigilarSesion(queryClient, alVencer);
+    for (const error of [
+      new ErrorApi(403, "origen_no_permitido", "x"),
+      new ErrorApi(500, "error_interno", "x"),
+    ]) {
+      await queryClient
+        .fetchQuery({ queryKey: ["panel", error.status], queryFn: () => Promise.reject(error) })
+        .catch(() => undefined);
+    }
+    expect(alVencer).not.toHaveBeenCalled();
+  });
+
+  it("las consultas del panel no reintentan un 4xx; sí la falta de red y los 5xx", () => {
+    expect(reintentar(0, error401())).toBe(false);
+    expect(reintentar(0, new ErrorApi(404, "no_encontrado", "x"))).toBe(false);
+    expect(reintentar(0, new ErrorApi(0, "sin_conexion", "x"))).toBe(true);
+    expect(reintentar(0, new ErrorApi(502, "error_interno", "x"))).toBe(true);
+    expect(reintentar(3, new ErrorApi(502, "error_interno", "x"))).toBe(false);
+  });
+
+  it("salir borra lo cargado solo si el servidor cerró la sesión", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["panel", "jugadores"], [{ id: ID }]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 204 })),
+    );
+    await cerrarSesion(queryClient);
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+  });
+
+  it("si el servidor ya no tenía la sesión (401), también se sale", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["panel", "jugadores"], [{ id: ID }]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json({ error: { codigo: "no_autenticado", mensaje: "x" } }, 401)()),
+    );
+    await cerrarSesion(queryClient);
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+  });
+
+  it("si el logout falla, se lanza el error y no se finge la salida", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(CLAVE_SESION, { id: ID, nombre: "Administración" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+    await expect(cerrarSesion(queryClient)).rejects.toBeInstanceOf(ErrorApi);
+    expect(queryClient.getQueryData(CLAVE_SESION)).toEqual({ id: ID, nombre: "Administración" });
+  });
+
+  it("cuando la guarda no encuentra sesión, borra lo que quedó de otra", async () => {
+    stubMe(json({ error: { codigo: "no_autenticado", mensaje: "x" } }, 401));
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["panel", "jugadores"], [{ id: ID }]);
+    await guardaPanel({ context: { queryClient } }).catch(() => undefined);
+    expect(queryClient.getQueryData(["panel", "jugadores"])).toBeUndefined();
   });
 });
 

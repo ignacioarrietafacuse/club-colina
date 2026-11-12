@@ -5,7 +5,7 @@ import { useState, type FormEvent } from "react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/panel/ui";
 import { mensajeLogin } from "./login";
-import { CLAVE_SESION } from "./sesion";
+import { CLAVE_SESION, olvidarSesion } from "./sesion";
 
 export function LoginPage() {
   const queryClient = useQueryClient();
@@ -17,6 +17,7 @@ export function LoginPage() {
     mutationFn: () => api.auth.login({ usuario, password }),
     onSuccess: async (respuesta) => {
       setPassword("");
+      olvidarSesion(queryClient);
       queryClient.setQueryData(CLAVE_SESION, respuesta.usuario);
       await navigate({ to: "/" });
     },
