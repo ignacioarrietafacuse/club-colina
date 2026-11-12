@@ -213,13 +213,20 @@ describe("vínculos y personas", () => {
     expect(r.ok && r.datos.vinculos).toEqual([]);
   });
 
-  it("un vínculo con una persona de otra solicitud (activa) sí se aprueba", () => {
+  it("un vínculo hacia alguien que no viene en la solicitud parte desmarcado", () => {
     const s = solicitud({
       jugadores: [],
       vinculos: [{ jugador_id: J1, apoderado_id: A1, paga_mensualidad: true, estado: "pendiente" }],
     });
-    const r = armarAprobacion(formInicial(s), nombres);
-    expect(r.ok && r.datos.vinculos).toEqual([{ jugador_id: J1, apoderado_id: A1 }]);
+    const form = formInicial(s);
+    expect(form.vinculos[LLAVE]).toBe(false);
+    expect(armarAprobacion(form, nombres).ok).toBe(true);
+    const r = armarAprobacion(form, nombres);
+    expect(r.ok && r.datos.vinculos).toEqual([]);
+    // Mony puede marcarlo a mano después de revisar la ficha.
+    form.vinculos[LLAVE] = true;
+    const marcado = armarAprobacion(form, nombres);
+    expect(marcado.ok && marcado.datos.vinculos).toEqual([{ jugador_id: J1, apoderado_id: A1 }]);
   });
 
   it("quien no tiene foto parte desmarcado (no se puede aprobar)", () => {
@@ -250,6 +257,24 @@ describe("casos de la segunda revisión", () => {
   it("la firma cambia si cambia el estado de una persona o vínculo, no por otros datos", () => {
     const base = solicitud();
     expect(firmaSolicitud(solicitud({ coincide_base: true }))).toBe(firmaSolicitud(base));
+    // Un hijo que queda marcado «ya no está», un aviso nuevo o un faltante cambian la firma.
+    expect(
+      firmaSolicitud(
+        solicitud({
+          jugadores: [jugador(J1, { marcado_retiro_en: AHORA }), jugador(J2, { estado: "activo" })],
+        }),
+      ),
+    ).not.toBe(firmaSolicitud(base));
+    expect(firmaSolicitud(solicitud({ avisos: ["hay_solicitud_posterior"] }))).not.toBe(
+      firmaSolicitud(base),
+    );
+    expect(
+      firmaSolicitud(
+        solicitud({
+          jugadores: [jugador(J1, { faltantes: ["foto"] }), jugador(J2, { estado: "activo" })],
+        }),
+      ),
+    ).not.toBe(firmaSolicitud(base));
     expect(
       firmaSolicitud(
         solicitud({

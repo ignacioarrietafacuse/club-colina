@@ -31,6 +31,7 @@ import {
   formInicial,
   RECHAZO_TOTAL,
   vinculoAprobable,
+  vinculoConocido,
   vinculoVa,
   llaveVinculo,
   type FormAprobacion,
@@ -250,6 +251,7 @@ function DetalleSolicitud({
               const llave = llaveVinculo(v);
               const pendiente = llave in form.vinculos;
               const aprobable = vinculoAprobable(v, s);
+              const conocido = vinculoConocido(v, s);
               return (
                 <label key={llave} className="flex items-center gap-3 px-4 py-3 text-sm">
                   {pendiente ? (
@@ -272,6 +274,12 @@ function DetalleSolicitud({
                     {nombres[v.jugador_id] ?? "Jugador de otra solicitud"}
                     {v.paga_mensualidad && (
                       <span className="text-muted-foreground"> · paga la mensualidad</span>
+                    )}
+                    {pendiente && aprobable && !conocido && (
+                      <span className="block text-xs text-warning-foreground">
+                        Una de las personas no viene en esta solicitud y su estado no se ve acá.
+                        Márcalo solo después de revisar su ficha.
+                      </span>
                     )}
                     {pendiente && !aprobable && (
                       <span className="block text-xs text-destructive">
