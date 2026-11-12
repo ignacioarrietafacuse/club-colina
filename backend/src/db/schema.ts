@@ -329,6 +329,12 @@ export const usuarios = pgTable("usuarios", {
   /** argon2id. */
   password_hash: text("password_hash").notNull(),
   activo: boolean("activo").notNull().default(true),
+  /**
+   * Si es true, el login funciona igual pero el panel solo deja cambiar la clave (403
+   * `debe_cambiar_clave` en /api/panel) hasta que la cambie. Para usuarios creados con una clave
+   * temporal.
+   */
+  debe_cambiar_clave: boolean("debe_cambiar_clave").notNull().default(false),
   ...tiempos,
 });
 

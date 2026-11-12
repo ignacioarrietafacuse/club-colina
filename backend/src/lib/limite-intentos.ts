@@ -86,6 +86,16 @@ export const LIMITES = {
     hook: "preHandler",
     keyGenerator: (request: FastifyRequest) => `${usuarioDe(request.body)}|${ipCliente(request)}`,
   },
+  /**
+   * Cambiar la clave: con sesión, así que la llave es el usuario (no la IP), después de
+   * `exigirSesion`. Frena a quien tenga una sesión robada y pruebe claves actuales.
+   */
+  cambiarClave: {
+    max: 5,
+    timeWindow: "15 minutes",
+    hook: "preHandler",
+    keyGenerator: (request: FastifyRequest) => `cambiar-clave|${request.usuarioPanel?.id ?? ipCliente(request)}`,
+  },
 } as const;
 
 export async function registrarLimiteIntentos(app: FastifyInstance) {

@@ -29,7 +29,7 @@ describe("usuarios del panel (script crear-usuario)", () => {
     expect(fila?.nombre).toBe("Mony");
     expect(fila?.password_hash.startsWith("$argon2id$")).toBe(true);
     expect(fila?.password_hash).not.toContain(password);
-    expect(await verificarCredenciales(db, usuario, password)).toEqual({ id: fila?.id, nombre: "Mony" });
+    expect(await verificarCredenciales(db, usuario, password)).toEqual({ id: fila?.id, nombre: "Mony", debe_cambiar_clave: false });
   });
 
   it("no crea un usuario que ya existe, ni cambia la contraseña de uno que no existe", async () => {
@@ -52,7 +52,7 @@ describe("usuarios del panel (script crear-usuario)", () => {
     expect(await usuarioDeSesion(db, token)).toBeNull();
     expect(await db.select().from(sesiones).where(eq(sesiones.usuario_id, fila.id))).toHaveLength(0);
     expect(await verificarCredenciales(db, usuario, "clave-vieja-1234")).toBeNull();
-    expect(await verificarCredenciales(db, usuario, "clave-nueva-1234")).toEqual({ id: fila.id, nombre: "Uno" });
+    expect(await verificarCredenciales(db, usuario, "clave-nueva-1234")).toEqual({ id: fila.id, nombre: "Uno", debe_cambiar_clave: false });
   });
 
   it("--cambiar no reactiva a un usuario desactivado; --reactivar sí", async () => {

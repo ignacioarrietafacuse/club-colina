@@ -13,6 +13,7 @@ import { Route as PanelRouteImport } from './routes/_panel'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as RegistroRouteImport } from './routes/registro'
 import { Route as PanelIndexRouteImport } from './routes/_panel/index'
+import { Route as PanelCambiarClaveRouteImport } from './routes/_panel/cambiar-clave'
 import { Route as PanelCategoriasRouteImport } from './routes/_panel/categorias'
 import { Route as PanelConversacionesRouteImport } from './routes/_panel/conversaciones'
 import { Route as PanelLeadsRouteImport } from './routes/_panel/leads'
@@ -48,6 +49,11 @@ const RegistroRoute = RegistroRouteImport.update({
 const PanelIndexRoute = PanelIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => PanelRoute,
+} as any)
+const PanelCambiarClaveRoute = PanelCambiarClaveRouteImport.update({
+  id: '/cambiar-clave',
+  path: '/cambiar-clave',
   getParentRoute: () => PanelRoute,
 } as any)
 const PanelCategoriasRoute = PanelCategoriasRouteImport.update({
@@ -142,6 +148,7 @@ export interface FileRoutesByFullPath {
   '/': typeof PanelIndexRoute
   '/login': typeof LoginRoute
   '/registro': typeof RegistroRoute
+  '/cambiar-clave': typeof PanelCambiarClaveRoute
   '/categorias': typeof PanelCategoriasRoute
   '/conversaciones': typeof PanelConversacionesRoute
   '/leads': typeof PanelLeadsRoute
@@ -163,6 +170,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/registro': typeof RegistroRoute
+  '/cambiar-clave': typeof PanelCambiarClaveRoute
   '/categorias': typeof PanelCategoriasRoute
   '/conversaciones': typeof PanelConversacionesRoute
   '/leads': typeof PanelLeadsRoute
@@ -187,6 +195,7 @@ export interface FileRoutesById {
   '/_panel': typeof PanelRouteWithChildren
   '/login': typeof LoginRoute
   '/registro': typeof RegistroRoute
+  '/_panel/cambiar-clave': typeof PanelCambiarClaveRoute
   '/_panel/categorias': typeof PanelCategoriasRoute
   '/_panel/conversaciones': typeof PanelConversacionesRoute
   '/_panel/leads': typeof PanelLeadsRoute
@@ -212,6 +221,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/registro'
+    | '/cambiar-clave'
     | '/categorias'
     | '/conversaciones'
     | '/leads'
@@ -233,6 +243,7 @@ export interface FileRouteTypes {
   to:
     | '/login'
     | '/registro'
+    | '/cambiar-clave'
     | '/categorias'
     | '/conversaciones'
     | '/leads'
@@ -256,6 +267,7 @@ export interface FileRouteTypes {
     | '/_panel'
     | '/login'
     | '/registro'
+    | '/_panel/cambiar-clave'
     | '/_panel/categorias'
     | '/_panel/conversaciones'
     | '/_panel/leads'
@@ -313,6 +325,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof PanelIndexRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/_panel/cambiar-clave': {
+      id: '/_panel/cambiar-clave'
+      path: '/cambiar-clave'
+      fullPath: '/cambiar-clave'
+      preLoaderRoute: typeof PanelCambiarClaveRouteImport
       parentRoute: typeof PanelRoute
     }
     '/_panel/categorias': {
@@ -438,6 +457,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface PanelRouteChildren {
+  PanelCambiarClaveRoute: typeof PanelCambiarClaveRoute
   PanelCategoriasRoute: typeof PanelCategoriasRoute
   PanelConversacionesRoute: typeof PanelConversacionesRoute
   PanelLeadsRoute: typeof PanelLeadsRoute
@@ -456,6 +476,7 @@ interface PanelRouteChildren {
 }
 
 const PanelRouteChildren: PanelRouteChildren = {
+  PanelCambiarClaveRoute: PanelCambiarClaveRoute,
   PanelCategoriasRoute: PanelCategoriasRoute,
   PanelConversacionesRoute: PanelConversacionesRoute,
   PanelLeadsRoute: PanelLeadsRoute,

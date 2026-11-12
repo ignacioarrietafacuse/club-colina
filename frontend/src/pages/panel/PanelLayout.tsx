@@ -29,6 +29,7 @@ export function PanelLayout() {
   return (
     <AppShell
       nombreUsuario={usuario.nombre}
+      soloCambiarClave={usuario.debe_cambiar_clave}
       onSalir={() => salir.mutate()}
       saliendo={salir.isPending}
       errorSalir={

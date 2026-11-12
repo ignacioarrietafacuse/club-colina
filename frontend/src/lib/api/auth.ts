@@ -2,6 +2,7 @@ import {
   API,
   loginResponse,
   meResponse,
+  type CambiarClaveRequest,
   type LoginRequest,
   type Usuario,
 } from "@club-colina/shared";
@@ -14,6 +15,11 @@ export function login(datos: LoginRequest) {
 
 export function logout() {
   return pedirSinRespuesta(API.auth.logout, { metodo: "POST" });
+}
+
+/** Cambia la clave del usuario con sesión; el servidor cierra sus otras sesiones. */
+export function cambiarClave(datos: CambiarClaveRequest) {
+  return pedirSinRespuesta(API.auth.cambiarClave, { metodo: "POST", json: datos });
 }
 
 export function me(signal?: AbortSignal) {

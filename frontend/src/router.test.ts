@@ -15,6 +15,7 @@ describe("rutas", () => {
         "/apoderados",
         "/apoderados/$id",
         "/c/$token",
+        "/cambiar-clave",
         "/categorias",
         "/completar/$token",
         "/conversaciones",

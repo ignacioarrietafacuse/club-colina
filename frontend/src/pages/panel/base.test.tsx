@@ -46,15 +46,34 @@ const json =
       headers: { "Content-Type": "application/json" },
     });
 
-async function guardar() {
+async function guardar(pathname = "/") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return guardaPanel({ context: { queryClient } });
+  return guardaPanel({ context: { queryClient }, location: { pathname } });
 }
 
 describe("guarda del panel", () => {
   it("con sesión deja pasar y entrega el usuario", async () => {
-    stubMe(json({ usuario: { id: ID, nombre: "Administración" } }));
-    expect(await guardar()).toEqual({ usuario: { id: ID, nombre: "Administración" } });
+    stubMe(json({ usuario: { id: ID, nombre: "Administración", debe_cambiar_clave: false } }));
+    expect(await guardar()).toEqual({
+      usuario: { id: ID, nombre: "Administración", debe_cambiar_clave: false },
+    });
+  });
+
+  it("con clave temporal: cualquier ruta lleva a /cambiar-clave, y ahí deja pasar", async () => {
+    const usuario = { id: ID, nombre: "Ignacio", debe_cambiar_clave: true };
+    for (const ruta of ["/", "/jugadores", "/jugadores/solicitudes"]) {
+      stubMe(json({ usuario }));
+      let lanzado: unknown;
+      try {
+        await guardar(ruta);
+      } catch (error) {
+        lanzado = error;
+      }
+      expect(isRedirect(lanzado), ruta).toBe(true);
+      if (isRedirect(lanzado)) expect(lanzado.options.to).toBe("/cambiar-clave");
+    }
+    stubMe(json({ usuario }));
+    expect(await guardar("/cambiar-clave")).toEqual({ usuario });
   });
 
   const denegados: [string, () => Response | never][] = [
@@ -102,7 +121,11 @@ describe("sesión", () => {
 
   it("al olvidar la sesión no queda ningún dato del panel en memoria", () => {
     const queryClient = new QueryClient();
-    queryClient.setQueryData(CLAVE_SESION, { id: ID, nombre: "Administración" });
+    queryClient.setQueryData(CLAVE_SESION, {
+      id: ID,
+      nombre: "Administración",
+      debe_cambiar_clave: false,
+    });
     queryClient.setQueryData(["panel", "jugadores"], [{ id: ID }]);
     olvidarSesion(queryClient);
     expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
@@ -184,7 +207,11 @@ describe("vencimiento y cierre de sesión", () => {
 
   it("si el logout falla, se lanza el error y no se finge la salida", async () => {
     const queryClient = new QueryClient();
-    queryClient.setQueryData(CLAVE_SESION, { id: ID, nombre: "Administración" });
+    queryClient.setQueryData(CLAVE_SESION, {
+      id: ID,
+      nombre: "Administración",
+      debe_cambiar_clave: false,
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
@@ -192,7 +219,11 @@ describe("vencimiento y cierre de sesión", () => {
       }),
     );
     await expect(cerrarSesion(queryClient)).rejects.toBeInstanceOf(ErrorApi);
-    expect(queryClient.getQueryData(CLAVE_SESION)).toEqual({ id: ID, nombre: "Administración" });
+    expect(queryClient.getQueryData(CLAVE_SESION)).toEqual({
+      id: ID,
+      nombre: "Administración",
+      debe_cambiar_clave: false,
+    });
   });
 
   it("cuando la guarda no encuentra sesión, borra lo que quedó de otra", async () => {

@@ -1,6 +1,9 @@
-import { eq } from "drizzle-orm";
+import { verify } from "@node-rs/argon2";
+import { and, eq, ne } from "drizzle-orm";
 import type { Ejecutor } from "../../db/cliente";
 import { sesiones, usuarios } from "../../db/schema";
+import { ErrorApi } from "../../lib/errores";
+import { hashToken } from "../../lib/tokens";
 import { hashPassword, normalizarUsuario } from "./sesiones";
 
 export const PASSWORD_MIN = 12;
@@ -30,9 +33,9 @@ function validarPassword(password: string): void {
 
 function validarUsuario(usuario: string): string {
   const normalizado = normalizarUsuario(usuario);
-  if (!/^[a-z0-9._-]{3,100}$/.test(normalizado)) {
+  if (!/^[a-z0-9._@-]{3,100}$/.test(normalizado)) {
     throw new ErrorDeUso(
-      "El usuario debe tener entre 3 y 100 caracteres: letras, números, punto, guion o guion bajo.",
+      "El usuario debe tener entre 3 y 100 caracteres: letras, números, punto, arroba, guion o guion bajo.",
     );
   }
   return normalizado;
@@ -76,5 +79,37 @@ export async function cambiarPassword(
     await tx.update(usuarios).set({ password_hash, activo }).where(eq(usuarios.id, existente.id));
     await tx.delete(sesiones).where(eq(sesiones.usuario_id, existente.id));
     return { activo };
+  });
+}
+
+/**
+ * El propio usuario cambia su clave desde el panel (POST /api/auth/cambiar-clave). Verifica la
+ * actual, guarda la nueva, apaga `debe_cambiar_clave` y cierra todas sus otras sesiones; la de
+ * `tokenSesion` (desde donde la cambió) sigue abierta. La ruta ya validó largo y que sean distintas.
+ */
+export async function cambiarClavePropia(
+  db: Ejecutor,
+  datos: { usuarioId: string; claveActual: string; claveNueva: string; tokenSesion: string },
+): Promise<void> {
+  const [fila] = await db
+    .select({ password_hash: usuarios.password_hash })
+    .from(usuarios)
+    .where(and(eq(usuarios.id, datos.usuarioId), eq(usuarios.activo, true)));
+  let coincide = false;
+  try {
+    coincide = fila ? await verify(fila.password_hash, datos.claveActual) : false;
+  } catch {
+    coincide = false;
+  }
+  if (!coincide) throw new ErrorApi(400, "credenciales_invalidas", "La clave actual no es correcta.");
+  const password_hash = await hashPassword(datos.claveNueva);
+  await db.transaction(async (tx) => {
+    await tx
+      .update(usuarios)
+      .set({ password_hash, debe_cambiar_clave: false })
+      .where(eq(usuarios.id, datos.usuarioId));
+    await tx
+      .delete(sesiones)
+      .where(and(eq(sesiones.usuario_id, datos.usuarioId), ne(sesiones.id, hashToken(datos.tokenSesion))));
   });
 }

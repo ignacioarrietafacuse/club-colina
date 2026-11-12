@@ -1,7 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { LogOut, Menu, X } from "lucide-react";
+import { KeyRound, LogOut, Menu, X } from "lucide-react";
 import { esItemActivo, nav } from "./navegacion";
 
 export function AppShell({
@@ -10,6 +10,7 @@ export function AppShell({
   onSalir,
   saliendo,
   errorSalir,
+  soloCambiarClave = false,
 }: {
   children: ReactNode;
   nombreUsuario: string;
@@ -17,6 +18,8 @@ export function AppShell({
   saliendo: boolean;
   /** Si el servidor no cerró la sesión: la sesión sigue abierta y hay que decirlo. */
   errorSalir?: string;
+  /** Usuario con clave temporal: sin menú, solo cambiar la clave y salir. */
+  soloCambiarClave?: boolean;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
@@ -28,7 +31,14 @@ export function AppShell({
           <Menu className="size-5" />
         </button>
         <BrandMark compact />
-        <div className="w-8" />
+        {/* En el celular el menú lateral está escondido: "Salir" queda siempre a la vista arriba. */}
+        <button
+          onClick={onSalir}
+          disabled={saliendo}
+          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs hover:bg-muted disabled:opacity-50"
+        >
+          <LogOut className="size-4" /> {saliendo ? "Saliendo…" : "Salir"}
+        </button>
       </div>
 
       <div className="flex">
@@ -47,7 +57,7 @@ export function AppShell({
           </div>
 
           <nav className="mt-4 flex-1 overflow-y-auto scrollbar-thin px-2 pb-4 space-y-0.5">
-            {nav.map((item) => {
+            {(soloCambiarClave ? [] : nav).map((item) => {
               const active = esItemActivo(item.to, pathname);
               const Icon = item.icon;
               return (
@@ -75,6 +85,18 @@ export function AppShell({
           </nav>
 
           <div className="border-t border-sidebar-border/60 p-3">
+            <Link
+              to="/cambiar-clave"
+              onClick={() => setOpen(false)}
+              className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all ${
+                pathname === "/cambiar-clave"
+                  ? "bg-white/10 text-white font-medium"
+                  : "text-sidebar-foreground/80 hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              <KeyRound className="size-4" />
+              <span className="flex-1">Cambiar clave</span>
+            </Link>
             <div className="flex items-center gap-3 rounded-lg px-2 py-2">
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium truncate">{nombreUsuario}</div>

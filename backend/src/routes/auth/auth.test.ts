@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { COOKIE_SESION } from "@club-colina/shared";
+import { API, COOKIE_SESION } from "@club-colina/shared";
 import { construirApp } from "../../app";
 import { crearDb } from "../../db/cliente";
 import { sesiones, usuarios } from "../../db/schema";
@@ -47,7 +47,9 @@ describe("login y sesiones", () => {
     const r = await login(app, usuario);
     expect(r.statusCode).toBe(200);
     expect(r.headers["cache-control"]).toBe("private, no-store");
-    expect(r.json()).toEqual({ usuario: { id: expect.any(String), nombre: "Usuaria Prueba" } });
+    expect(r.json()).toEqual({
+      usuario: { id: expect.any(String), nombre: "Usuaria Prueba", debe_cambiar_clave: false },
+    });
     const c = r.cookies.find((x) => x.name === COOKIE_SESION);
     expect(c?.httpOnly).toBe(true);
     expect(c?.sameSite).toBe("Lax");
@@ -244,6 +246,132 @@ describe("límites de intentos del login", () => {
     expect(r429).toBe(LIMITE_LOGIN_IP.max - LIMITES.login.max);
     // Ya se gastaron los intentos de la IP: un usuario nuevo desde ahí queda frenado.
     expect((await login(app, await usuarioNuevo(), PASSWORD, ip)).statusCode).toBe(429);
+    await app.close();
+  });
+});
+
+describe("cambiar clave", () => {
+  const NUEVA = "otra-clave-nueva-y-larga";
+
+  function cambiar(app: FastifyInstance, token: string | undefined, payload: Record<string, unknown>) {
+    return app.inject({
+      method: "POST",
+      url: API.auth.cambiarClave,
+      cookies: token ? { [COOKIE_SESION]: token } : {},
+      payload,
+    });
+  }
+  async function hashDe(usuario: string) {
+    const [u] = await db.select().from(usuarios).where(eq(usuarios.usuario, usuario));
+    return u;
+  }
+
+  it("sin sesión: 401 y no cambia nada", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const usuario = await usuarioNuevo();
+    const antes = await hashDe(usuario);
+    const r = await cambiar(app, undefined, { clave_actual: PASSWORD, clave_nueva: NUEVA });
+    expect(r.statusCode).toBe(401);
+    expect((await hashDe(usuario))?.password_hash).toBe(antes?.password_hash);
+    await app.close();
+  });
+
+  it("clave actual mala, nueva corta o igual a la actual: 400 y no cambia nada", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const usuario = await usuarioNuevo();
+    const token = cookieDe(await login(app, usuario));
+    const antes = await hashDe(usuario);
+    const mala = await cambiar(app, token, { clave_actual: "no-es-la-clave", clave_nueva: NUEVA });
+    expect(mala.statusCode).toBe(400);
+    expect(mala.json().error.codigo).toBe("credenciales_invalidas");
+    const corta = await cambiar(app, token, { clave_actual: PASSWORD, clave_nueva: "a".repeat(11) });
+    expect(corta.statusCode).toBe(400);
+    expect(corta.json().error.codigo).toBe("validacion");
+    const igual = await cambiar(app, token, { clave_actual: PASSWORD, clave_nueva: PASSWORD });
+    expect(igual.statusCode).toBe(400);
+    expect(igual.json().error.codigo).toBe("validacion");
+    expect((await hashDe(usuario))?.password_hash).toBe(antes?.password_hash);
+    await app.close();
+  });
+
+  it("la cambia, cierra las demás sesiones y deja abierta la actual", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const usuario = await usuarioNuevo();
+    const actual = cookieDe(await login(app, usuario, PASSWORD, "198.51.100.20"));
+    const otra = cookieDe(await login(app, usuario, PASSWORD, "198.51.100.21"));
+    const ajena = cookieDe(await login(app, await usuarioNuevo(), PASSWORD, "198.51.100.22"));
+    const r = await cambiar(app, actual, { clave_actual: PASSWORD, clave_nueva: NUEVA });
+    expect(r.statusCode).toBe(204);
+    const me = (token: string) => app.inject({ method: "GET", url: "/api/auth/me", cookies: { [COOKIE_SESION]: token } });
+    expect((await me(actual)).statusCode).toBe(200);
+    expect((await me(otra)).statusCode).toBe(401);
+    // Las sesiones de otro usuario no se tocan.
+    expect((await me(ajena)).statusCode).toBe(200);
+    expect((await login(app, usuario, PASSWORD, "198.51.100.23")).statusCode).toBe(401);
+    expect((await login(app, usuario, NUEVA, "198.51.100.24")).statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("límite de intentos por usuario: el sexto en 15 minutos es 429, aunque cambie la IP", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const usuario = await usuarioNuevo();
+    const token = cookieDe(await login(app, usuario));
+    const codigos: number[] = [];
+    for (let i = 0; i < LIMITES.cambiarClave.max + 1; i++) {
+      const r = await app.inject({
+        method: "POST",
+        url: API.auth.cambiarClave,
+        headers: { "x-real-ip": `198.51.100.${30 + i}` },
+        cookies: { [COOKIE_SESION]: token },
+        payload: { clave_actual: "no-es-la-clave", clave_nueva: NUEVA },
+      });
+      codigos.push(r.statusCode);
+    }
+    expect(codigos.slice(0, LIMITES.cambiarClave.max)).toEqual(Array(LIMITES.cambiarClave.max).fill(400));
+    expect(codigos.at(-1)).toBe(429);
+    await app.close();
+  });
+
+  it("con debe_cambiar_clave: el login responde igual, el panel es 403 y /me, salir y cambiar-clave funcionan", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const usuario = await usuarioNuevo();
+    await db.update(usuarios).set({ debe_cambiar_clave: true }).where(eq(usuarios.usuario, usuario));
+    const r = await login(app, usuario, PASSWORD, "198.51.100.40");
+    expect(r.statusCode).toBe(200);
+    expect(r.json().usuario.debe_cambiar_clave).toBe(true);
+    const token = cookieDe(r);
+    const cookies = { [COOKIE_SESION]: token };
+
+    for (const [method, url] of [
+      ["GET", "/api/panel/solicitudes"],
+      ["GET", "/api/panel/dashboard"],
+      ["POST", "/api/panel/solicitudes/00000000-0000-4000-8000-000000000000/aprobar"],
+      ["GET", "/api/panel/no-existe"],
+    ] as const) {
+      const p = await app.inject({ method, url, cookies, payload: method === "POST" ? {} : undefined });
+      expect(p.statusCode).toBe(403);
+      expect(p.json().error.codigo).toBe("debe_cambiar_clave");
+    }
+    const me = await app.inject({ method: "GET", url: "/api/auth/me", cookies });
+    expect(me.statusCode).toBe(200);
+    expect(me.json().usuario.debe_cambiar_clave).toBe(true);
+
+    expect((await cambiar(app, token, { clave_actual: PASSWORD, clave_nueva: NUEVA })).statusCode).toBe(204);
+    expect((await hashDe(usuario))?.debe_cambiar_clave).toBe(false);
+    expect((await app.inject({ method: "GET", url: "/api/panel/solicitudes", cookies })).statusCode).toBe(200);
+
+    // Salir también funciona con la marca puesta.
+    await db.update(usuarios).set({ debe_cambiar_clave: true }).where(eq(usuarios.usuario, usuario));
+    expect((await app.inject({ method: "POST", url: "/api/auth/logout", cookies })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/api/auth/me", cookies })).statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("un usuario con arroba se puede crear con el script y entra", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const usuario = `ignacio.prueba${Date.now()}@ejemplo.test`;
+    await crearUsuario(db, { usuario, nombre: "Prueba", password: PASSWORD });
+    expect((await login(app, usuario.toUpperCase(), PASSWORD, "198.51.100.50")).statusCode).toBe(200);
     await app.close();
   });
 });
