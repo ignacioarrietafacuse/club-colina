@@ -258,7 +258,7 @@ class Proceso {
 
   private async apoderadoTitular(): Promise<Apoderado> {
     const d = this.datos;
-    const existente = await apoderadoPorRut(this.tx, d.rut);
+    const existente = await apoderadoPorRut(this.tx, d.rut, { bloquear: true });
     const faltan = new Faltantes();
 
     if (!existente) {
@@ -341,7 +341,7 @@ class Proceso {
 
     // Si el RUT es apoderado, el formulario lo trata como apoderado (ver rut-lookup).
     if (await apoderadoPorRut(this.tx, d.rut)) throw conflicto();
-    const existente = await jugadorPorRut(this.tx, d.rut);
+    const existente = await jugadorPorRut(this.tx, d.rut, { bloquear: true });
 
     if (!existente) {
       const calculada = await calcularCategoria(this.tx, seguro(disciplina), seguro(fecha));
@@ -497,7 +497,7 @@ class Proceso {
    */
   private async hijos(titular: Apoderado): Promise<(string | null)[]> {
     const d = this.datos;
-    const lista = await hijosDeApoderado(this.tx, titular.id);
+    const lista = await hijosDeApoderado(this.tx, titular.id, { bloquear: true });
     const titularEraPrecargado = this.coincideBase;
     const paga = d.paga_mensualidad ?? false;
     const vistos = new Set<string>();
@@ -512,7 +512,7 @@ class Proceso {
         if (!item || primerNombre(item.jugador.nombre) !== h.ref.primer_nombre) throw conflicto();
         jugador = item.jugador;
       } else {
-        jugador = await jugadorPorRut(this.tx, h.ref.rut);
+        jugador = await jugadorPorRut(this.tx, h.ref.rut, { bloquear: true });
       }
       const enLista = jugador !== null && lista.some((x) => x.jugador.id === jugador.id);
       if (jugador) {
