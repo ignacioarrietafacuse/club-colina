@@ -88,7 +88,8 @@ describe("app", () => {
     await app.inject({ method: "POST", url: `/api/public/completar/${tokens[3]}`, headers: { origin: "https://malo.test" } });
     await app.close();
     const log = lineas.join("");
-    expect(log).toContain("[censurado]");
+    // Esas rutas todavía no existen: se loguean como "(sin ruta)", sin el token.
+    expect(log).toContain('"url":"(sin ruta)"');
     for (const t of tokens) expect(log).not.toContain(t);
   });
 

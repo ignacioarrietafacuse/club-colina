@@ -1,5 +1,5 @@
-import { PaginaVacia } from "@/components/PaginaVacia";
+import { SeccionPendiente } from "@/components/panel/Pendiente";
 
 export function LeadsPage() {
-  return <PaginaVacia titulo="Leads" />;
+  return <SeccionPendiente titulo="Leads" />;
 }

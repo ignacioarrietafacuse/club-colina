@@ -1,5 +1,5 @@
-import { PaginaVacia } from "@/components/PaginaVacia";
+import { SeccionPendiente } from "@/components/panel/Pendiente";
 
 export function ConversacionesPage() {
-  return <PaginaVacia titulo="IA y Conversaciones" />;
+  return <SeccionPendiente titulo="IA y Conversaciones" />;
 }

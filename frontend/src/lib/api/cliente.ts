@@ -134,3 +134,13 @@ export async function pedirSinRespuesta(ruta: string, opciones: Opciones = {}): 
   const res = await enviar(ruta, opciones);
   await res.body?.cancel();
 }
+
+/**
+ * Política de reintentos para TanStack Query: un 4xx (sin sesión, no encontrado, validación)
+ * no mejora reintentando, y un 401 tiene que cerrar la sesión en pantalla de inmediato.
+ * Reintenta hasta 3 veces solo la falta de red y los 5xx.
+ */
+export function reintentar(fallos: number, error: unknown): boolean {
+  if (error instanceof ErrorApi && error.status >= 400 && error.status < 500) return false;
+  return fallos < 3;
+}
