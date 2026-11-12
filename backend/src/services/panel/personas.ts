@@ -50,13 +50,13 @@ const SMALLINT_MAX = 32767;
 // ---------------------------------------------------------------------------
 
 /**
- * Si el jugador tiene un apoderado vigente: un vínculo con un apoderado que no está rechazado ni
- * inactivo. Un apoderado rechazado o dado de baja no sirve de contacto, así que entonces el
+ * Si el jugador tiene un apoderado vigente: un vínculo con un apoderado precargado, pendiente o
+ * activo (lista de permitidos: un estado nuevo no cuenta hasta decidirlo). Un apoderado rechazado o dado de baja no sirve de contacto, así que entonces el
  * jugador adulto necesita su propio teléfono.
  */
 // Escrito con alias explícitos: drizzle no califica las columnas cuando la consulta tiene una
 // sola tabla, y en la subconsulta "estado" o "id" serían ambiguos.
-export const tieneApoderadoVigente = sql<boolean>`exists (select 1 from jugador_apoderado ja inner join apoderados a on a.id = ja.apoderado_id where ja.jugador_id = ${sql.raw('"jugadores"."id"')} and a.estado not in ('rechazado', 'inactivo'))`;
+export const tieneApoderadoVigente = sql<boolean>`exists (select 1 from jugador_apoderado ja inner join apoderados a on a.id = ja.apoderado_id where ja.jugador_id = ${sql.raw('"jugadores"."id"')} and a.estado in ('precargado', 'pendiente', 'activo'))`;
 
 /** Las categorías, para calcular la que corresponde por año. Son una decena de filas. */
 export function cargarCategorias(db: Ejecutor): Promise<CategoriaRegla[]> {
@@ -229,12 +229,19 @@ export async function editarJugador(
     const tocaRama = cambios.disciplina !== undefined || cambios.categoria_id !== undefined;
     if (tocaRama && categoria !== null) await verificarCategoria(tx, categoria, disciplina);
     if (Object.keys(cambios).length === 0) return;
+    const cats = await cargarCategorias(tx);
+    const [antes] = await seleccionarJugadores(tx, eq(jugadores.id, id));
+    const faltabanAntes = new Set(antes ? requisitosJugador(faltantesJugador(antes, antes.tiene_apoderado, cats)) : []);
     await conRestricciones(() => tx.update(jugadores).set(cambios).where(eq(jugadores.id, id)));
     // La base cubre casi todo con sus CHECK, pero no el teléfono del adulto sin apoderado: un
     // activo no puede quedar con menos de lo que se le exigió para activarlo.
     const [despues] = await seleccionarJugadores(tx, eq(jugadores.id, id));
     if (despues?.estado === "activo") {
-      const faltan = requisitosJugador(faltantesJugador(despues, despues.tiene_apoderado, await cargarCategorias(tx)));
+      // Solo se rechaza lo que este PATCH empeora: si ya faltaba algo por otra causa (se dio de baja
+      // a su apoderado), Mony puede seguir editando lo demás.
+      const faltan = requisitosJugador(faltantesJugador(despues, despues.tiene_apoderado, cats)).filter(
+        (f) => !faltabanAntes.has(f),
+      );
       if (faltan.length > 0) {
         throw new ErrorApi(422, "requisitos_incompletos", `Faltan datos: ${faltan.join(", ")}`);
       }

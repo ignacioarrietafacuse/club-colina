@@ -173,6 +173,9 @@ describe("jugadores", () => {
     expect(r.json().error.mensaje).toBe("Faltan datos: telefono");
     const [sigue] = await db.select().from(jugadores).where(eq(jugadores.id, adulto));
     expect(sigue?.telefono).toBe("912345678");
+    // Si ya le faltaba por otra causa, se puede seguir editando lo demás.
+    const sinContacto = await crearJugadorActivo(db, { fecha_nacimiento: "2000-01-01", telefono: null });
+    expect((await patch({ beca_torneos_pct: 10 }, sinContacto)).statusCode).toBe(200);
 
     expect((await patch({ nombre: "X" }, "00000000-0000-4000-8000-000000000000")).statusCode).toBe(404);
     await app.close();
