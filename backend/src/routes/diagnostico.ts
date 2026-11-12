@@ -21,6 +21,21 @@ export async function rutasDiagnostico(app: FastifyInstance, opciones: { token: 
   const params = z.object({ id: z.uuid() });
   const config = { rateLimit: LIMITES.diagnostico };
 
+  /**
+   * Qué cabeceras de IP llegan por cada camino (Vercel o directo a Railway), para decidir la
+   * configuración de `trustProxy` del límite de intentos. Solo cabeceras de red, nunca cookies.
+   */
+  const deRed =
+    /^(x-forwarded-|x-real-ip$|x-vercel-|x-envoy-|x-railway-|forwarded$|via$|cf-connecting-ip$|true-client-ip$)/;
+  app.get("/api/diagnostico/cabeceras", { config, onRequest: verificar }, async (request, reply) => {
+    const cabeceras = Object.fromEntries(
+      Object.entries(request.headers).filter(([nombre]) => deRed.test(nombre)),
+    );
+    return reply
+      .header("cache-control", "no-store")
+      .send({ ip: request.ip, remota: request.socket.remoteAddress ?? null, cabeceras });
+  });
+
   app.post("/api/diagnostico/foto", { config, onRequest: verificar }, async (request, reply) => {
     const archivo = await request.file();
     if (!archivo || archivo.fieldname !== "foto") {

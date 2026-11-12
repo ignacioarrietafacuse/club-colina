@@ -94,7 +94,7 @@ La base es la exportación del formulario de inscripción 2026: 177 jugadores de
 ## Flujo
 1. La persona abre el link y escribe su RUT.
 2. **RUT reconocido:** ve solo las preguntas que faltan y la foto. **RUT no reconocido:** llena el formulario completo.
-3. Al enviar recibe un **link privado** donde ve el estado ("pendiente de aprobación") y, una vez aprobado, sus QR (los de toda la familia, en el caso del apoderado).
+3. Al enviar recibe un **link privado** donde ve el estado ("pendiente de aprobación") y, una vez aprobado, los QR de las personas que llegaron en esa solicitud (en el caso del apoderado, los de los hijos que inscribió en ella; un hijo ya inscrito por otro apoderado aparece cuando Mony aprueba el vínculo).
 4. Mony revisa la solicitud en el panel, asigna becas si corresponde y aprueba. Las que calzan con la base aparecen marcadas "Coincide con la base".
 5. Los QR quedan activos. El apoderado reenvía el QR al hijo si este tiene celular.
 
@@ -102,7 +102,7 @@ La base es la exportación del formulario de inscripción 2026: 177 jugadores de
 
 **Mismo hijo inscrito por dos apoderados:** el RUT del jugador es único. Al segundo se le avisa que el jugador ya está inscrito y que quedará vinculado como apoderado (sin mostrarle datos). Mony aprueba el vínculo.
 
-**Suplantación:** alguien que conozca el RUT de un apoderado podría enviar fotos en su nombre. No ve ningún dato, y la credencial no se activa sin que Mony revise la foto y apruebe. La consulta de RUT tiene un límite de intentos y nunca devuelve ids: los hijos precargados se identifican por su posición en la lista, que el servidor recalcula a partir del RUT al recibir la solicitud. El link privado (`/familia`) muestra solo a las personas que llegaron en esa solicitud, nunca al resto de la familia de la base. El panel marca con un aviso las solicitudes sospechosas: un RUT que ya se había registrado, un teléfono distinto al de la base, un hijo que ya tiene otro apoderado, un apoderado nuevo para un hijo ya registrado o un hijo marcado como "ya no está" (decisión de Ignacio, 2026-11-12).
+**Suplantación:** alguien que conozca el RUT de un apoderado podría enviar fotos en su nombre. No ve ningún dato, y la credencial no se activa sin que Mony revise la foto y apruebe. La consulta de RUT tiene un límite de intentos y nunca devuelve ids: los hijos precargados se identifican por su posición en la lista, que el servidor recalcula a partir del RUT al recibir la solicitud. El link privado (`/familia`) muestra solo a las personas que llegaron en esa solicitud, nunca al resto de la familia de la base. El panel marca con un aviso las solicitudes sospechosas: un RUT que ya se había registrado, un teléfono distinto al de la base (o un precargado sin teléfono con qué comparar), un hijo que ya tiene otro apoderado, un apoderado nuevo para un hijo ya registrado, un otro apoderado que ya existía, un hijo marcado como "ya no está", o una solicitud pendiente a la que después le llegó otra sobre las mismas personas (decisión de Ignacio, 2026-11-12). Un hijo de otra familia nombrado por RUT no aparece en el link privado hasta que Mony aprueba el vínculo.
 
 ## Formulario
 **Paso 1 — RUT:** la persona escribe su RUT. El sistema valida el dígito verificador y busca si está precargada.
@@ -204,6 +204,7 @@ En la Etapa 2, las categorías y los torneos apuntan a esta tabla para su entren
 | jugador_id, apoderado_id | |
 | paga_mensualidad | verdadero si ese apoderado paga por ese jugador |
 | estado | pendiente / activo, para aprobar vínculos nuevos |
+| solicitud_id | la solicitud que creó el vínculo; nulo si viene de la base o del panel |
 
 ### `categorias`
 | Campo | Nota |
@@ -239,6 +240,9 @@ Horarios, lugar y entrenador se agregan en la Etapa 2.
 | avisos | casos que Mony debe mirar antes de aprobar (ver Suplantación) |
 | consentimiento_en | fecha y hora en que aceptó el uso de datos y fotos |
 | estado, revisada_en | |
+| tipo | formulario / segundo_apoderado (el link personal de `/completar`) |
+| solicitud_origen_id | solo en la de segundo apoderado: la solicitud que lo agregó |
+| coincide_base | si el RUT estaba precargado |
 
 **Dos tokens distintos:** `credencial_token` va en el QR y es público (solo muestra foto, nombre y rol). `token_acceso` es el link privado (muestra los QR de las personas de esa solicitud). La base guarda solo su hash, igual que el del link personal de un segundo apoderado (`/completar`). Si se pierde, Mony genera uno nuevo desde el panel y el anterior deja de funcionar (decisión de Ignacio, 2026-11-12). `credencial_token` queda en claro porque hay que dibujar el QR.
 

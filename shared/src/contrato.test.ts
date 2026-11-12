@@ -38,12 +38,7 @@ describe("contrato", () => {
   // Las respuestas públicas no tienen campos para RUT, teléfono, correo ni fechas:
   // si alguien los agrega por error, z.object los descarta y este test lo detecta.
   it("las respuestas públicas descartan datos personales", () => {
-    const sensibles = {
-      rut: "x",
-      telefono: "x",
-      email: "x",
-      fecha_nacimiento: "x",
-    };
+    const sensibles = { rut: "x", telefono: "x", email: "x", fecha_nacimiento: "x" };
     const credencial = credencialResponse.parse({
       nombre_completo: "Ana Pérez",
       rol: "jugador",
@@ -56,14 +51,7 @@ describe("contrato", () => {
 
     const familia = familiaResponse.parse({
       estado_solicitud: "pendiente",
-      personas: [
-        {
-          nombre_completo: "Ana Pérez",
-          rol: "jugador",
-          estado: "pendiente",
-          ...sensibles,
-        },
-      ],
+      personas: [{ nombre_completo: "Ana Pérez", rol: "jugador", estado: "pendiente", ...sensibles }],
       otros_apoderados: [],
     });
     expect(Object.keys(familia.personas[0] ?? {}).sort()).toEqual([
@@ -73,7 +61,7 @@ describe("contrato", () => {
     ]);
   });
 
-  it("rut-lookup nunca devuelve ids ni links ya entregados", () => {
+  it("rut-lookup nunca devuelve ids; /familia no repite los links ya entregados", () => {
     const id = "00000000-0000-4000-8000-000000000000";
     const apoderado = rutLookupResponse.parse({
       encontrado: true,
@@ -81,15 +69,7 @@ describe("contrato", () => {
       id,
       ya_registrado: false,
       faltantes: [],
-      hijos: [
-        {
-          id,
-          posicion: 0,
-          primer_nombre: "Ana",
-          ya_registrado: false,
-          faltantes: [],
-        },
-      ],
+      hijos: [{ id, posicion: 0, primer_nombre: "Ana", ya_registrado: false, faltantes: [] }],
     });
     expect(JSON.stringify(apoderado)).not.toContain(id);
 
@@ -107,13 +87,7 @@ describe("contrato", () => {
     const familia = familiaResponse.parse({
       estado_solicitud: "pendiente",
       personas: [],
-      otros_apoderados: [
-        {
-          nombre_completo: "Luis Soto",
-          completar_token: "x",
-          foto_subida: false,
-        },
-      ],
+      otros_apoderados: [{ nombre_completo: "Luis Soto", completar_token: "x", foto_subida: false }],
     });
     expect(Object.keys(familia.otros_apoderados[0] ?? {}).sort()).toEqual([
       "foto_subida",
@@ -122,17 +96,26 @@ describe("contrato", () => {
   });
 
   it("los hijos precargados se nombran por posición, no por id", () => {
-    expect(hijoSolicitud.safeParse({ ref: { precargado: 0 } }).success).toBe(
-      true,
-    );
-    expect(hijoSolicitud.safeParse({ ref: { precargado: -1 } }).success).toBe(
-      false,
-    );
-    expect(
-      hijoSolicitud.safeParse({
-        ref: { jugador_id: "00000000-0000-4000-8000-000000000000" },
-      }).success,
-    ).toBe(false);
+    const ana = { precargado: 0, primer_nombre: "Ana" };
+    expect(hijoSolicitud.safeParse({ ref: ana }).success).toBe(true);
+    expect(hijoSolicitud.safeParse({ ref: { precargado: 0 } }).success).toBe(false);
+    expect(hijoSolicitud.safeParse({ ref: { ...ana, precargado: -1 } }).success).toBe(false);
+    const porId = { ref: { jugador_id: "00000000-0000-4000-8000-000000000000" } };
+    expect(hijoSolicitud.safeParse(porId).success).toBe(false);
+  });
+
+  it("rechaza hijos repetidos e índices de otro apoderado fuera de rango", () => {
+    const base = { rut: generarRutFicticio(3), tipo: "apoderado", consentimiento: true };
+    const ana = { ref: { precargado: 0, primer_nombre: "Ana" } };
+    const hijo = { ref: { rut: generarRutFicticio(4) } };
+    const otro = { nombre: "Luis", apellido: "Soto", rut: generarRutFicticio(5), telefono: "912345678" };
+    expect(solicitudDatos.safeParse({ ...base, hijos: [ana, hijo], otro_apoderado: { ...otro, hijos: [0, 1] } }).success).toBe(true);
+    expect(solicitudDatos.safeParse({ ...base, hijos: [ana, ana] }).success).toBe(false);
+    expect(solicitudDatos.safeParse({ ...base, hijos: [hijo, hijo] }).success).toBe(false);
+    expect(solicitudDatos.safeParse({ ...base, hijos: [{ ref: { rut: base.rut } }] }).success).toBe(false);
+    expect(solicitudDatos.safeParse({ ...base, hijos: [ana], otro_apoderado: { ...otro, hijos: [1] } }).success).toBe(false);
+    expect(solicitudDatos.safeParse({ ...base, hijos: [ana], otro_apoderado: { ...otro, hijos: [0, 0] } }).success).toBe(false);
+    expect(solicitudDatos.safeParse({ ...base, hijos: [ana], otro_apoderado: { ...otro, rut: base.rut, hijos: [0] } }).success).toBe(false);
   });
 
   it("arma la URL del QR", () => {

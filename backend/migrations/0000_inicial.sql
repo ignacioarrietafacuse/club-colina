@@ -73,6 +73,7 @@ CREATE TABLE "jugador_apoderado" (
 	"apoderado_id" uuid NOT NULL,
 	"paga_mensualidad" boolean DEFAULT false NOT NULL,
 	"estado" text DEFAULT 'pendiente' NOT NULL,
+	"solicitud_id" uuid,
 	"creado_en" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "jugador_apoderado_jugador_id_apoderado_id_pk" PRIMARY KEY("jugador_id","apoderado_id"),
 	CONSTRAINT "jugador_apoderado_estado_check" CHECK ("estado" IN ('pendiente', 'activo'))
@@ -128,6 +129,7 @@ CREATE TABLE "solicitudes_registro" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"creada_en" timestamp with time zone DEFAULT now() NOT NULL,
 	"token_acceso_hash" text NOT NULL,
+	"solicitud_origen_id" uuid,
 	"consentimiento_en" timestamp with time zone,
 	"estado" text DEFAULT 'pendiente' NOT NULL,
 	"revisada_en" timestamp with time zone,
@@ -137,8 +139,9 @@ CREATE TABLE "solicitudes_registro" (
 	CONSTRAINT "solicitudes_registro_token_acceso_hash_unique" UNIQUE("token_acceso_hash"),
 	CONSTRAINT "solicitudes_estado_check" CHECK ("estado" IN ('pendiente', 'revisada')),
 	CONSTRAINT "solicitudes_tipo_check" CHECK ("tipo" IN ('formulario', 'segundo_apoderado')),
+	CONSTRAINT "solicitudes_origen_check" CHECK (("tipo" = 'segundo_apoderado') = ("solicitud_origen_id" IS NOT NULL)),
 	CONSTRAINT "solicitudes_token_hash_check" CHECK ("token_acceso_hash" ~ '^[0-9a-f]{64}$'),
-	CONSTRAINT "solicitudes_avisos_check" CHECK ("avisos" <@ ARRAY['titular_ya_registrado', 'telefono_distinto_base', 'hijo_con_otro_apoderado', 'apoderado_nuevo_para_hijo_registrado', 'hijo_marcado_ya_no_esta']::text[]),
+	CONSTRAINT "solicitudes_avisos_check" CHECK ("avisos" <@ ARRAY['titular_ya_registrado', 'telefono_distinto_base', 'hijo_con_otro_apoderado', 'apoderado_nuevo_para_hijo_registrado', 'hijo_marcado_ya_no_esta', 'otro_apoderado_ya_registrado', 'sin_telefono_en_base', 'hay_solicitud_posterior']::text[]),
 	CONSTRAINT "solicitudes_consentimiento_check" CHECK ("tipo" = 'segundo_apoderado' OR "consentimiento_en" IS NOT NULL)
 );
 --> statement-breakpoint
@@ -158,10 +161,12 @@ ALTER TABLE "apoderados" ADD CONSTRAINT "apoderados_solicitud_id_solicitudes_reg
 ALTER TABLE "entrenadores" ADD CONSTRAINT "entrenadores_foto_id_fotos_id_fk" FOREIGN KEY ("foto_id") REFERENCES "public"."fotos"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "jugador_apoderado" ADD CONSTRAINT "jugador_apoderado_jugador_id_jugadores_id_fk" FOREIGN KEY ("jugador_id") REFERENCES "public"."jugadores"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "jugador_apoderado" ADD CONSTRAINT "jugador_apoderado_apoderado_id_apoderados_id_fk" FOREIGN KEY ("apoderado_id") REFERENCES "public"."apoderados"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "jugador_apoderado" ADD CONSTRAINT "jugador_apoderado_solicitud_id_solicitudes_registro_id_fk" FOREIGN KEY ("solicitud_id") REFERENCES "public"."solicitudes_registro"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "jugadores" ADD CONSTRAINT "jugadores_categoria_id_categorias_id_fk" FOREIGN KEY ("categoria_id") REFERENCES "public"."categorias"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "jugadores" ADD CONSTRAINT "jugadores_foto_id_fotos_id_fk" FOREIGN KEY ("foto_id") REFERENCES "public"."fotos"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "jugadores" ADD CONSTRAINT "jugadores_solicitud_id_solicitudes_registro_id_fk" FOREIGN KEY ("solicitud_id") REFERENCES "public"."solicitudes_registro"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sesiones" ADD CONSTRAINT "sesiones_usuario_id_usuarios_id_fk" FOREIGN KEY ("usuario_id") REFERENCES "public"."usuarios"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "solicitudes_registro" ADD CONSTRAINT "solicitudes_registro_solicitud_origen_id_solicitudes_registro_id_fk" FOREIGN KEY ("solicitud_origen_id") REFERENCES "public"."solicitudes_registro"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "apoderados_estado_idx" ON "apoderados" USING btree ("estado");--> statement-breakpoint
 CREATE INDEX "apoderados_solicitud_idx" ON "apoderados" USING btree ("solicitud_id");--> statement-breakpoint
 CREATE INDEX "jugador_apoderado_apoderado_idx" ON "jugador_apoderado" USING btree ("apoderado_id");--> statement-breakpoint
@@ -170,4 +175,5 @@ CREATE INDEX "jugadores_categoria_idx" ON "jugadores" USING btree ("categoria_id
 CREATE INDEX "jugadores_solicitud_idx" ON "jugadores" USING btree ("solicitud_id");--> statement-breakpoint
 CREATE INDEX "sesiones_usuario_idx" ON "sesiones" USING btree ("usuario_id");--> statement-breakpoint
 CREATE INDEX "sesiones_expira_idx" ON "sesiones" USING btree ("expira_en");--> statement-breakpoint
+CREATE INDEX "solicitudes_origen_idx" ON "solicitudes_registro" USING btree ("solicitud_origen_id");--> statement-breakpoint
 CREATE INDEX "solicitudes_estado_idx" ON "solicitudes_registro" USING btree ("estado");

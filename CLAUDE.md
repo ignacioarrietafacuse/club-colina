@@ -94,10 +94,11 @@ lo pide.
 - **Fotos en Postgres**, tabla `fotos` aparte; las fichas apuntan con `foto_id`. Usar
   `backend/src/lib/fotos.ts` (`guardarFoto`, `leerFoto`, `borrarFoto`). No hay volumen de fotos.
 - **`numero_camiseta` es texto** (`^[0-9]{1,2}$`): "0" y "00" son distintos. "99" = sin número asignado.
-- **Consulta de RUT (S2):** nunca devuelve ids. Los hijos precargados van con `posicion` (orden
-  estable que el servidor define, por ejemplo por `creado_en` e `id`) y la solicitud los nombra con
-  `ref.precargado`; al recibirla, el servidor recalcula la lista desde el RUT de quien llena y
-  rechaza una posición que no exista. Ignora la tabla `entrenadores`. Si un RUT es apoderado y
+- **Consulta de RUT (S2):** nunca devuelve ids. Los hijos precargados van con `posicion`: todos
+  los vínculos del apoderado en `jugador_apoderado`, sin filtrar por estado, ordenados por
+  `jugador_apoderado.creado_en, jugador_id`. La solicitud los nombra con `ref.precargado` y el
+  `primer_nombre` que vio; al recibirla, el servidor recalcula la lista desde el RUT de quien llena
+  y responde 409 `conflicto` si la posición no existe o el nombre no coincide. Ignora la tabla `entrenadores`. Si un RUT es apoderado y
   jugador adulto a la vez, el formulario lo trata como apoderado; Mony completa la parte
   de jugador en el panel.
 - **Apoderado ya registrado (S2):** puede volver a usar el formulario para agregar hijos
@@ -134,8 +135,20 @@ lo pide.
   link de `/familia` (o de `/completar` en una solicitud de segundo apoderado); el link se compara
   buscando por su hash. Se entrega una sola vez, en `solicitudCreadaResponse`; `POST
   .../solicitudes/:id/link` genera uno nuevo y anula el anterior. `credencial_token` va en claro.
-- **`/familia` (S2):** solo las personas que llegaron en esa solicitud (`solicitud_id`), nunca el
-  resto de la familia de la base.
+- **`/familia` (S2):** solo las personas con ese `solicitud_id`, más los hijos cuyo vínculo creó
+  esa solicitud (`jugador_apoderado.solicitud_id`) una vez que Mony lo aprobó (vínculo `activo`).
+  Nunca el resto de la familia de la base. `solicitud_id` de una persona se asigna solo si está
+  en NULL (persona nueva, o precargada del RUT de quien llena) y **nunca se reasigna**: un hijo
+  que ya existía y se nombró por RUT entra solo por su vínculo, y no aparece hasta que Mony lo
+  aprueba. A un hijo marcado "ya no está" no se le asigna `solicitud_id`. S2 cubre esto con un
+  test (un RUT ajeno nombrado en la solicitud no devuelve su nombre ni su `credencial_token`).
+- **Tipos de link (S2):** `/familia` busca el hash solo entre solicitudes `tipo = 'formulario'` y
+  `/completar` solo entre `tipo = 'segundo_apoderado'`; en cualquier otro caso, 404 genérico. Con test.
+- **Segundo apoderado (S2):** tiene su propia fila en `solicitudes_registro` (`tipo
+  segundo_apoderado`, con `solicitud_origen_id` = la solicitud que lo agregó) y su `solicitud_id`
+  apunta a esa fila suya. `otros_apoderados` de `/familia` sale de las solicitudes con
+  `solicitud_origen_id` = la actual.
 - **Avisos de suplantación (S2 calcula, S1 y S4 muestran):** `solicitudes_registro.avisos` con los
-  valores de `AVISOS_SOLICITUD`; S2 los calcula al recibir la solicitud.
+  valores de `AVISOS_SOLICITUD`, sin repetidos; S2 los calcula al recibir la solicitud y, si
+  involucra a personas de una solicitud pendiente anterior, le agrega a esa `hay_solicitud_posterior`.
 - **Datos de prueba:** siempre ficticios, con `generarRutFicticio()` de `shared/`.

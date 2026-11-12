@@ -46,13 +46,18 @@ export const AVISOS_SOLICITUD = [
   "apoderado_nuevo_para_hijo_registrado",
   /** Se marcó un hijo como "ya no está en el club". */
   "hijo_marcado_ya_no_esta",
+  /** El otro apoderado que se agrega ya existía en la base. */
+  "otro_apoderado_ya_registrado",
+  /** El RUT estaba precargado sin teléfono: no hubo con qué comparar. */
+  "sin_telefono_en_base",
+  /**
+   * Llegó después otra solicitud que involucra a las mismas personas. S2 lo agrega a las
+   * solicitudes pendientes anteriores, para que la primera (quizás la falsa) no quede limpia.
+   */
+  "hay_solicitud_posterior",
 ] as const;
 /** Segmento de URL de `/api/panel/:tipo/:id/...`. */
-export const TIPOS_PERSONA = [
-  "jugadores",
-  "apoderados",
-  "entrenadores",
-] as const;
+export const TIPOS_PERSONA = ["jugadores", "apoderados", "entrenadores"] as const;
 
 /** "99" = sin número asignado. Queda fuera de la validación de números repetidos (Etapa 2). */
 export const NUMERO_SIN_ASIGNAR = "99";
@@ -96,13 +101,9 @@ export const rut = z.string().regex(RUT_NORMALIZADO);
 /** Teléfono de entrada: acepta +56, espacios y guiones; lo deja en 9 dígitos. */
 export const telefonoEntrada = z.string().transform((valor, ctx) => {
   let digitos = valor.replace(/\D/g, "");
-  if (digitos.length === 11 && digitos.startsWith("56"))
-    digitos = digitos.slice(2);
+  if (digitos.length === 11 && digitos.startsWith("56")) digitos = digitos.slice(2);
   if (!/^[0-9]{9}$/.test(digitos)) {
-    ctx.addIssue({
-      code: "custom",
-      message: "Teléfono inválido: deben ser 9 dígitos",
-    });
+    ctx.addIssue({ code: "custom", message: "Teléfono inválido: deben ser 9 dígitos" });
     return z.NEVER;
   }
   return digitos;
@@ -113,7 +114,11 @@ export const telefono = z.string().regex(/^[0-9]{9}$/);
 export const numeroCamiseta = z.string().regex(/^[0-9]{1,2}$/);
 export const porcentajeBeca = z.int().min(0).max(100);
 export const nombrePropio = z.string().trim().min(1).max(80);
-export const email = z.string().trim().toLowerCase().pipe(z.email().max(200));
+export const email = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(z.email().max(200));
 /** Fecha `AAAA-MM-DD`. */
 export const fecha = z.iso.date();
 /** Fecha y hora ISO 8601 con zona. */
@@ -150,12 +155,7 @@ export const healthResponse = z.object({ estado: z.enum(["ok", "error"]) });
 // Público (sin login)
 // ---------------------------------------------------------------------------
 
-export const faltanteApoderado = z.enum([
-  "nombre",
-  "apellido",
-  "telefono",
-  "foto",
-]);
+export const faltanteApoderado = z.enum(["nombre", "apellido", "telefono", "foto"]);
 export const faltanteJugador = z.enum([
   "nombre",
   "apellido",
@@ -201,21 +201,19 @@ export const rutLookupResponse = z.union([
 ]);
 
 /** GET /api/public/categorias */
-export const categoriaPublica = z.object({
-  id: categoriaId,
-  nombre: z.string(),
-  disciplina,
-});
+export const categoriaPublica = z.object({ id: categoriaId, nombre: z.string(), disciplina });
 export const categoriasPublicasResponse = z.array(categoriaPublica);
 
 /**
  * Un hijo dentro de la solicitud. `precargado` es la `posicion` que devolvió `rut-lookup` para
- * el RUT de quien llena; el servidor recalcula la lista desde ese RUT y rechaza una posición
- * que no exista. Un hijo nuevo (o de otra familia) se nombra por su RUT.
+ * el RUT de quien llena, junto con el `primer_nombre` que se mostró. El servidor recalcula la
+ * lista desde ese RUT y responde 409 `conflicto` si la posición no existe o el nombre ya no
+ * coincide (la lista cambió entre la consulta y el envío). Un hijo nuevo, o de otra familia,
+ * se nombra por su RUT.
  */
 export const hijoSolicitud = z.object({
   ref: z.union([
-    z.object({ precargado: z.int().min(0) }),
+    z.object({ precargado: z.int().min(0), primer_nombre: z.string().min(1) }),
     z.object({ rut: rutEntrada }),
   ]),
   /** Casilla "Ya no está en el club": lo saca del registro y lo deja marcado para que Mony lo confirme. */
@@ -235,33 +233,54 @@ export const hijoSolicitud = z.object({
  * Si el apoderado ya está registrado, se ignoran sus datos propios: solo se procesan
  * `hijos` y `otro_apoderado`.
  */
-export const solicitudDatos = z.object({
-  rut: rutEntrada,
-  tipo: z.enum(["apoderado", "jugador_adulto"]),
-  consentimiento: z.literal(true),
-  nombre: nombrePropio.optional(),
-  apellido: nombrePropio.optional(),
-  telefono: telefonoEntrada.optional(),
-  foto: claveFoto.optional(),
-  /** Apoderado: "soy quien paga la mensualidad" (aplica a los hijos de esta solicitud). */
-  paga_mensualidad: z.boolean().optional(),
-  /** Jugador adulto. */
-  fecha_nacimiento: fecha.optional(),
-  disciplina: disciplina.optional(),
-  numero_camiseta: numeroCamiseta.optional(),
-  categoria_id: categoriaId.optional(),
-  hijos: z.array(hijoSolicitud).max(HIJOS_MAX_POR_SOLICITUD).default([]),
-  otro_apoderado: z
-    .object({
-      nombre: nombrePropio,
-      apellido: nombrePropio,
-      rut: rutEntrada,
-      telefono: telefonoEntrada,
-      /** Índices dentro de `hijos`. */
-      hijos: z.array(z.int().min(0)).min(1),
-    })
-    .optional(),
-});
+export const solicitudDatos = z
+  .object({
+    rut: rutEntrada,
+    tipo: z.enum(["apoderado", "jugador_adulto"]),
+    consentimiento: z.literal(true),
+    nombre: nombrePropio.optional(),
+    apellido: nombrePropio.optional(),
+    telefono: telefonoEntrada.optional(),
+    foto: claveFoto.optional(),
+    /** Apoderado: "soy quien paga la mensualidad" (aplica a los hijos de esta solicitud). */
+    paga_mensualidad: z.boolean().optional(),
+    /** Jugador adulto. */
+    fecha_nacimiento: fecha.optional(),
+    disciplina: disciplina.optional(),
+    numero_camiseta: numeroCamiseta.optional(),
+    categoria_id: categoriaId.optional(),
+    hijos: z.array(hijoSolicitud).max(HIJOS_MAX_POR_SOLICITUD).default([]),
+    otro_apoderado: z
+      .object({
+        nombre: nombrePropio,
+        apellido: nombrePropio,
+        rut: rutEntrada,
+        telefono: telefonoEntrada,
+        /** Índices dentro de `hijos`. */
+        hijos: z.array(z.int().min(0)).min(1),
+      })
+      .optional(),
+  })
+  .superRefine((d, ctx) => {
+    const posiciones = new Set<number>();
+    const ruts = new Set<string>([d.rut]);
+    d.hijos.forEach((h, i) => {
+      const repetido =
+        "precargado" in h.ref
+          ? posiciones.size === posiciones.add(h.ref.precargado).size
+          : ruts.size === ruts.add(h.ref.rut).size;
+      if (repetido) ctx.addIssue({ code: "custom", path: ["hijos", i, "ref"], message: "Hijo repetido" });
+    });
+    if (d.otro_apoderado) {
+      if (ruts.has(d.otro_apoderado.rut)) {
+        ctx.addIssue({ code: "custom", path: ["otro_apoderado", "rut"], message: "RUT repetido" });
+      }
+      const indices = d.otro_apoderado.hijos;
+      if (new Set(indices).size !== indices.length || indices.some((i) => i >= d.hijos.length)) {
+        ctx.addIssue({ code: "custom", path: ["otro_apoderado", "hijos"], message: "Índice inválido" });
+      }
+    }
+  });
 /**
  * La base guarda solo el hash de `token_acceso` y de cada `completar_token`: esta respuesta es la
  * única vez que se entregan. Si se pierden, Mony genera un link nuevo desde el panel.
@@ -269,14 +288,14 @@ export const solicitudDatos = z.object({
 export const solicitudCreadaResponse = z.object({
   token_acceso: token,
   /** Links personales para que el primer apoderado se los reenvíe a los otros. */
-  otros_apoderados: z.array(
-    z.object({ nombre_completo: z.string(), completar_token: token }),
-  ),
+  otros_apoderados: z.array(z.object({ nombre_completo: z.string(), completar_token: token })),
 });
 
 /**
- * GET /api/public/familia/:token_acceso — solo las personas que llegaron en esa solicitud,
- * nunca el resto de la familia que esté en la base.
+ * GET /api/public/familia/:token_acceso — solo las personas que llegaron en esa solicitud: las
+ * que tienen ese `solicitud_id` y los hijos cuyo vínculo creó esa solicitud
+ * (`jugador_apoderado.solicitud_id`), estos últimos solo cuando Mony aprobó el vínculo. Nunca el
+ * resto de la familia que esté en la base, ni un hijo marcado "ya no está".
  */
 export const familiaResponse = z.object({
   estado_solicitud: estadoSolicitud,
@@ -289,25 +308,17 @@ export const familiaResponse = z.object({
       credencial_token: token.optional(),
     }),
   ),
-  /** Otros apoderados de esta solicitud y si ya subieron su foto (sin su link: ver `solicitudCreadaResponse`). */
-  otros_apoderados: z.array(
-    z.object({ nombre_completo: z.string(), foto_subida: z.boolean() }),
-  ),
+  /** Otros apoderados de la solicitud y si ya subieron su foto (sin su link: ver `solicitudCreadaResponse`). */
+  otros_apoderados: z.array(z.object({ nombre_completo: z.string(), foto_subida: z.boolean() })),
 });
 
 /** GET /api/public/completar/:token */
-export const completarResponse = z.object({
-  primer_nombre: z.string(),
-  foto_subida: z.boolean(),
-});
+export const completarResponse = z.object({ primer_nombre: z.string(), foto_subida: z.boolean() });
 /** POST /api/public/completar/:token — multipart: archivo `foto` + campo `consentimiento=true`. Responde 204. */
 export const completarCampos = z.object({ consentimiento: z.literal("true") });
 
 /** GET /api/public/credencial/:credencial_token — 404 genérico si no está activa. */
-export const credencialResponse = z.object({
-  nombre_completo: z.string(),
-  rol,
-});
+export const credencialResponse = z.object({ nombre_completo: z.string(), rol });
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -488,9 +499,7 @@ export const entrenadorCrear = z.object({
 export const entrenadorPatch = entrenadorCrear.partial();
 
 /** GET /api/panel/solicitudes */
-export const solicitudesQuery = z.object({
-  estado: estadoSolicitud.optional(),
-});
+export const solicitudesQuery = z.object({ estado: estadoSolicitud.optional() });
 export const solicitudResumen = z.object({
   id,
   creada_en: fechaHora,
@@ -498,10 +507,7 @@ export const solicitudResumen = z.object({
   tipo: tipoSolicitud,
   coincide_base: z.boolean(),
   avisos: z.array(avisoSolicitud),
-  titular: z.object({
-    nombre_completo: z.string(),
-    rol: z.enum(["jugador", "apoderado"]),
-  }),
+  titular: z.object({ nombre_completo: z.string(), rol: z.enum(["jugador", "apoderado"]) }),
   personas_pendientes: z.int().min(0),
 });
 export const solicitudesResponse = z.array(solicitudResumen);
@@ -544,17 +550,13 @@ export const aprobarRequest = z.object({
       }),
     )
     .default([]),
-  apoderados: z
-    .array(z.object({ id, metodo_pago: metodoPago.optional() }))
-    .default([]),
+  apoderados: z.array(z.object({ id, metodo_pago: metodoPago.optional() })).default([]),
   vinculos: z.array(z.object({ jugador_id: id, apoderado_id: id })).default([]),
 });
 
 /** POST /api/panel/solicitudes/:id/rechazar — sin `personas` se rechaza todo lo pendiente. */
 export const rechazarRequest = z.object({
-  personas: z
-    .array(z.object({ rol: z.enum(["jugador", "apoderado"]), id }))
-    .optional(),
+  personas: z.array(z.object({ rol: z.enum(["jugador", "apoderado"]), id })).optional(),
 });
 
 /**
@@ -626,20 +628,15 @@ export const API = {
     entrenadores: "/api/panel/entrenadores",
     entrenador: (i: string) => `/api/panel/entrenadores/${seg(i)}`,
     foto: (t: TipoPersona, i: string) => `/api/panel/${t}/${seg(i)}/foto`,
-    regenerarToken: (t: TipoPersona, i: string) =>
-      `/api/panel/${t}/${seg(i)}/regenerar-token`,
+    regenerarToken: (t: TipoPersona, i: string) => `/api/panel/${t}/${seg(i)}/regenerar-token`,
     activar: (t: TipoPersona, i: string) => `/api/panel/${t}/${seg(i)}/activar`,
-    desactivar: (t: TipoPersona, i: string) =>
-      `/api/panel/${t}/${seg(i)}/desactivar`,
+    desactivar: (t: TipoPersona, i: string) => `/api/panel/${t}/${seg(i)}/desactivar`,
     categorias: "/api/panel/categorias",
   },
 } as const;
 
 /** URL que va dentro del QR. `baseUrl` es PUBLIC_BASE_URL (sin barra final). */
-export function urlCredencial(
-  baseUrl: string,
-  credencialToken: string,
-): string {
+export function urlCredencial(baseUrl: string, credencialToken: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/c/${encodeURIComponent(credencialToken)}`;
 }
 

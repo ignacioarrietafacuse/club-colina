@@ -136,6 +136,16 @@ describe("app", () => {
     const otra = await app.inject({ method: "GET", url: `/api/diagnostico/foto/${id}`, headers: h });
     expect(otra.statusCode).toBe(404);
 
+    const red = await app.inject({
+      method: "GET",
+      url: "/api/diagnostico/cabeceras",
+      headers: { ...h, "x-forwarded-for": "203.0.113.7", cookie: "sesion=x" },
+    });
+    expect(red.statusCode).toBe(200);
+    expect(red.json().cabeceras).toEqual({ "x-forwarded-for": "203.0.113.7" });
+    // trustProxy: false → la IP es la del socket, no la que dice la cabecera.
+    expect(red.json().ip).not.toBe("203.0.113.7");
+
     const noImagen = multipartFoto(Buffer.from("<svg/>"));
     const mala = await app.inject({
       method: "POST",

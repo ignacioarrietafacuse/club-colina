@@ -1,6 +1,6 @@
 {
-  "id": "ecffd295-de8a-41b0-80d7-6bf89149c28d",
-  "prevId": "16bdbd41-cfc6-4c29-941b-9525a3013d1b",
+  "id": "9616da3f-633f-4141-8a81-5501b45cf374",
+  "prevId": "c45948bc-c01f-4f36-a16c-cc7a0ef1e328",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -505,6 +505,12 @@
           "notNull": true,
           "default": "'pendiente'"
         },
+        "solicitud_id": {
+          "name": "solicitud_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "creado_en": {
           "name": "creado_en",
           "type": "timestamp with time zone",
@@ -556,6 +562,19 @@
           ],
           "onUpdate": "no action",
           "onDelete": "cascade"
+        },
+        "jugador_apoderado_solicitud_id_solicitudes_registro_id_fk": {
+          "name": "jugador_apoderado_solicitud_id_solicitudes_registro_id_fk",
+          "tableFrom": "jugador_apoderado",
+          "columnsFrom": [
+            "solicitud_id"
+          ],
+          "tableTo": "solicitudes_registro",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -989,6 +1008,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "solicitud_origen_id": {
+          "name": "solicitud_origen_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "consentimiento_en": {
           "name": "consentimiento_en",
           "type": "timestamp with time zone",
@@ -1031,6 +1056,21 @@
         }
       },
       "indexes": {
+        "solicitudes_origen_idx": {
+          "name": "solicitudes_origen_idx",
+          "columns": [
+            {
+              "expression": "solicitud_origen_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "btree",
+          "concurrently": false
+        },
         "solicitudes_estado_idx": {
           "name": "solicitudes_estado_idx",
           "columns": [
@@ -1047,7 +1087,21 @@
           "concurrently": false
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "solicitudes_registro_solicitud_origen_id_solicitudes_registro_id_fk": {
+          "name": "solicitudes_registro_solicitud_origen_id_solicitudes_registro_id_fk",
+          "tableFrom": "solicitudes_registro",
+          "columnsFrom": [
+            "solicitud_origen_id"
+          ],
+          "tableTo": "solicitudes_registro",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "solicitudes_registro_token_acceso_hash_unique": {
@@ -1068,13 +1122,17 @@
           "name": "solicitudes_tipo_check",
           "value": "\"tipo\" IN ('formulario', 'segundo_apoderado')"
         },
+        "solicitudes_origen_check": {
+          "name": "solicitudes_origen_check",
+          "value": "(\"tipo\" = 'segundo_apoderado') = (\"solicitud_origen_id\" IS NOT NULL)"
+        },
         "solicitudes_token_hash_check": {
           "name": "solicitudes_token_hash_check",
           "value": "\"token_acceso_hash\" ~ '^[0-9a-f]{64}$'"
         },
         "solicitudes_avisos_check": {
           "name": "solicitudes_avisos_check",
-          "value": "\"avisos\" <@ ARRAY['titular_ya_registrado', 'telefono_distinto_base', 'hijo_con_otro_apoderado', 'apoderado_nuevo_para_hijo_registrado', 'hijo_marcado_ya_no_esta']::text[]"
+          "value": "\"avisos\" <@ ARRAY['titular_ya_registrado', 'telefono_distinto_base', 'hijo_con_otro_apoderado', 'apoderado_nuevo_para_hijo_registrado', 'hijo_marcado_ya_no_esta', 'otro_apoderado_ya_registrado', 'sin_telefono_en_base', 'hay_solicitud_posterior']::text[]"
         },
         "solicitudes_consentimiento_check": {
           "name": "solicitudes_consentimiento_check",
