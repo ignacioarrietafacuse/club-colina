@@ -292,8 +292,12 @@ export async function detalleSolicitud(db: Ejecutor, id: string): Promise<Solici
     revisada_en: fechaHora(s.revisada_en),
     coincide_base: s.coincide_base,
     avisos: s.avisos,
-    jugadores: await Promise.all(m.visiblesJ.map((j) => detalleJugador(db, j))),
-    apoderados: await Promise.all(m.visiblesA.map((a) => detalleApoderado(db, a))),
+    jugadores: await Promise.all(
+      m.visiblesJ.map(async (j) => ({ ...(await detalleJugador(db, j)), propia: m.propiosJ.includes(j) })),
+    ),
+    apoderados: await Promise.all(
+      m.visiblesA.map(async (a) => ({ ...(await detalleApoderado(db, a)), propia: m.propiosA.includes(a) })),
+    ),
     vinculos: m.vinculos.map((v) => ({
       jugador_id: v.jugador_id,
       apoderado_id: v.apoderado_id,
@@ -555,19 +559,38 @@ const previoApoderado = previoJugador.pick({
 });
 
 /**
- * La foto de la copia puede haberse borrado después (Mony la cambió en el panel con
- * `cambiarFoto`): entonces la ficha vuelve sin foto en vez de apuntar a una que no existe.
+ * Qué foto queda al restaurar (decisión de Ignacio, 2026-11-12): se borra solo la foto que trajo
+ * la solicitud; si Mony la cambió desde el panel después, se conserva la de Mony.
+ * - La foto que trajo la solicitud se guardó en la misma transacción que la solicitud (S2), así
+ *   que tiene su mismo `creado_en` (`now()` es la hora de inicio de la transacción). Una foto
+ *   más nueva la subió Mony con `cambiarFoto`.
+ * - Si vuelve la de la copia y ya no existe (`cambiarFoto` borra la anterior), la ficha queda sin
+ *   foto en vez de apuntar a una borrada.
  */
-async function fotoVigente(tx: Ejecutor, fotoId: string | null | undefined): Promise<{ foto_id?: string | null }> {
-  if (fotoId === undefined || fotoId === null) return {};
-  const [f] = await tx.select({ id: fotos.id }).from(fotos).where(eq(fotos.id, fotoId));
-  return f ? {} : { foto_id: null };
+async function fotoAlRestaurar(
+  tx: Ejecutor,
+  solicitudId: string,
+  actual: string | null,
+  copia: string | null | undefined,
+): Promise<{ foto_id?: string | null }> {
+  if (copia === undefined) return {};
+  if (actual !== null && actual !== copia) {
+    const [f] = await tx
+      .select({ id: fotos.id })
+      .from(fotos)
+      .innerJoin(solicitudesRegistro, eq(solicitudesRegistro.id, solicitudId))
+      .where(and(eq(fotos.id, actual), sql`${fotos.creado_en} > ${solicitudesRegistro.creada_en}`));
+    if (f) return { foto_id: actual };
+  }
+  if (copia === null) return { foto_id: null };
+  const [f] = await tx.select({ id: fotos.id }).from(fotos).where(eq(fotos.id, copia));
+  return { foto_id: f ? copia : null };
 }
 
 /**
  * Rechaza a una persona. Si ya existía antes de la solicitud (hay ficha previa), vuelve a como
  * estaba: sus campos, su foto, su estado y su `solicitud_id`, y se borra la foto que trajo la
- * solicitud. Si es nueva, queda `rechazado`. En los dos casos, sin credencial.
+ * solicitud (una que Mony subió después se conserva; ver `fotoAlRestaurar`). Si es nueva, queda `rechazado`. En los dos casos, sin credencial.
  */
 async function rechazarPersona(
   tx: Ejecutor,
@@ -621,7 +644,7 @@ async function rechazarPersona(
       .update(jugadores)
       .set({
         ...resto,
-        ...(await fotoVigente(tx, d.foto_id)),
+        ...(await fotoAlRestaurar(tx, solicitudId, actual.foto_id, d.foto_id)),
         ...(marcado_retiro_en !== undefined
           ? { marcado_retiro_en: marcado_retiro_en === null ? null : new Date(marcado_retiro_en) }
           : {}),
@@ -635,7 +658,7 @@ async function rechazarPersona(
       .update(apoderados)
       .set({
         ...d,
-        ...(await fotoVigente(tx, d.foto_id)),
+        ...(await fotoAlRestaurar(tx, solicitudId, actual.foto_id, d.foto_id)),
         estado: "precargado",
         credencial_token: null,
       })
