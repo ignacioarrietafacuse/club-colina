@@ -51,7 +51,8 @@ describe("login y sesiones", () => {
     expect(c?.httpOnly).toBe(true);
     expect(c?.sameSite).toBe("Lax");
     expect(c?.path).toBe("/");
-    expect(c?.secure).toBeUndefined();
+    expect(c?.secure).toBe(true);
+    expect(c?.domain).toBeUndefined();
     // La base guarda solo el hash del token.
     const token = cookieDe(r);
     const filas = await db.select().from(sesiones).where(eq(sesiones.id, hashToken(token)));
@@ -71,12 +72,27 @@ describe("login y sesiones", () => {
     await app.close();
   });
 
-  it("en producción la cookie es Secure", async () => {
-    const app = await construirApp({ config: configTest({ NODE_ENV: "production" }), db });
-    const r = await login(app, await usuarioNuevo());
-    expect(r.cookies.find((x) => x.name === COOKIE_SESION)?.secure).toBe(true);
-    await app.close();
-  });
+  it.each(["development", "production"] as const)(
+    "en %s la cookie cumple __Host-: Secure, Path=/ y sin Domain, también al borrarla",
+    async (NODE_ENV) => {
+      const app = await construirApp({ config: configTest({ NODE_ENV }), db });
+      const r = await login(app, await usuarioNuevo());
+      const salida = await app.inject({
+        method: "POST",
+        url: "/api/auth/logout",
+        cookies: { [COOKIE_SESION]: cookieDe(r) },
+      });
+      expect(COOKIE_SESION).toBe("__Host-sesion");
+      for (const cabecera of [r.headers["set-cookie"], salida.headers["set-cookie"]]) {
+        const linea = String(cabecera);
+        expect(linea.startsWith("__Host-sesion=")).toBe(true);
+        expect(linea).toMatch(/; Secure(;|$)/);
+        expect(linea).toMatch(/; Path=\/(;|$)/);
+        expect(linea).not.toMatch(/Domain=/i);
+      }
+      await app.close();
+    },
+  );
 
   it("normaliza el usuario: mayúsculas y espacios dan lo mismo", async () => {
     const app = await construirApp({ config: configTest(), db });

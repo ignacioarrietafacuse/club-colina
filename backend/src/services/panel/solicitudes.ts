@@ -31,10 +31,12 @@ import type { Ejecutor } from "../../db/cliente";
 import {
   apoderados,
   fichasPrevias,
+  fotos,
   jugadorApoderado,
   jugadores,
   solicitudesRegistro,
 } from "../../db/schema";
+import { CANDADO_SOLICITUDES } from "../../lib/candados";
 import { ErrorApi, noEncontrado } from "../../lib/errores";
 import { borrarFoto } from "../../lib/fotos";
 import { generarToken, hashToken } from "../../lib/tokens";
@@ -51,6 +53,15 @@ const fechaHora = (d: Date | null) => (d ? d.toISOString() : null);
 const conflicto = (mensaje: string) => new ErrorApi(409, "conflicto", mensaje);
 const fueraDeLaSolicitud = () =>
   conflicto("Esa persona o vínculo no está pendiente en esta solicitud: se decide desde su propia solicitud");
+
+/**
+ * El mismo candado que toma S2 al recibir una solicitud: aprobar y rechazar restauran o borran
+ * `fichas_previas`, y una solicitud en paralelo no puede copiar una ficha a medio restaurar. Va
+ * primero en la transacción, antes de bloquear filas, en el mismo orden que S2.
+ */
+async function tomarCandado(tx: Ejecutor): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(${CANDADO_SOLICITUDES})`);
+}
 
 async function filaSolicitud(db: Ejecutor, id: string, bloquear = false): Promise<Fila> {
   const consulta = db.select().from(solicitudesRegistro).where(eq(solicitudesRegistro.id, id));
@@ -360,11 +371,42 @@ export async function aprobarSolicitud(
   pedido: z.output<typeof aprobarRequest>,
 ): Promise<void> {
   await db.transaction(async (tx) => {
+    await tomarCandado(tx);
     const s = await filaSolicitud(tx, id, true);
     const m = await miembros(tx, s);
     const propiosJ = new Set(m.propiosJ);
     const propiosA = new Set(m.propiosA);
     const cats = await cargarCategorias(tx);
+
+    // Los apoderados van primero: un apoderado aprobado en este mismo pedido ya cuenta como
+    // contacto del jugador adulto (solo cuenta uno activo).
+    for (const pa of pedido.apoderados) {
+      if (!propiosA.has(pa.id)) throw fueraDeLaSolicitud();
+      const [a] = await tx
+        .select({
+          estado: apoderados.estado,
+          nombre: apoderados.nombre,
+          apellido: apoderados.apellido,
+          telefono: apoderados.telefono,
+          foto_id: apoderados.foto_id,
+        })
+        .from(apoderados)
+        .where(eq(apoderados.id, pa.id))
+        .for("update");
+      if (!a || a.estado !== "pendiente") throw fueraDeLaSolicitud();
+      const faltan = faltantesApoderado(a);
+      if (faltan.length > 0) throw incompleto(faltan);
+      await conRestricciones(() =>
+        tx
+          .update(apoderados)
+          .set({
+            ...(pa.metodo_pago ? { metodo_pago: pa.metodo_pago } : {}),
+            estado: "activo",
+            credencial_token: generarToken(),
+          })
+          .where(eq(apoderados.id, pa.id)),
+      );
+    }
 
     for (const pj of pedido.jugadores) {
       if (!propiosJ.has(pj.id)) throw fueraDeLaSolicitud();
@@ -406,34 +448,6 @@ export async function aprobarSolicitud(
             credencial_token: generarToken(),
           })
           .where(eq(jugadores.id, pj.id)),
-      );
-    }
-
-    for (const pa of pedido.apoderados) {
-      if (!propiosA.has(pa.id)) throw fueraDeLaSolicitud();
-      const [a] = await tx
-        .select({
-          estado: apoderados.estado,
-          nombre: apoderados.nombre,
-          apellido: apoderados.apellido,
-          telefono: apoderados.telefono,
-          foto_id: apoderados.foto_id,
-        })
-        .from(apoderados)
-        .where(eq(apoderados.id, pa.id))
-        .for("update");
-      if (!a || a.estado !== "pendiente") throw fueraDeLaSolicitud();
-      const faltan = faltantesApoderado(a);
-      if (faltan.length > 0) throw incompleto(faltan);
-      await conRestricciones(() =>
-        tx
-          .update(apoderados)
-          .set({
-            ...(pa.metodo_pago ? { metodo_pago: pa.metodo_pago } : {}),
-            estado: "activo",
-            credencial_token: generarToken(),
-          })
-          .where(eq(apoderados.id, pa.id)),
       );
     }
 
@@ -514,6 +528,16 @@ const previoApoderado = previoJugador.pick({
 });
 
 /**
+ * La foto de la copia puede haberse borrado después (Mony la cambió en el panel con
+ * `cambiarFoto`): entonces la ficha vuelve sin foto en vez de apuntar a una que no existe.
+ */
+async function fotoVigente(tx: Ejecutor, fotoId: string | null | undefined): Promise<{ foto_id?: string | null }> {
+  if (fotoId === undefined || fotoId === null) return {};
+  const [f] = await tx.select({ id: fotos.id }).from(fotos).where(eq(fotos.id, fotoId));
+  return f ? {} : { foto_id: null };
+}
+
+/**
  * Rechaza a una persona. Si ya existía antes de la solicitud (hay ficha previa), vuelve a como
  * estaba: sus campos, su foto, su estado y su `solicitud_id`, y se borra la foto que trajo la
  * solicitud. Si es nueva, queda `rechazado`. En los dos casos, sin credencial.
@@ -564,11 +588,13 @@ async function rechazarPersona(
   }
   if (tipo === "jugador") {
     const d = previoJugador.parse(previa.datos);
+    // La fecha de "ya no está" va en la copia como texto ISO: vuelve a ser fecha.
     const { marcado_retiro_en, ...resto } = d;
     await tx
       .update(jugadores)
       .set({
         ...resto,
+        ...(await fotoVigente(tx, d.foto_id)),
         ...(marcado_retiro_en !== undefined
           ? { marcado_retiro_en: marcado_retiro_en === null ? null : new Date(marcado_retiro_en) }
           : {}),
@@ -582,6 +608,7 @@ async function rechazarPersona(
       .update(apoderados)
       .set({
         ...d,
+        ...(await fotoVigente(tx, d.foto_id)),
         estado: "precargado",
         credencial_token: null,
       })
@@ -592,10 +619,14 @@ async function rechazarPersona(
 }
 
 /**
- * Rechaza a las personas indicadas (propias de la solicitud y pendientes), o a todas las propias
- * pendientes. Se borran los vínculos que esta solicitud (o su origen) creó para ellas, también si
- * ya estaban activos: no queda ninguno hacia alguien rechazado. Sin `personas`, también se borran
- * los vínculos pendientes hacia personas de otras solicitudes.
+ * Rechaza a las personas y los vínculos indicados, o, si no viene ninguno de los dos, todo lo
+ * pendiente de la solicitud.
+ * - Personas: propias de la solicitud y pendientes. Se borran los vínculos que esta solicitud (o
+ *   su origen) creó para ellas, también si ya estaban activos: no queda ninguno hacia alguien
+ *   rechazado.
+ * - Vínculos: pendientes y de esta solicitud. Se borran; sus personas siguen como estaban.
+ * - Sin nada indicado, también se borran los vínculos pendientes hacia personas de otras
+ *   solicitudes.
  */
 export async function rechazarSolicitud(
   db: Ejecutor,
@@ -603,13 +634,16 @@ export async function rechazarSolicitud(
   pedido: z.output<typeof rechazarRequest>,
 ): Promise<void> {
   await db.transaction(async (tx) => {
+    await tomarCandado(tx);
     const s = await filaSolicitud(tx, id, true);
     const m = await miembros(tx, s);
+    const parcial = pedido.personas !== undefined || pedido.vinculos !== undefined;
     let candidatosJ: string[];
     let candidatosA: string[];
-    if (pedido.personas) {
-      candidatosJ = unicos(pedido.personas.filter((p) => p.rol === "jugador").map((p) => p.id));
-      candidatosA = unicos(pedido.personas.filter((p) => p.rol === "apoderado").map((p) => p.id));
+    if (parcial) {
+      const personas = pedido.personas ?? [];
+      candidatosJ = unicos(personas.filter((p) => p.rol === "jugador").map((p) => p.id));
+      candidatosA = unicos(personas.filter((p) => p.rol === "apoderado").map((p) => p.id));
       if (candidatosJ.some((j) => !m.propiosJ.includes(j)) || candidatosA.some((a) => !m.propiosA.includes(a))) {
         throw fueraDeLaSolicitud();
       }
@@ -637,7 +671,14 @@ export async function rechazarSolicitud(
               .where(and(inArray(apoderados.id, candidatosA), eq(apoderados.estado, "pendiente")))
               .for("update")
           ).map((f) => f.id);
-    if (pedido.personas && rechJ.length + rechA.length !== candidatosJ.length + candidatosA.length) {
+    if (parcial && rechJ.length + rechA.length !== candidatosJ.length + candidatosA.length) {
+      throw fueraDeLaSolicitud();
+    }
+    const pendientesDeEsta = new Set(
+      m.vinculos.filter((v) => v.estado === "pendiente").map((v) => `${v.jugador_id}|${v.apoderado_id}`),
+    );
+    const vinculosPedidos = pedido.vinculos ?? [];
+    if (vinculosPedidos.some((v) => !pendientesDeEsta.has(`${v.jugador_id}|${v.apoderado_id}`))) {
       throw fueraDeLaSolicitud();
     }
 
@@ -655,7 +696,21 @@ export async function rechazarSolicitud(
     if (haciaRechazados) {
       await tx.delete(jugadorApoderado).where(and(inArray(jugadorApoderado.solicitud_id, familia), haciaRechazados));
     }
-    if (!pedido.personas) {
+    // Un vínculo de esta solicitud (en una de segundo apoderado, también el que creó su origen
+    // hacia él): se borra solo si sigue pendiente.
+    for (const v of vinculosPedidos) {
+      await tx
+        .delete(jugadorApoderado)
+        .where(
+          and(
+            eq(jugadorApoderado.jugador_id, v.jugador_id),
+            eq(jugadorApoderado.apoderado_id, v.apoderado_id),
+            eq(jugadorApoderado.estado, "pendiente"),
+            inArray(jugadorApoderado.solicitud_id, familia),
+          ),
+        );
+    }
+    if (!parcial) {
       await tx
         .delete(jugadorApoderado)
         .where(and(eq(jugadorApoderado.solicitud_id, s.id), eq(jugadorApoderado.estado, "pendiente")));
