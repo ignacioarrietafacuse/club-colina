@@ -4,7 +4,14 @@ import {
   type SolicitudDetalle,
 } from "@club-colina/shared";
 import { describe, expect, it } from "vitest";
-import { armarAprobacion, armarRechazo, formInicial, llaveVinculo } from "./aprobacion";
+import {
+  armarAprobacion,
+  armarRechazo,
+  formInicial,
+  llaveVinculo,
+  RECHAZO_TOTAL,
+  vinculoVa,
+} from "./aprobacion";
 
 // Datos siempre ficticios.
 const J1 = "11111111-1111-4111-8111-111111111111";
@@ -183,5 +190,45 @@ describe("rechazar", () => {
     form.jugadores[J1]!.marcado = false;
     form.apoderados[A1]!.marcado = false;
     expect(armarRechazo(form).ok).toBe(false);
+  });
+});
+
+describe("vínculos y personas", () => {
+  const LLAVE = llaveVinculo({ jugador_id: J1, apoderado_id: A1 });
+
+  it("un vínculo no se aprueba si su jugador queda desmarcado", () => {
+    const form = formInicial(solicitud());
+    form.jugadores[J1]!.marcado = false;
+    expect(vinculoVa(form, LLAVE)).toBe(false);
+    const r = armarAprobacion(form, nombres);
+    expect(r.ok && r.datos.vinculos).toEqual([]);
+  });
+
+  it("un vínculo con una persona ya rechazada parte desmarcado y no se envía", () => {
+    const s = solicitud({ jugadores: [jugador(J1, { estado: "rechazado" })] });
+    const form = formInicial(s);
+    expect(form.vinculos[LLAVE]).toBe(false);
+    const r = armarAprobacion(form, nombres);
+    expect(r.ok && r.datos.vinculos).toEqual([]);
+  });
+
+  it("un vínculo con una persona de otra solicitud (activa) sí se aprueba", () => {
+    const s = solicitud({
+      jugadores: [],
+      vinculos: [{ jugador_id: J1, apoderado_id: A1, paga_mensualidad: true, estado: "pendiente" }],
+    });
+    const r = armarAprobacion(formInicial(s), nombres);
+    expect(r.ok && r.datos.vinculos).toEqual([{ jugador_id: J1, apoderado_id: A1 }]);
+  });
+
+  it("quien no tiene foto parte desmarcado (no se puede aprobar)", () => {
+    const s = solicitud({ jugadores: [jugador(J1, { tiene_foto: false, faltantes: ["foto"] })] });
+    expect(formInicial(s).jugadores[J1]?.marcado).toBe(false);
+  });
+
+  it("solo con vínculos pendientes, el rechazo de todo va sin personas", () => {
+    expect(RECHAZO_TOTAL).toEqual({});
+    const s = solicitud({ jugadores: [], apoderados: [] });
+    expect(armarRechazo(formInicial(s)).ok).toBe(false);
   });
 });

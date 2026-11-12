@@ -36,13 +36,33 @@ export interface FormAprobacion {
 export const llaveVinculo = (v: { jugador_id: string; apoderado_id: string }) =>
   `${v.jugador_id}:${v.apoderado_id}`;
 
-/** Solo lo pendiente se aprueba o rechaza; parte todo marcado con los valores que ya trae. */
+/** Una persona sin foto no se puede aprobar (diseño: sin foto no se activa la credencial). */
+const bloquea = (faltantes: readonly string[]) => faltantes.includes("foto");
+
+/**
+ * Un vínculo con una persona de esta solicitud rechazada o inactiva no se ofrece para aprobar:
+ * quedaría activo hacia alguien que no lo está.
+ */
+export function vinculoAprobable(
+  v: { jugador_id: string; apoderado_id: string },
+  s: SolicitudDetalle,
+): boolean {
+  const caida = (estado: string) => estado === "rechazado" || estado === "inactivo";
+  const jugador = s.jugadores.find((j) => j.id === v.jugador_id);
+  const apoderado = s.apoderados.find((a) => a.id === v.apoderado_id);
+  return !(jugador && caida(jugador.estado)) && !(apoderado && caida(apoderado.estado));
+}
+
+/**
+ * Solo lo pendiente se aprueba o rechaza; parte marcado con los valores que ya trae, salvo quien
+ * no tiene foto (no se puede aprobar) y los vínculos con una persona rechazada.
+ */
 export function formInicial(s: SolicitudDetalle): FormAprobacion {
   const jugadores: Record<string, FormJugador> = {};
   for (const j of s.jugadores) {
     if (j.estado !== "pendiente") continue;
     jugadores[j.id] = {
-      marcado: true,
+      marcado: !bloquea(j.faltantes),
       categoria_id: j.categoria_id === null ? "" : String(j.categoria_id),
       numero_camiseta: j.numero_camiseta ?? "",
       beca_mensualidad_pct: String(j.beca_mensualidad_pct),
@@ -54,13 +74,25 @@ export function formInicial(s: SolicitudDetalle): FormAprobacion {
   const apoderados: Record<string, FormApoderado> = {};
   for (const a of s.apoderados) {
     if (a.estado !== "pendiente") continue;
-    apoderados[a.id] = { marcado: true, metodo_pago: a.metodo_pago ?? "" };
+    apoderados[a.id] = { marcado: !bloquea(a.faltantes), metodo_pago: a.metodo_pago ?? "" };
   }
   const vinculos: Record<string, boolean> = {};
   for (const v of s.vinculos) {
-    if (v.estado === "pendiente") vinculos[llaveVinculo(v)] = true;
+    if (v.estado === "pendiente") vinculos[llaveVinculo(v)] = vinculoAprobable(v, s);
   }
   return { jugadores, apoderados, vinculos };
+}
+
+/**
+ * Un vínculo solo va si está marcado y ninguna de sus dos personas quedó pendiente sin marcar en
+ * este envío: aprobar el vínculo de alguien que no se aprueba lo dejaría a medias.
+ */
+export function vinculoVa(form: FormAprobacion, llave: string): boolean {
+  if (!form.vinculos[llave]) return false;
+  const [jugadorId = "", apoderadoId = ""] = llave.split(":");
+  const jugador = form.jugadores[jugadorId];
+  const apoderado = form.apoderados[apoderadoId];
+  return (!jugador || jugador.marcado) && (!apoderado || apoderado.marcado);
 }
 
 /** Texto → entero, o NaN si no es un entero escrito tal cual (así el esquema lo rechaza). */
@@ -104,9 +136,9 @@ export function armarAprobacion(
     apoderados: Object.entries(form.apoderados)
       .filter(([, a]) => a.marcado)
       .map(([id, a]) => ({ id, ...(a.metodo_pago ? { metodo_pago: a.metodo_pago } : {}) })),
-    vinculos: Object.entries(form.vinculos)
-      .filter(([, marcado]) => marcado)
-      .map(([llave]) => {
+    vinculos: Object.keys(form.vinculos)
+      .filter((llave) => vinculoVa(form, llave))
+      .map((llave) => {
         const [jugador_id = "", apoderado_id = ""] = llave.split(":");
         return { jugador_id, apoderado_id };
       }),
@@ -130,6 +162,21 @@ export function armarAprobacion(
   }
   return { ok: true, datos };
 }
+
+/** Personas marcadas para el rechazo. */
+export function contarMarcadas(form: FormAprobacion): number {
+  return (
+    Object.values(form.jugadores).filter((j) => j.marcado).length +
+    Object.values(form.apoderados).filter((a) => a.marcado).length
+  );
+}
+
+/**
+ * Rechazo de todo lo pendiente de la solicitud (personas y vínculos): el contrato lo hace con
+ * un cuerpo sin `personas`. Es la única forma de rechazar un vínculo, así que la pantalla lo
+ * ofrece aparte y con confirmación.
+ */
+export const RECHAZO_TOTAL: RechazarRequest = {};
 
 /** Rechazo de las personas marcadas (jugadores y apoderados pendientes). */
 export function armarRechazo(form: FormAprobacion): Resultado<RechazarRequest> {

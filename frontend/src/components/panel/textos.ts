@@ -3,6 +3,21 @@ import { NUMERO_SIN_ASIGNAR } from "@club-colina/shared";
 
 /** Textos del panel para los valores fijos del contrato. */
 
+/** Campos que pueden faltar en una ficha (`faltanteJugador` y `faltanteApoderado`). */
+export const TEXTO_FALTANTE: Record<string, string> = {
+  nombre: "nombre",
+  apellido: "apellido",
+  fecha_nacimiento: "fecha de nacimiento",
+  categoria: "categoría",
+  numero_camiseta: "número",
+  telefono: "teléfono",
+  foto: "foto",
+};
+
+export function textoFaltantes(faltantes: readonly string[]): string {
+  return faltantes.map((f) => TEXTO_FALTANTE[f] ?? f).join(", ");
+}
+
 export const TEXTO_AVISO: Record<AvisoSolicitud, string> = {
   titular_ya_registrado: "Este RUT ya había enviado el formulario antes.",
   telefono_distinto_base: "El teléfono ingresado no coincide con el de la base.",

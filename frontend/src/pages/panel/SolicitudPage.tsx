@@ -10,11 +10,12 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { AlertTriangle, ArrowLeft, Check, Copy, Link2, X } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { EstadoBadge, FotoPersona } from "@/components/panel/persona";
 import {
   nombreCompleto,
   TEXTO_AVISO,
+  textoFaltantes,
   TEXTO_DISCIPLINA,
   TEXTO_METODO_PAGO,
   textoFecha,
@@ -25,7 +26,11 @@ import { api, mensajeDeError } from "@/lib/api";
 import {
   armarAprobacion,
   armarRechazo,
+  contarMarcadas,
   formInicial,
+  RECHAZO_TOTAL,
+  vinculoAprobable,
+  vinculoVa,
   llaveVinculo,
   type FormAprobacion,
   type FormJugador,
@@ -42,6 +47,9 @@ export function SolicitudPage() {
     queryFn: ({ signal }) => api.panel.categorias(signal),
     staleTime: 5 * 60_000,
   });
+  // El formulario se rehace solo después de aprobar o rechazar, no cada vez que la consulta
+  // vuelve a cargar sola: así no se pierde lo que Mony está escribiendo.
+  const [generacion, setGeneracion] = useState(0);
 
   return (
     <div>
@@ -58,7 +66,22 @@ export function SolicitudPage() {
       ) : consulta.isPending ? (
         <p className="text-sm text-muted-foreground">Cargando…</p>
       ) : (
-        <DetalleSolicitud s={consulta.data} categorias={categorias.data ?? []} />
+        <>
+          {categorias.isError && (
+            <p role="alert" className="mb-4 rounded-lg bg-warning/15 px-4 py-3 text-sm">
+              No se pudieron cargar las categorías: se mantiene la que ya tiene cada jugador.
+            </p>
+          )}
+          <DetalleSolicitud
+            key={generacion}
+            s={consulta.data}
+            categorias={categorias.data}
+            alCambiar={async () => {
+              await consulta.refetch();
+              setGeneracion((g) => g + 1);
+            }}
+          />
+        </>
       )}
     </div>
   );
@@ -67,19 +90,23 @@ export function SolicitudPage() {
 function DetalleSolicitud({
   s,
   categorias,
+  alCambiar,
 }: {
   s: SolicitudDetalle;
-  categorias: CategoriaPanel[];
+  /** `undefined` mientras no carguen (o si fallaron): el selector queda deshabilitado. */
+  categorias: CategoriaPanel[] | undefined;
+  alCambiar: () => Promise<void>;
 }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormAprobacion>(() => formInicial(s));
   const [errores, setErrores] = useState<string[]>([]);
-  const [confirmarRechazo, setConfirmarRechazo] = useState(false);
+  const [confirmar, setConfirmar] = useState<null | "marcadas" | "todo">(null);
 
-  // Cuando llega el detalle actualizado (después de aprobar o rechazar), el formulario se rehace.
-  useEffect(() => {
-    setForm(formInicial(s));
-  }, [s]);
+  // Cambiar las marcas anula una confirmación de rechazo a medio dar.
+  function cambiarForm(cambio: (f: FormAprobacion) => FormAprobacion) {
+    setConfirmar(null);
+    setForm(cambio);
+  }
 
   const nombres: Record<string, string> = Object.fromEntries(
     [...s.jugadores, ...s.apoderados].map((p) => [p.id, nombreCompleto(p)]),
@@ -87,15 +114,13 @@ function DetalleSolicitud({
 
   const refrescar = async () => {
     await queryClient.invalidateQueries({ queryKey: ["panel"] });
+    await alCambiar();
   };
 
   const aprobar = useMutation({
     mutationFn: (datos: Parameters<typeof api.panel.aprobarSolicitud>[1]) =>
       api.panel.aprobarSolicitud(s.id, datos),
-    onSuccess: async (detalle) => {
-      queryClient.setQueryData(["panel", "solicitud", s.id], detalle);
-      await refrescar();
-    },
+    onSuccess: refrescar,
   });
   const rechazar = useMutation({
     mutationFn: (datos: Parameters<typeof api.panel.rechazarSolicitud>[1]) =>
@@ -103,29 +128,31 @@ function DetalleSolicitud({
     onSuccess: refrescar,
   });
 
-  const hayPendientes =
-    Object.keys(form.jugadores).length +
-      Object.keys(form.apoderados).length +
-      Object.keys(form.vinculos).length >
-    0;
+  const personasPendientes =
+    Object.keys(form.jugadores).length + Object.keys(form.apoderados).length;
+  const hayPendientes = personasPendientes + Object.keys(form.vinculos).length > 0;
+  const marcadas = contarMarcadas(form);
   const ocupado = aprobar.isPending || rechazar.isPending;
 
   function enviarAprobacion() {
-    setConfirmarRechazo(false);
+    setConfirmar(null);
+    rechazar.reset();
     const r = armarAprobacion(form, nombres);
     if (!r.ok) return setErrores(r.errores);
     setErrores([]);
     aprobar.mutate(r.datos);
   }
-  function enviarRechazo() {
-    const r = armarRechazo(form);
+  function enviarRechazo(cual: "marcadas" | "todo") {
+    aprobar.reset();
+    const r = cual === "todo" ? { ok: true as const, datos: RECHAZO_TOTAL } : armarRechazo(form);
     if (!r.ok) return setErrores(r.errores);
     setErrores([]);
-    if (!confirmarRechazo) return setConfirmarRechazo(true);
-    setConfirmarRechazo(false);
+    if (confirmar !== cual) return setConfirmar(cual);
+    setConfirmar(null);
     rechazar.mutate(r.datos);
   }
 
+  // Solo el error de la última acción.
   const errorServidor = aprobar.error ?? rechazar.error;
 
   return (
@@ -168,7 +195,7 @@ function DetalleSolicitud({
             a={a}
             form={form.apoderados[a.id]}
             onChange={(cambio) =>
-              setForm((f) => {
+              cambiarForm((f) => {
                 const actual = f.apoderados[a.id];
                 if (!actual) return f;
                 return { ...f, apoderados: { ...f.apoderados, [a.id]: { ...actual, ...cambio } } };
@@ -184,10 +211,10 @@ function DetalleSolicitud({
           <TarjetaJugador
             key={j.id}
             j={j}
-            categorias={categorias.filter((c) => c.disciplina === j.disciplina)}
+            categorias={categorias?.filter((c) => c.disciplina === j.disciplina)}
             form={form.jugadores[j.id]}
             onChange={(cambio) =>
-              setForm((f) => {
+              cambiarForm((f) => {
                 const actual = f.jugadores[j.id];
                 if (!actual) return f;
                 return { ...f, jugadores: { ...f.jugadores, [j.id]: { ...actual, ...cambio } } };
@@ -203,14 +230,16 @@ function DetalleSolicitud({
             {s.vinculos.map((v) => {
               const llave = llaveVinculo(v);
               const pendiente = llave in form.vinculos;
+              const aprobable = vinculoAprobable(v, s);
               return (
                 <label key={llave} className="flex items-center gap-3 px-4 py-3 text-sm">
                   {pendiente ? (
                     <input
                       type="checkbox"
-                      checked={form.vinculos[llave] ?? false}
+                      disabled={!aprobable || (form.vinculos[llave] && !vinculoVa(form, llave))}
+                      checked={vinculoVa(form, llave)}
                       onChange={(e) =>
-                        setForm((f) => ({
+                        cambiarForm((f) => ({
                           ...f,
                           vinculos: { ...f.vinculos, [llave]: e.target.checked },
                         }))
@@ -224,6 +253,16 @@ function DetalleSolicitud({
                     {nombres[v.jugador_id] ?? "Jugador de otra solicitud"}
                     {v.paga_mensualidad && (
                       <span className="text-muted-foreground"> · paga la mensualidad</span>
+                    )}
+                    {pendiente && !aprobable && (
+                      <span className="block text-xs text-destructive">
+                        Una de las dos personas está rechazada o inactiva: no se puede aprobar.
+                      </span>
+                    )}
+                    {pendiente && aprobable && form.vinculos[llave] && !vinculoVa(form, llave) && (
+                      <span className="block text-xs text-muted-foreground">
+                        Se aprueba junto con la persona desmarcada, no antes.
+                      </span>
                     )}
                   </span>
                   <Badge tone={v.estado === "activo" ? "success" : "warning"}>
@@ -251,12 +290,32 @@ function DetalleSolicitud({
       {hayPendientes ? (
         <div className="card-surface flex flex-wrap items-center gap-3 p-4">
           <p className="flex-1 text-sm text-muted-foreground">
-            Se aprueba o rechaza solo lo marcado. Lo que quede sin marcar sigue pendiente.
+            Se aprueba lo marcado; lo que quede sin marcar sigue pendiente. Un vínculo solo se
+            rechaza con «Rechazar todo lo pendiente».
           </p>
-          <Button variant="outline" onClick={enviarRechazo} disabled={ocupado}>
+          {confirmar && (
+            <Button variant="ghost" onClick={() => setConfirmar(null)} disabled={ocupado}>
+              Cancelar
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => enviarRechazo("todo")} disabled={ocupado}>
             <X className="size-4" />
-            {confirmarRechazo ? "Confirmar rechazo de lo marcado" : "Rechazar lo marcado"}
+            {confirmar === "todo"
+              ? "Confirmar: rechazar personas y vínculos pendientes"
+              : "Rechazar todo lo pendiente"}
           </Button>
+          {personasPendientes > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => enviarRechazo("marcadas")}
+              disabled={ocupado || marcadas === 0}
+            >
+              <X className="size-4" />
+              {confirmar === "marcadas"
+                ? `Confirmar rechazo de ${marcadas} ${marcadas === 1 ? "persona" : "personas"}`
+                : "Rechazar personas marcadas"}
+            </Button>
+          )}
           <Button onClick={enviarAprobacion} disabled={ocupado}>
             <Check className="size-4" />
             {aprobar.isPending ? "Aprobando…" : "Aprobar lo marcado"}
@@ -268,7 +327,7 @@ function DetalleSolicitud({
         </p>
       )}
 
-      <LinkPrivado solicitudId={s.id} />
+      <LinkPrivado solicitudId={s.id} segundoApoderado={s.tipo === "segundo_apoderado"} />
     </div>
   );
 }
@@ -363,7 +422,9 @@ function TarjetaApoderado({
             {nombreCompleto(a)}
           </Link>
           <EstadoBadge estado={a.estado} />
-          {!a.tiene_foto && <Badge tone="danger">Sin foto</Badge>}
+          {a.faltantes.length > 0 && (
+            <Badge tone="danger">Falta: {textoFaltantes(a.faltantes)}</Badge>
+          )}
         </div>
         <Dato etiqueta="RUT">{a.rut}</Dato>
         <Dato etiqueta="Teléfono">{a.telefono ?? "—"}</Dato>
@@ -438,11 +499,11 @@ function TarjetaJugador({
   onChange,
 }: {
   j: JugadorDetalle;
-  categorias: CategoriaPanel[];
+  categorias: CategoriaPanel[] | undefined;
   form: FormJugador | undefined;
   onChange: (c: Partial<FormJugador>) => void;
 }) {
-  const nombreCategoria = categorias.find((c) => c.id === j.categoria_id)?.nombre;
+  const nombreCategoria = categorias?.find((c) => c.id === j.categoria_id)?.nombre;
   return (
     <div className="card-surface flex flex-wrap gap-4 p-4">
       <FotoPersona tipo="jugadores" id={j.id} tieneFoto={j.tiene_foto} tamano={96} />
@@ -452,9 +513,16 @@ function TarjetaJugador({
             {nombreCompleto(j)}
           </Link>
           <EstadoBadge estado={j.estado} />
-          {!j.tiene_foto && <Badge tone="danger">Sin foto</Badge>}
+          {j.faltantes.length > 0 && (
+            <Badge tone="danger">Falta: {textoFaltantes(j.faltantes)}</Badge>
+          )}
           {j.postula_beca && <Badge tone="accent">Postula a beca</Badge>}
           {j.marcado_retiro_en && <Badge tone="danger">Marcado «ya no está en el club»</Badge>}
+          {j.marcado_retiro_en && (
+            <span className="w-full text-xs text-muted-foreground">
+              Para confirmar el retiro, abre su ficha y déjalo inactivo.
+            </span>
+          )}
           {j.apoderados.length === 0 && <Badge tone="neutral">Adulto sin apoderado</Badge>}
         </div>
         <Dato etiqueta="RUT">{j.rut}</Dato>
@@ -477,11 +545,16 @@ function TarjetaJugador({
               <select
                 id={`cat-${j.id}`}
                 value={form.categoria_id}
+                disabled={!categorias}
                 onChange={(e) => onChange({ categoria_id: e.target.value })}
                 className="w-full rounded-lg border bg-background px-2 py-1.5 text-sm"
               >
+                {/* Sin la lista, se muestra la que tiene (no "Sin categoría") y no se cambia. */}
+                {!categorias && form.categoria_id !== "" && (
+                  <option value={form.categoria_id}>Categoría actual</option>
+                )}
                 <option value="">Sin categoría</option>
-                {categorias.map((c) => (
+                {(categorias ?? []).map((c) => (
                   <option key={c.id} value={String(c.id)}>
                     {c.nombre}
                   </option>
@@ -550,9 +623,16 @@ function TarjetaJugador({
 }
 
 /** Link privado de la familia: se genera uno nuevo y el anterior deja de funcionar. */
-function LinkPrivado({ solicitudId }: { solicitudId: string }) {
+function LinkPrivado({
+  solicitudId,
+  segundoApoderado,
+}: {
+  solicitudId: string;
+  /** En una solicitud de segundo apoderado el link es el de `/completar` (subir su foto). */
+  segundoApoderado: boolean;
+}) {
   const [confirmar, setConfirmar] = useState(false);
-  const [copiado, setCopiado] = useState(false);
+  const [copiado, setCopiado] = useState<null | boolean>(null);
   const generar = useMutation({ mutationFn: () => api.panel.nuevoLinkSolicitud(solicitudId) });
 
   async function copiar(url: string) {
@@ -567,10 +647,14 @@ function LinkPrivado({ solicitudId }: { solicitudId: string }) {
   return (
     <div className="card-surface mt-6 p-4">
       <div className="flex items-center gap-2 text-sm font-semibold">
-        <Link2 className="size-4" /> Link privado de la familia
+        <Link2 className="size-4" />{" "}
+        {segundoApoderado ? "Link personal del segundo apoderado" : "Link privado de la familia"}
       </div>
       <p className="mt-1 text-sm text-muted-foreground">
-        Si la familia perdió su link, genera uno nuevo y cópialo. El anterior deja de funcionar.
+        {segundoApoderado
+          ? "Es el link para que suba su foto. Si lo perdió, genera uno nuevo y cópialo."
+          : "Si la familia perdió su link, genera uno nuevo y cópialo."}{" "}
+        El anterior deja de funcionar.
       </p>
       {generar.data ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -584,6 +668,11 @@ function LinkPrivado({ solicitudId }: { solicitudId: string }) {
           <Button variant="outline" size="sm" onClick={() => void copiar(generar.data.url)}>
             <Copy className="size-4" /> {copiado ? "Copiado" : "Copiar"}
           </Button>
+          {copiado === false && (
+            <p role="alert" className="w-full text-xs text-destructive">
+              No se pudo copiar: selecciona el link y cópialo a mano.
+            </p>
+          )}
         </div>
       ) : (
         <div className="mt-3 flex flex-wrap items-center gap-2">
