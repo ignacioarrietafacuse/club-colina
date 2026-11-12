@@ -579,11 +579,12 @@ export const aprobarRequest = z.object({
 /**
  * POST /api/panel/solicitudes/:id/rechazar — sin `personas` ni `vinculos` se rechaza todo lo
  * pendiente. Con alguno de los dos, solo lo indicado: un vínculo pendiente de la solicitud se puede
- * rechazar solo (se borra) y sus personas siguen pendientes.
+ * rechazar solo (se borra) y sus personas siguen pendientes, salvo quien era de la solicitud solo
+ * por ese vínculo (un precargado que ella completó): esa persona vuelve a como estaba.
  */
 export const rechazarRequest = z.object({
-  personas: z.array(z.object({ rol: z.enum(["jugador", "apoderado"]), id })).optional(),
-  vinculos: z.array(z.object({ jugador_id: id, apoderado_id: id })).optional(),
+  personas: z.array(z.object({ rol: z.enum(["jugador", "apoderado"]), id })).max(50).optional(),
+  vinculos: z.array(z.object({ jugador_id: id, apoderado_id: id })).max(50).optional(),
 });
 
 /**

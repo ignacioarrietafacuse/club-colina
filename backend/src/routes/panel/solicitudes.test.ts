@@ -601,7 +601,7 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
     await app.close();
   });
 
-  it("rechazar espera el candado de S2 antes de tocar fichas_previas (aprobar usa el mismo)", async () => {
+  it.each(["rechazar", "aprobar"] as const)("%s espera el candado de S2 antes de tocar fichas_previas", async (accion) => {
     const { app, cookies } = await appConSesion(db);
     const otraConexion = dbTest();
     const { s, apo } = await familia();
@@ -614,27 +614,84 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
       avisarTomado();
       await suelto;
     });
-    await tomado;
-    let terminado = false;
-    const pedido = app
-      .inject({
-        method: "POST",
-        url: `/api/panel/solicitudes/${s.id}/rechazar`,
-        cookies,
-        payload: { personas: [{ rol: "apoderado", id: apo }] },
-      })
-      .then((r) => {
-        terminado = true;
-        return r;
-      });
-    await new Promise((ok) => setTimeout(ok, 300));
-    expect(terminado).toBe(false);
-    expect((await estadoA(apo))?.estado).toBe("pendiente");
-    soltar();
-    await candado;
-    expect((await pedido).statusCode).toBe(200);
-    expect((await estadoA(apo))?.estado).toBe("rechazado");
-    await otraConexion.cerrar();
+    try {
+      await tomado;
+      let terminado = false;
+      const pedido = app
+        .inject({
+          method: "POST",
+          url: `/api/panel/solicitudes/${s.id}/${accion}`,
+          cookies,
+          payload: accion === "rechazar" ? { personas: [{ rol: "apoderado", id: apo }] } : { apoderados: [{ id: apo }] },
+        })
+        .then((r) => {
+          terminado = true;
+          return r;
+        });
+      await new Promise((ok) => setTimeout(ok, 300));
+      expect(terminado).toBe(false);
+      expect((await estadoA(apo))?.estado).toBe("pendiente");
+      soltar();
+      await candado;
+      expect((await pedido).statusCode).toBe(200);
+      expect((await estadoA(apo))?.estado).toBe(accion === "rechazar" ? "rechazado" : "activo");
+    } finally {
+      soltar();
+      await candado.catch(() => {});
+      await otraConexion.cerrar();
+      await app.close();
+    }
+  });
+
+  it("rechazar solo el vínculo de un precargado completado por RUT lo devuelve a como estaba", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo } = await familia();
+    // Precargado sin apoderado, nombrado por RUT: S2 copia, completa la foto y lo deja pendiente
+    // sin solicitud_id, con un vínculo pendiente de esta solicitud.
+    const hijo = await crearJugador(db, { numero_camiseta: "4" });
+    const antes = await estadoJ(hijo);
+    await db.insert(fichasPrevias).values({
+      solicitud_id: s.id,
+      jugador_id: hijo,
+      datos: { foto_id: null, estado: "precargado", solicitud_id: null, marcado_retiro_en: null },
+    });
+    const fotoS2 = await fotoPrueba(db);
+    await db.update(jugadores).set({ foto_id: fotoS2, estado: "pendiente" }).where(eq(jugadores.id, hijo));
+    await db.insert(jugadorApoderado).values({ jugador_id: hijo, apoderado_id: apo, solicitud_id: s.id });
+
+    const r = await app.inject({
+      method: "POST",
+      url: `/api/panel/solicitudes/${s.id}/rechazar`,
+      cookies,
+      payload: { vinculos: [{ jugador_id: hijo, apoderado_id: apo }] },
+    });
+    expect(r.statusCode).toBe(200);
+    const sinTiempos = <T extends { actualizado_en: Date }>(f: T | undefined) => f && { ...f, actualizado_en: null };
+    expect(sinTiempos(await estadoJ(hijo))).toEqual(sinTiempos(antes));
+    expect(await db.select().from(fotos).where(eq(fotos.id, fotoS2))).toHaveLength(0);
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.jugador_id, hijo))).toHaveLength(0);
+    // El titular sigue pendiente: solo se decidió el vínculo.
+    expect(await estadoA(apo)).toMatchObject({ estado: "pendiente" });
+
+    // Lo mismo si se rechaza solo al titular: su vínculo se va y el hijo completado vuelve atrás.
+    const otra = await familia();
+    const hijo2 = await crearJugador(db, { numero_camiseta: "5" });
+    await db.insert(fichasPrevias).values({
+      solicitud_id: otra.s.id,
+      jugador_id: hijo2,
+      datos: { foto_id: null, estado: "precargado", solicitud_id: null },
+    });
+    await db.update(jugadores).set({ foto_id: await fotoPrueba(db), estado: "pendiente" }).where(eq(jugadores.id, hijo2));
+    await db.insert(jugadorApoderado).values({ jugador_id: hijo2, apoderado_id: otra.apo, solicitud_id: otra.s.id });
+    const r2 = await app.inject({
+      method: "POST",
+      url: `/api/panel/solicitudes/${otra.s.id}/rechazar`,
+      cookies,
+      payload: { personas: [{ rol: "apoderado", id: otra.apo }] },
+    });
+    expect(r2.statusCode).toBe(200);
+    expect(await estadoJ(hijo2)).toMatchObject({ estado: "precargado", foto_id: null });
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.jugador_id, hijo2))).toHaveLength(0);
     await app.close();
   });
 
@@ -704,20 +761,28 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
     await app.close();
   });
 
-  it("aprobar en un mismo pedido al apoderado y al jugador adulto sin teléfono: el apoderado cuenta recién activo", async () => {
+  it("jugador adulto sin teléfono: su contacto es un apoderado activo con el vínculo aprobado, en el mismo pedido sirve", async () => {
     const { app, cookies } = await appConSesion(db);
     const { s, apo, hijo } = await familia();
     await db.update(jugadores).set({ fecha_nacimiento: "1990-01-01", telefono: null }).where(eq(jugadores.id, hijo));
     const jugador = { id: hijo, categoria_id: null, numero_camiseta: "9", ...becas };
+    const vinculos = [{ jugador_id: hijo, apoderado_id: apo }];
     const aprobar = (payload: object) =>
       app.inject({ method: "POST", url: `/api/panel/solicitudes/${s.id}/aprobar`, cookies, payload });
-    // Con el apoderado pendiente, al adulto le falta su teléfono.
-    let r = await aprobar({ jugadores: [jugador] });
-    expect(r.statusCode).toBe(422);
-    expect(r.json().error.mensaje).toContain("telefono");
-    r = await aprobar({ apoderados: [{ id: apo }], jugadores: [jugador] });
+    for (const payload of [
+      { jugadores: [jugador] },
+      // Apoderado aprobado, pero el vínculo no: no es contacto, y no se aprueba nada.
+      { apoderados: [{ id: apo }], jugadores: [jugador] },
+    ]) {
+      const r = await aprobar(payload);
+      expect(r.statusCode).toBe(422);
+      expect(r.json().error.mensaje).toContain("telefono");
+      expect(await estadoA(apo)).toMatchObject({ estado: "pendiente" });
+    }
+    const r = await aprobar({ apoderados: [{ id: apo }], jugadores: [jugador], vinculos });
     expect(r.statusCode).toBe(200);
     expect(await estadoJ(hijo)).toMatchObject({ estado: "activo" });
+    expect((await vinculo(hijo, apo))?.estado).toBe("activo");
     await app.close();
   });
 });

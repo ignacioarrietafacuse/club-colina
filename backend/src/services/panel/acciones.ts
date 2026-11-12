@@ -161,7 +161,6 @@ export async function activar(db: Ejecutor, tipo: TipoPersona, id: string): Prom
           foto_id: jugadores.foto_id,
           marcado_retiro_en: jugadores.marcado_retiro_en,
           disciplina: jugadores.disciplina,
-          tiene_apoderado: tieneApoderadoVigente,
         })
         .from(jugadores)
         .where(eq(jugadores.id, id))
@@ -169,10 +168,13 @@ export async function activar(db: Ejecutor, tipo: TipoPersona, id: string): Prom
       if (!j) throw noEncontrado();
       if (!ACTIVABLES.has(j.estado)) throw conflicto("Solo se activa a un precargado o a un inactivo");
       if (j.marcado_retiro_en !== null) throw conflicto(MENSAJE_MARCADO);
-      const faltan = requisitosJugador(faltantesJugador(j, j.tiene_apoderado, await cargarCategorias(tx)));
+      // Primero sus vínculos de la base: uno con un apoderado activo ya cuenta como contacto. Si
+      // después falta algo, la transacción se deshace entera.
+      if (j.estado === "precargado") await activarVinculosDeLaBase(tx, "jugador", id);
+      const [contacto] = await tx.select({ si: tieneApoderadoVigente }).from(jugadores).where(eq(jugadores.id, id));
+      const faltan = requisitosJugador(faltantesJugador(j, contacto?.si ?? false, await cargarCategorias(tx)));
       if (faltan.length > 0) throw incompleto(faltan);
       await tx.update(jugadores).set({ estado: "activo", credencial_token: token }).where(eq(jugadores.id, id));
-      if (j.estado === "precargado") await activarVinculosDeLaBase(tx, "jugador", id);
     } else if (tipo === "apoderados") {
       const [a] = await tx
         .select({

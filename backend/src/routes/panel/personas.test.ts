@@ -134,10 +134,14 @@ describe("jugadores", () => {
       .update(apoderados)
       .set({ estado: "activo", foto_id: await fotoPrueba(db), credencial_token: generarToken() })
       .where(eq(apoderados.id, apo));
+    // Apoderado activo, pero el vínculo sin aprobar: tampoco cuenta.
+    r = await app.inject({ method: "GET", url: `/api/panel/jugadores/${id}`, cookies });
+    expect(r.json().faltantes).toEqual(["categoria", "numero_camiseta", "telefono", "foto"]);
+    await db.update(jugadorApoderado).set({ estado: "activo" }).where(eq(jugadorApoderado.jugador_id, id));
     r = await app.inject({ method: "GET", url: `/api/panel/jugadores/${id}`, cookies });
     expect(r.json().faltantes).toEqual(["categoria", "numero_camiseta", "foto"]);
     expect(r.json().apoderados).toEqual([
-      { id: apo, nombre_completo: "Ana Prueba", paga_mensualidad: true, estado_vinculo: "pendiente" },
+      { id: apo, nombre_completo: "Ana Prueba", paga_mensualidad: true, estado_vinculo: "activo" },
     ]);
     for (const url of ["/api/panel/jugadores/00000000-0000-4000-8000-000000000000", "/api/panel/jugadores/no-es-uuid"]) {
       expect((await app.inject({ method: "GET", url, cookies })).statusCode).toBe(404);

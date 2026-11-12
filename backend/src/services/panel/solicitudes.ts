@@ -430,8 +430,14 @@ export async function aprobarSolicitud(
         throw conflicto(MENSAJE_MARCADO);
       }
       if (pj.categoria_id !== null) await verificarCategoria(tx, pj.categoria_id, j.disciplina);
+      // Un vínculo listado en este pedido puede darle contacto: se confirma al final.
+      const contactoEnPedido = pedido.vinculos.some((v) => v.jugador_id === pj.id);
       const faltan = requisitosJugador(
-        faltantesJugador({ ...j, categoria_id: pj.categoria_id, numero_camiseta: pj.numero_camiseta }, j.tiene_apoderado, cats),
+        faltantesJugador(
+          { ...j, categoria_id: pj.categoria_id, numero_camiseta: pj.numero_camiseta },
+          j.tiene_apoderado || contactoEnPedido,
+          cats,
+        ),
       );
       if (faltan.length > 0) throw incompleto(faltan);
       await conRestricciones(() =>
@@ -486,6 +492,27 @@ export async function aprobarSolicitud(
 
     const aprobadosJ = pedido.jugadores.map((j) => j.id);
     const aprobadosA = pedido.apoderados.map((a) => a.id);
+    // Con los vínculos ya decididos: cada jugador aprobado tiene que cumplir de verdad (un adulto
+    // sin teléfono, con un apoderado activo y un vínculo activo). Si no, no se aprueba nada.
+    for (const jugadorId of aprobadosJ) {
+      const [j] = await tx
+        .select({
+          nombre: jugadores.nombre,
+          apellido: jugadores.apellido,
+          fecha_nacimiento: jugadores.fecha_nacimiento,
+          categoria_id: jugadores.categoria_id,
+          numero_camiseta: jugadores.numero_camiseta,
+          telefono: jugadores.telefono,
+          foto_id: jugadores.foto_id,
+          disciplina: jugadores.disciplina,
+          tiene_apoderado: tieneApoderadoVigente,
+        })
+        .from(jugadores)
+        .where(eq(jugadores.id, jugadorId));
+      if (!j) throw noEncontrado();
+      const faltan = requisitosJugador(faltantesJugador(j, j.tiene_apoderado, cats));
+      if (faltan.length > 0) throw incompleto(faltan);
+    }
     await borrarFichasPrevias(tx, "jugador", aprobadosJ);
     await borrarFichasPrevias(tx, "apoderado", aprobadosA);
     await cerrarSiCorresponde(tx, id);
@@ -715,6 +742,22 @@ export async function rechazarSolicitud(
         .delete(jugadorApoderado)
         .where(and(eq(jugadorApoderado.solicitud_id, s.id), eq(jugadorApoderado.estado, "pendiente")));
     }
+
+    // Quien era de la solicitud solo por un vínculo que se acaba de borrar (un precargado que ella
+    // completó, sin solicitud_id) ya no se podría decidir desde ninguna: vuelve a como estaba.
+    const despues = await miembros(tx, s);
+    const arrastrados = async (antes: string[], ahora: string[], ya: string[], tabla: typeof jugadores | typeof apoderados) => {
+      const sueltos = antes.filter((x) => !ahora.includes(x) && !ya.includes(x));
+      if (sueltos.length === 0) return [];
+      const filas = await tx
+        .select({ id: tabla.id })
+        .from(tabla)
+        .where(and(inArray(tabla.id, sueltos), eq(tabla.estado, "pendiente")))
+        .for("update");
+      return filas.map((f) => f.id);
+    };
+    rechJ.push(...(await arrastrados(m.propiosJ, despues.propiosJ, rechJ, jugadores)));
+    rechA.push(...(await arrastrados(m.propiosA, despues.propiosA, rechA, apoderados)));
 
     for (const j of rechJ) await rechazarPersona(tx, s.id, "jugador", j);
     for (const a of rechA) await rechazarPersona(tx, s.id, "apoderado", a);
