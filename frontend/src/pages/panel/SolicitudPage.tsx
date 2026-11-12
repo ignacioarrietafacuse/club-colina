@@ -32,7 +32,7 @@ import {
   firmaSolicitud,
   formInicial,
   RECHAZO_TOTAL,
-  esDeEstaSolicitud,
+  seDecideAca,
   alcanceRechazoTotal,
   fotoPorLinkReenviado,
   vinculoAprobable,
@@ -179,9 +179,7 @@ function DetalleSolicitud({
   const hayPendientes = personasPendientes + Object.keys(form.vinculos).length > 0;
   const marcadas = contarMarcadas(form);
   const ocupado = aprobar.isPending || rechazar.isPending || quitarMarca.isPending || desfasado;
-  const alcance = alcanceRechazoTotal(s);
-  const pendientesPropias = alcance.seguras.map((id) => nombres[id] ?? "");
-  const pendientesDeOtra = alcance.posibles.map((id) => nombres[id] ?? "");
+  const rechazaTodo = alcanceRechazoTotal(s).map((id) => nombres[id] ?? "");
   const conPosterior = s.avisos.includes("hay_solicitud_posterior");
   const huboRechazo = [...s.jugadores, ...s.apoderados].some((p) => p.estado === "rechazado");
 
@@ -263,7 +261,7 @@ function DetalleSolicitud({
             key={a.id}
             a={a}
             fotoReenviada={fotoPorLinkReenviado(a, s)}
-            deOtra={a.estado === "pendiente" && !esDeEstaSolicitud(a, s)}
+            soloSeMuestra={a.estado === "pendiente" && !seDecideAca(a)}
             form={form.apoderados[a.id]}
             onChange={(cambio) =>
               cambiarForm((f) => {
@@ -282,7 +280,7 @@ function DetalleSolicitud({
           <TarjetaJugador
             key={j.id}
             j={j}
-            deOtra={j.estado === "pendiente" && !esDeEstaSolicitud(j, s)}
+            soloSeMuestra={j.estado === "pendiente" && !seDecideAca(j)}
             sinContactoPosible={!contactoPosible(j.id, s)}
             quitarMarca={{
               enviar: () => {
@@ -445,18 +443,9 @@ function DetalleSolicitud({
 
       {confirmar === "todo" && (
         <div role="alert" className="mb-4 rounded-lg bg-destructive/10 px-4 py-3 text-sm">
-          «Rechazar todo lo pendiente» rechaza, estén marcadas o no,
-          {pendientesPropias.length > 0
-            ? ` a ${pendientesPropias.join(", ")}`
-            : " a las personas pendientes de esta solicitud"}
-          , y los vínculos pendientes de la solicitud.
-          {pendientesDeOtra.length > 0 && (
-            <>
-              {" "}
-              Entre {pendientesDeOtra.join(", ")}, rechaza solo a quien sea de esta solicitud (por
-              ejemplo, el segundo apoderado que agregó); a quien sea de otra no lo toca.
-            </>
-          )}{" "}
+          {rechazaTodo.length > 0
+            ? `«Rechazar todo lo pendiente» rechaza, estén marcadas o no, a ${rechazaTodo.join(", ")}, y los vínculos pendientes de la solicitud.`
+            : "«Rechazar todo lo pendiente» rechaza los vínculos pendientes de la solicitud (no queda ninguna persona por decidir desde acá)."}{" "}
           No se deshace desde el panel.
         </div>
       )}
@@ -504,12 +493,10 @@ function DetalleSolicitud({
   );
 }
 
-function NotaDeOtra() {
+function NotaSoloSeMuestra() {
   return (
     <span className="w-full text-xs text-muted-foreground">
-      Es de otra solicitud o la agregó un segundo apoderado: parte sin marcar. Márcala solo si se
-      decide desde acá. Si la agregó el segundo apoderado de esta solicitud, «Rechazar todo lo
-      pendiente» también la rechaza.
+      Se decide desde su propia solicitud o su ficha; desde acá, a lo más, su vínculo.
     </span>
   );
 }
@@ -609,13 +596,13 @@ function Marcar({
 function TarjetaApoderado({
   a,
   fotoReenviada,
-  deOtra,
+  soloSeMuestra,
   form,
   onChange,
 }: {
   a: ApoderadoDetalle;
   fotoReenviada: boolean;
-  deOtra: boolean;
+  soloSeMuestra: boolean;
   form: { marcado: boolean; metodo_pago: MetodoPago | "" } | undefined;
   onChange: (c: Partial<{ marcado: boolean; metodo_pago: MetodoPago | "" }>) => void;
 }) {
@@ -641,7 +628,7 @@ function TarjetaApoderado({
               aprobar.
             </span>
           )}
-          {deOtra && <NotaDeOtra />}
+          {soloSeMuestra && <NotaSoloSeMuestra />}
         </div>
         <Dato etiqueta="RUT">{a.rut}</Dato>
         <Dato etiqueta="Teléfono">{a.telefono ?? "—"}</Dato>
@@ -711,7 +698,7 @@ function CampoNumero({
 
 function TarjetaJugador({
   j,
-  deOtra,
+  soloSeMuestra,
   sinContactoPosible,
   quitarMarca,
   categorias,
@@ -719,7 +706,7 @@ function TarjetaJugador({
   onChange,
 }: {
   j: JugadorDetalle;
-  deOtra: boolean;
+  soloSeMuestra: boolean;
   /** Adulto sin teléfono sin un vínculo aprobable desde acá (ver `contactoPosible`). */
   sinContactoPosible: boolean;
   quitarMarca: { enviar: () => void; ocupado: boolean };
@@ -745,7 +732,7 @@ function TarjetaJugador({
           {j.marcado_retiro_en && (
             <QuitarMarcaRetiro enviar={quitarMarca.enviar} ocupado={quitarMarca.ocupado} />
           )}
-          {deOtra && <NotaDeOtra />}
+          {soloSeMuestra && <NotaSoloSeMuestra />}
           {j.apoderados.length === 0 && <Badge tone="neutral">Adulto sin apoderado</Badge>}
           {j.estado === "pendiente" &&
             j.faltantes.includes("telefono") &&
