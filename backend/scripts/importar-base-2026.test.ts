@@ -228,6 +228,7 @@ describe("columnas", () => {
     expect(mensaje).toContain("faltan");
     expect(mensaje).not.toContain("nombreunico");
     expect(mensaje).not.toContain("unico@ejemplo");
+    expect(mensaje).not.toContain(rut(0).split("-")[0] ?? "");
   });
 });
 
@@ -251,7 +252,7 @@ describe("reglas de la carga inicial", () => {
       email: "ana.inventada@ejemplo.cl",
       metodo_pago: "forpay_mensual",
     });
-    expect(p.vinculos).toEqual([{ jugadorRut: rut(1), apoderadoRut: rut(2), paga_mensualidad: true }]);
+    expect(p.vinculos).toEqual([{ fila: expect.any(Number), jugadorRut: rut(1), apoderadoRut: rut(2), paga_mensualidad: true }]);
   });
 
   it("jugador con RUT no válido: no se carga, pero su apoderado sí", async () => {
@@ -331,8 +332,8 @@ describe("reglas de la carga inicial", () => {
     expect(p.apoderados.has(rut(1))).toBe(false);
     expect(p.apoderadosOmitidos).toEqual({ rut_es_de_un_jugador_menor_o_sin_fecha: [4] });
     expect(p.vinculos).toEqual([
-      { jugadorRut: rut(1), apoderadoRut: rut(5), paga_mensualidad: true },
-      { jugadorRut: rut(2), apoderadoRut: rut(6), paga_mensualidad: true },
+      { fila: expect.any(Number), jugadorRut: rut(1), apoderadoRut: rut(5), paga_mensualidad: true },
+      { fila: expect.any(Number), jugadorRut: rut(2), apoderadoRut: rut(6), paga_mensualidad: true },
     ]);
   });
 
@@ -343,7 +344,7 @@ describe("reglas de la carga inicial", () => {
     ]);
     expect(p.jugadores.has(rut(1))).toBe(true);
     expect(p.apoderados.has(rut(1))).toBe(true);
-    expect(p.vinculos).toEqual([{ jugadorRut: rut(2), apoderadoRut: rut(1), paga_mensualidad: true }]);
+    expect(p.vinculos).toEqual([{ fila: expect.any(Number), jugadorRut: rut(2), apoderadoRut: rut(1), paga_mensualidad: true }]);
   });
 
   it("se puso a sí mismo como apoderado sin fecha confiable: el contacto se descarta y se anota", async () => {
@@ -351,6 +352,15 @@ describe("reglas de la carga inicial", () => {
     expect(p.jugadores.get(rut(1))?.telefono).toBeNull();
     expect(p.notas.contacto_descartado_rut_propio_sin_fecha).toEqual([3]);
     expect(p.notas.jugador_sin_apoderado).toEqual([3]);
+  });
+
+  it("apoderado con el RUT de un menor omitido por rama: tampoco se carga", async () => {
+    const p = await plan([
+      { rut: rut(1), rutApoderado: rut(5), rama: "Fútbol" },
+      { rut: rut(2), rutApoderado: rut(1) },
+    ]);
+    expect(p.apoderados.has(rut(1))).toBe(false);
+    expect(p.apoderadosOmitidos).toEqual({ rut_es_de_un_jugador_menor_o_sin_fecha: [4] });
   });
 
   it("mismo jugador en las dos ramas: queda la primera y se anota aparte", async () => {
@@ -369,8 +379,8 @@ describe("reglas de la carga inicial", () => {
     ]);
     expect(p.jugadores.size).toBe(1);
     expect(p.vinculos).toEqual([
-      { jugadorRut: rut(1), apoderadoRut: rut(2), paga_mensualidad: true },
-      { jugadorRut: rut(1), apoderadoRut: rut(3), paga_mensualidad: false },
+      { fila: expect.any(Number), jugadorRut: rut(1), apoderadoRut: rut(2), paga_mensualidad: true },
+      { fila: expect.any(Number), jugadorRut: rut(1), apoderadoRut: rut(3), paga_mensualidad: false },
     ]);
     expect(p.notas.jugador_repetido_en_otra_fila).toEqual([4]);
   });
@@ -479,7 +489,8 @@ describe("escritura en la base", () => {
     expect(r.jugadores.cargados).toBe(0);
     expect(r.jugadores.yaExistian).toEqual([3, 4, 5]);
     expect(r.apoderados.cargados).toBe(0);
-    expect(r.vinculos).toEqual({ creados: 0, omitidos: { persona_ya_existia: 2 } });
+    expect(r.vinculos).toEqual({ creados: 0, omitidos: { persona_ya_existia: [3, 4] } });
+    expect(formatearResumen(r)).toContain("persona_ya_existia: 2 (filas 3, 4)");
     expect(await db.select().from(jugadores).where(inArray(jugadores.rut, RUTS))).toHaveLength(3);
     const [apoderado] = await db.select().from(apoderados).where(eq(apoderados.rut, rut(10)));
     expect(apoderado?.telefono).toBe("911111111");
@@ -510,7 +521,7 @@ describe("escritura en la base", () => {
     await db.insert(jugadores).values({ rut: rut(1), disciplina: "basketball", origen: "formulario", estado: "pendiente" });
     const r = await importar(db, await plan([{ rut: rut(1), rutApoderado: rut(10) }]), { dryRun: false });
     expect(r.apoderados.cargados).toBe(1);
-    expect(r.vinculos).toEqual({ creados: 0, omitidos: { persona_ya_existia: 1 } });
+    expect(r.vinculos).toEqual({ creados: 0, omitidos: { persona_ya_existia: [3] } });
     const [jugador] = await db.select().from(jugadores).where(eq(jugadores.rut, rut(1)));
     expect(jugador).toMatchObject({ origen: "formulario", estado: "pendiente" });
   });

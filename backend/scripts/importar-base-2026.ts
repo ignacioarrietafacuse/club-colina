@@ -130,7 +130,7 @@ export function ubicarColumnas(
   if (faltan.length > 0 || repetidos.length > 0) {
     // Solo los encabezados reconocidos: si la fila elegida fuera de datos (un --columna mal puesto),
     // el mensaje no la imprime.
-    const reconocidos = [...usadas.entries()].map(([i, campo]) => `${campo}="${encabezados[i] ?? ""}"`);
+    const reconocidos = [...usadas.entries()].map(([i, campo]) => `${campo} (columna ${i + 1})`);
     const partes = [
       faltan.length > 0 ? `faltan: ${faltan.join(", ")}` : "",
       repetidos.length > 0 ? `más de una columna calza con (o comparten columna): ${repetidos.join(", ")}` : "",
@@ -335,7 +335,7 @@ export type ApoderadoPlan = {
   metodo_pago: MetodoPago | null;
 };
 
-export type VinculoPlan = { jugadorRut: string; apoderadoRut: string; paga_mensualidad: boolean };
+export type VinculoPlan = { fila: number; jugadorRut: string; apoderadoRut: string; paga_mensualidad: boolean };
 
 /** Motivo → números de fila (1 = primera fila de la hoja). */
 export type PorMotivo = Record<string, number[]>;
@@ -411,6 +411,8 @@ export function planificar(
   const vinculosVistos = new Set<string>();
   /** Adultos sin apoderado (su contacto va en su ficha). */
   const adultosPropios = new Set<string>();
+  /** RUT válidos de jugadores omitidos (rama no reconocida), con su fecha, para el cruce de RUT. */
+  const omitidosConRut = new Map<string, string | null>();
   /** Por apoderado: filas que lo nombran y campos de contacto con un valor no confiable. */
   const filasApoderado = new Map<string, number[]>();
   const contactoMalo = new Map<string, { telefono?: number; correo?: number; pago?: number }>();
@@ -435,6 +437,7 @@ export function planificar(
       jugadorValido = false;
     } else if (disciplina === null) {
       anotar(plan.jugadoresOmitidos, "rama_no_reconocida", n);
+      if (!omitidosConRut.has(rutJugador)) omitidosConRut.set(rutJugador, fecha);
       jugadorValido = false;
     }
     const adulto = fecha !== null && edad(fecha, hoy) >= 18;
@@ -560,7 +563,7 @@ export function planificar(
         const clave = `${rutJugador}|${rutApoderado}`;
         if (!vinculosVistos.has(clave)) {
           vinculosVistos.add(clave);
-          plan.vinculos.push({ jugadorRut: rutJugador, apoderadoRut: rutApoderado, paga_mensualidad: false });
+          plan.vinculos.push({ fila: n, jugadorRut: rutJugador, apoderadoRut: rutApoderado, paga_mensualidad: false });
         }
       }
     }
@@ -569,9 +572,10 @@ export function planificar(
   // Un apoderado cuyo RUT es el de un jugador menor (o sin fecha) de cualquier fila, por ejemplo
   // el RUT de un hermano escrito por error, no se carga: entraría al formulario como apoderado.
   for (const rutApoderado of [...plan.apoderados.keys()]) {
-    const jugador = plan.jugadores.get(rutApoderado);
-    if (jugador === undefined) continue;
-    const esAdulto = jugador.fecha_nacimiento !== null && edad(jugador.fecha_nacimiento, hoy) >= 18;
+    const cargado = plan.jugadores.get(rutApoderado);
+    if (cargado === undefined && !omitidosConRut.has(rutApoderado)) continue;
+    const fechaJugador = cargado !== undefined ? cargado.fecha_nacimiento : (omitidosConRut.get(rutApoderado) ?? null);
+    const esAdulto = fechaJugador !== null && edad(fechaJugador, hoy) >= 18;
     if (esAdulto) continue;
     plan.apoderados.delete(rutApoderado);
     plan.vinculos = plan.vinculos.filter((v) => v.apoderadoRut !== rutApoderado);
@@ -613,7 +617,7 @@ export type Resumen = {
   filasVacias: number;
   jugadores: { cargados: number; yaExistian: number[]; omitidos: PorMotivo };
   apoderados: { cargados: number; yaExistian: number[]; omitidos: PorMotivo };
-  vinculos: { creados: number; omitidos: Record<string, number> };
+  vinculos: { creados: number; omitidos: PorMotivo };
   camposVacios: PorMotivo;
   notas: PorMotivo;
 };
@@ -728,7 +732,8 @@ async function escribir(tx: Ejecutor, plan: Plan, resumen: Resumen) {
     const jugadorId = jugadoresCreados.get(v.jugadorRut);
     const apoderadoId = apoderadosCreados.get(v.apoderadoRut);
     if (jugadorId === undefined || apoderadoId === undefined) {
-      resumen.vinculos.omitidos.persona_ya_existia = (resumen.vinculos.omitidos.persona_ya_existia ?? 0) + 1;
+      // Mony vincula a mano: el resumen trae la fila.
+      anotar(resumen.vinculos.omitidos, "persona_ya_existia", v.fila);
       continue;
     }
     await tx
@@ -797,7 +802,7 @@ export function formatearResumen(r: Resumen): string {
     ...bloque("Apoderados no cargados", r.apoderados.omitidos),
     "",
     `Vínculos creados: ${r.vinculos.creados}`,
-    ...Object.entries(r.vinculos.omitidos).map(([motivo, n]) => `Vínculos omitidos (${motivo}): ${n}`),
+    ...bloque("Vínculos omitidos (Mony los revisa en el panel)", r.vinculos.omitidos),
     "",
     ...bloque("Campos que quedaron vacíos (el formulario los pregunta)", r.camposVacios),
     "",
