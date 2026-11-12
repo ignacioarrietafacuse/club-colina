@@ -110,6 +110,8 @@ class Proceso {
   private readonly conCopiaAjena = new Set<string>();
   private solicitudId = "";
   private coincideBase = false;
+  /** Si la solicitud traía alguna casilla "ya no está". */
+  private traeMarcas = false;
   /** El titular precargado que esta solicitud modificó (tiene su copia en `fichas_previas`). */
   private titularConCopia: string | null = null;
   /** Quién llenó el formulario: con esto /familia sabe de quién son los hijos que muestra. */
@@ -152,13 +154,25 @@ class Proceso {
         titular_jugador_id: this.titularJugadorId,
       })
       .where(eq(solicitudesRegistro.id, this.solicitudId));
-    // Una solicitud que no deja nada que aprobar ni rechazar (por ejemplo, la que solo marca hijos
-    // "ya no está", o la que no pudo aplicar nada porque otra pendiente ya tenía a esas personas)
-    // queda revisada al crearse: ninguna queda abierta sin nada que decidir. El criterio es el mismo
-    // con que el panel cierra una solicitud; los avisos siguen en ella y en la otra
-    // (`hay_solicitud_posterior`).
-    await cerrarSiCorresponde(this.tx, this.solicitudId);
+    // Una solicitud que solo trae marcas "ya no está" no deja nada que aprobar ni rechazar: queda
+    // revisada al crearse (decisión de Ignacio, 2026-11-12), con el mismo criterio con que el panel
+    // cierra una solicitud. No se cierra si modificó a alguien (dejó copias en `fichas_previas`) ni
+    // si otra pendiente le bloqueó cambios: esa pareja tiene que seguir a la vista de Mony, porque
+    // es la señal de una posible suplantación.
+    if (this.traeMarcas && !this.avisos.has("cambios_bloqueados_por_otra_solicitud") && !(await this.dejoCopias())) {
+      await cerrarSiCorresponde(this.tx, this.solicitudId);
+    }
     return { token_acceso: tokenAcceso, otros_apoderados: otros };
+  }
+
+  /** Si esta solicitud modificó a alguien que ya existía (guardó su copia). */
+  private async dejoCopias(): Promise<boolean> {
+    const [c] = await this.tx
+      .select({ id: fichasPrevias.id })
+      .from(fichasPrevias)
+      .where(eq(fichasPrevias.solicitud_id, this.solicitudId))
+      .limit(1);
+    return c !== undefined;
   }
 
   /** Si otra solicitud tiene copia de esa persona (y la anota para avisarle). */
@@ -550,6 +564,7 @@ class Proceso {
         // Solo se puede marcar a un hijo propio. No se le asigna `solicitud_id`: aparece en un
         // /familia solo si ya aparecía antes (la marca no lo agrega ni lo saca).
         if (!jugador || !enLista) throw invalido([`${p}ya_no_esta`]);
+        this.traeMarcas = true;
         // La marca es solo una señal para Mony (decisión de Ignacio, 2026-11-12): no saca al hijo de
         // /familia, no toca su credencial ni su estado, y no guarda copia en `fichas_previas`. Por
         // eso se aplica siempre, aunque otra solicitud tenga copia de este hijo: no le hace daño a

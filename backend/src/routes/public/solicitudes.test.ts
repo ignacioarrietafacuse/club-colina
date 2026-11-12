@@ -992,6 +992,34 @@ describe("POST /api/public/solicitudes", () => {
       await app.close();
     });
 
+    it("sin marcas, una solicitud sin nada que decidir no se cierra sola: sigue a la vista junto a la anterior", async () => {
+      const mama = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+      const papa = await apoderadoRegistrado();
+      const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: null });
+      await vincular(db, hijo.id, mama.id);
+      await vincular(db, hijo.id, papa.id);
+      const app = await construirApp({ config: configTest(), db });
+      const completa = (rut: string, telefono?: string) =>
+        enviar(
+          app,
+          {
+            rut,
+            tipo: "apoderado",
+            consentimiento: true,
+            ...(telefono ? { telefono } : {}),
+            hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, numero_camiseta: "4", foto: "h" }],
+          },
+          { h: JPEG_PRUEBA },
+        );
+      expect((await completa(mama.rut, mama.telefono ?? undefined)).statusCode).toBe(201);
+      expect((await completa(papa.rut)).statusCode).toBe(201);
+      const [s1, s2] = await solicitudes();
+      expect(s1).toMatchObject({ estado: "pendiente" });
+      expect(s2).toMatchObject({ estado: "pendiente" });
+      expect(s1?.avisos).toContain("hay_solicitud_posterior");
+      await app.close();
+    });
+
     it("una marca junto con un otro apoderado nuevo deja la solicitud pendiente", async () => {
       const titular = await apoderadoRegistrado();
       const hijo = await crearJugador(db, { nombre: "Tomás" });
