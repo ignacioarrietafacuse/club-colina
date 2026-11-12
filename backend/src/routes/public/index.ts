@@ -1,5 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { rutasCategorias } from "./categorias";
+import { rutasCompletar } from "./completar";
+import { rutasCredencial } from "./credencial";
+import { rutasFamilia } from "./familia";
 import { rutasRutLookup } from "./rut-lookup";
 import { rutasSolicitudes } from "./solicitudes";
 
@@ -12,4 +15,7 @@ export async function rutasPublic(app: FastifyInstance) {
   await app.register(rutasRutLookup);
   await app.register(rutasCategorias);
   await app.register(rutasSolicitudes);
+  await app.register(rutasFamilia);
+  await app.register(rutasCompletar);
+  await app.register(rutasCredencial);
 }
