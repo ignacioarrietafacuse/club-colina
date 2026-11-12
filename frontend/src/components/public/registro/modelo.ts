@@ -45,8 +45,9 @@ export const DATOS_VACIOS: DatosPersona = {
 
 /**
  * Qué se le pregunta a una persona. La categoría se pregunta solo cuando el servidor dice que
- * falta (`faltantes` de un precargado): a una persona nueva el servidor se la calcula por año
- * de nacimiento, y si no calza, la completa Mony al aprobar.
+ * falta (`faltantes` de un apoderado o hijo precargado): a una persona nueva, y al jugador adulto
+ * precargado (que llena el formulario completo), el servidor se la calcula por año de
+ * nacimiento, y si no calza, la completa Mony al aprobar.
  */
 export interface Campos {
   pedir: ReadonlySet<CampoPersona>;
@@ -140,6 +141,10 @@ export function camposTitular(t: Titular): Campos {
   }
   // Ya registrado: solo agrega hijos y otro apoderado; sus datos no se piden ni se cambian.
   if (t.lookup.ya_registrado) return campos([]);
+  // El servidor exige el formulario completo del jugador adulto antes de mirar la base (para que
+  // la respuesta no dependa de si el RUT está) y completa solo lo que falta en la ficha: pedirle
+  // solo los faltantes terminaba siempre en 400.
+  if (t.tipo === "jugador_adulto") return campos(TODO_ADULTO);
   const faltantes: readonly CampoPersona[] = t.lookup.faltantes;
   // Al apoderado precargado el teléfono se le pide siempre, aunque la base lo tenga: el servidor
   // lo exige para compararlo con el de la base y avisarle a Mony si no coincide.

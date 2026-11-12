@@ -405,6 +405,43 @@ describe("armado de la solicitud", () => {
     expect(datos).not.toHaveProperty("categoria_id");
     expect(datos).not.toHaveProperty("paga_mensualidad");
   });
+
+  it("jugador adulto precargado: manda los siete campos que exige el servidor, aunque solo falte la foto", () => {
+    const f = nuevoFormulario(RUT, {
+      tipo: "jugador_adulto",
+      lookup: {
+        encontrado: true,
+        tipo: "jugador",
+        primer_nombre: "Ana",
+        adulto: true,
+        ya_registrado: false,
+        faltantes: ["foto"],
+      },
+    });
+    f.datos = {
+      nombre: "Ana",
+      apellido: "Pérez",
+      telefono: "912345678",
+      fecha_nacimiento: "2004-01-01",
+      disciplina: "voleibol",
+      numero_camiseta: "7",
+      categoria_id: "",
+    };
+    f.foto = foto();
+    expect(validarTitular(f, HOY)).toEqual({});
+    const { datos } = cumpleContrato(f);
+    expect(datos).toMatchObject({
+      tipo: "jugador_adulto",
+      nombre: "Ana",
+      apellido: "Pérez",
+      telefono: "912345678",
+      fecha_nacimiento: "2004-01-01",
+      disciplina: "voleibol",
+      numero_camiseta: "7",
+      foto: "titular",
+    });
+    expect(datos).not.toHaveProperty("categoria_id");
+  });
 });
 
 describe("pasos", () => {
@@ -423,7 +460,7 @@ describe("pasos", () => {
     expect(pasosDe(f)).toEqual(["titular", "hijos", "otro", "confirmar"]);
   });
 
-  it("jugador adulto precargado sin faltantes: solo confirmar", () => {
+  it("jugador adulto precargado: se le pide el formulario completo, como exige el servidor", () => {
     const f = formulario(
       iniciarFormulario(RUT, {
         encontrado: true,
@@ -434,7 +471,18 @@ describe("pasos", () => {
         faltantes: [],
       }),
     );
-    expect(pasosDe(f)).toEqual(["confirmar"]);
+    expect(pasosDe(f)).toEqual(["titular", "confirmar"]);
+    expect([...camposTitular(f.titular).pedir].sort()).toEqual(
+      [
+        "nombre",
+        "apellido",
+        "telefono",
+        "fecha_nacimiento",
+        "disciplina",
+        "numero_camiseta",
+        "foto",
+      ].sort(),
+    );
   });
 
   it("quitar un hijo lo saca también del otro apoderado; un precargado no se quita", () => {

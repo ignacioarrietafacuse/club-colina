@@ -5,7 +5,7 @@ import {
   type SolicitudCreadaResponse,
   type solicitudDatos,
 } from "@club-colina/shared";
-import { and, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
 import type { z } from "zod";
 import type { Db, Ejecutor } from "../../db/cliente";
 import { apoderados, categorias, fichasPrevias, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
@@ -109,6 +109,8 @@ class Proceso {
   private readonly conCopiaAjena = new Set<string>();
   private solicitudId = "";
   private coincideBase = false;
+  /** El titular precargado que esta solicitud modificó (tiene su copia en `fichas_previas`). */
+  private titularConCopia: string | null = null;
   /** Quién llenó el formulario: con esto /familia sabe de quién son los hijos que muestra. */
   private titularApoderadoId: string | null = null;
   private titularJugadorId: string | null = null;
@@ -306,6 +308,7 @@ class Proceso {
     const foto = existente.foto_id === null ? faltan.exigir(d.foto, "foto") : undefined;
     faltan.lanzarSiHay();
     if (!(await this.copiaPrevia({ apoderado: existente }))) return existente;
+    this.titularConCopia = existente.id;
     const [actualizado] = await this.tx
       .update(apoderados)
       .set({
@@ -503,7 +506,6 @@ class Proceso {
   private async hijos(titular: Apoderado): Promise<(string | null)[]> {
     const d = this.datos;
     const lista = await hijosDeApoderado(this.tx, titular.id, { bloquear: true });
-    const titularEraPrecargado = this.coincideBase;
     const paga = d.paga_mensualidad ?? false;
     const vistos = new Set<string>();
     const resueltos: (string | null)[] = [];
@@ -568,11 +570,8 @@ class Proceso {
           const completado = await this.completarJugador(jugador, h, p, new Faltantes());
           await this.completarExistente(jugador, completado, { solicitud_id: jugador.solicitud_id ?? this.solicitudId });
         }
-        if (titularEraPrecargado && d.paga_mensualidad !== undefined) {
-          await this.tx
-            .update(jugadorApoderado)
-            .set({ paga_mensualidad: d.paga_mensualidad })
-            .where(and(eq(jugadorApoderado.jugador_id, jugador.id), eq(jugadorApoderado.apoderado_id, titular.id)));
+        if (this.titularConCopia === titular.id && d.paga_mensualidad !== undefined) {
+          await this.pagaDeVinculoBase(jugador.id, titular.id, d.paga_mensualidad);
         }
         resueltos.push(jugador.id);
         continue;
@@ -597,6 +596,32 @@ class Proceso {
       resueltos.push(jugador.id);
     }
     return resueltos;
+  }
+
+  /**
+   * Cambia `paga_mensualidad` de un vínculo que ya estaba en la base y guarda el valor anterior en
+   * la copia del titular (`vinculos_paga`), para que S1 lo devuelva si Mony rechaza al titular.
+   * Solo se llama si esta solicitud tiene la copia del titular: si no, no modifica nada suyo.
+   */
+  private async pagaDeVinculoBase(jugadorId: string, apoderadoId: string, paga: boolean) {
+    // Solo vínculos de la base (sin solicitud): uno pendiente de otra solicitud se decide allá.
+    const donde = and(
+      eq(jugadorApoderado.jugador_id, jugadorId),
+      eq(jugadorApoderado.apoderado_id, apoderadoId),
+      isNull(jugadorApoderado.solicitud_id),
+    );
+    const [v] = await this.tx.select({ paga: jugadorApoderado.paga_mensualidad }).from(jugadorApoderado).where(donde);
+    if (!v || v.paga === paga) return;
+    const anotada = await this.tx
+      .update(fichasPrevias)
+      .set({
+        datos: sql`${fichasPrevias.datos} || jsonb_build_object('vinculos_paga', coalesce(${fichasPrevias.datos} -> 'vinculos_paga', '{}'::jsonb) || jsonb_build_object(${jugadorId}::text, ${v.paga}::boolean))`,
+      })
+      .where(and(eq(fichasPrevias.apoderado_id, apoderadoId), eq(fichasPrevias.solicitud_id, this.solicitudId)))
+      .returning({ id: fichasPrevias.id });
+    // Sin la copia donde anotar el valor anterior no se cambia nada: no habría cómo volverlo atrás.
+    if (anotada.length !== 1) throw new Error("sin copia del titular para anotar paga_mensualidad");
+    await this.tx.update(jugadorApoderado).set({ paga_mensualidad: paga }).where(donde);
   }
 
   private async hijoNuevo(h: Hijo, p: string, paga: boolean, apoderadoId: string): Promise<string> {
