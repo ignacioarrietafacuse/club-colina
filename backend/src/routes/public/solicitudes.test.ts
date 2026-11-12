@@ -8,7 +8,8 @@ import { guardarFoto } from "../../lib/fotos";
 import { LIMITES } from "../../lib/limite-intentos";
 import { hashToken } from "../../lib/tokens";
 import { crearApoderado, crearJugador, rutNuevo, vaciarRegistro, vincular } from "../../services/registro/datos-prueba";
-import { configTest, dbTest, JPEG_PRUEBA, PNG_PRUEBA } from "../../test/db";
+import { configTest, dbTest, JPEG_PRUEBA, PNG_PRUEBA, urlTest } from "../../test/db";
+import { crearDb } from "../../db/cliente";
 
 const { db, cerrar } = dbTest();
 afterAll(cerrar);
@@ -781,6 +782,98 @@ describe("POST /api/public/solicitudes", () => {
       expect(s1?.avisos).not.toContain("cambios_bloqueados_por_otra_solicitud");
       await app.close();
     });
+
+    /** Espera a que alguna consulta de la base de tests esté esperando un candado de fila. */
+    async function esperarBloqueo() {
+      for (let i = 0; i < 200; i++) {
+        const [f] = await db.execute<{ n: number }>(
+          sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
+        );
+        if ((f?.n ?? 0) > 0) return;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      throw new Error("la solicitud nunca esperó el candado");
+    }
+
+    /**
+     * Cada camino que copia a fichas_previas: el titular, un hijo por posición, un hijo sin
+     * apoderado nombrado por RUT y el jugador adulto. Devuelve la ficha que Mony toca y el envío.
+     */
+    async function escenario(
+      quien: "titular" | "hijo" | "hijo por RUT" | "adulto",
+    ): Promise<{ tabla: typeof apoderados | typeof jugadores; id: string; datos: unknown; fotos: Record<string, Buffer> }> {
+      if (quien === "adulto") {
+        const adulto = await crearJugador(db, { fecha_nacimiento: "2001-01-01", numero_camiseta: null });
+        return { tabla: jugadores, id: adulto.id, datos: adultoCompleto(adulto.rut), fotos: { t: JPEG_PRUEBA } };
+      }
+      if (quien === "hijo por RUT") {
+        const huerfano = await crearJugador(db, { numero_camiseta: null });
+        return {
+          tabla: jugadores,
+          id: huerfano.id,
+          datos: { ...apoderadoNuevo(rutNuevo()), hijos: [hijoNuevo(huerfano.rut)] },
+          fotos: { titular: JPEG_PRUEBA, h0: JPEG_PRUEBA },
+        };
+      }
+      const titular = await crearApoderado(db, { nombre: null });
+      const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: null });
+      await vincular(db, hijo.id, titular.id);
+      return {
+        tabla: quien === "titular" ? apoderados : jugadores,
+        id: quien === "titular" ? titular.id : hijo.id,
+        datos: {
+          rut: titular.rut,
+          tipo: "apoderado",
+          consentimiento: true,
+          nombre: "Rosa",
+          foto: "t",
+          hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, numero_camiseta: "8", foto: "h" }],
+        },
+        fotos: { t: JPEG_PRUEBA, h: JPEG_PRUEBA },
+      };
+    }
+
+    it.each(["titular", "hijo", "hijo por RUT", "adulto"] as const)(
+      "si Mony cambia la foto (%s) mientras llega la solicitud, la solicitud espera, la copia y no la pisa",
+      async (quien) => {
+        const { tabla, id, datos, fotos } = await escenario(quien);
+        const app = await construirApp({ config: configTest(), db });
+        // Mony, en otra conexión: toma la fila como lo hace cambiarFoto y deja la foto nueva sin
+        // confirmar hasta que la solicitud esté esperando.
+        const mony = crearDb(urlTest(), { max: 1 });
+        let soltar = () => {};
+        const suelta = new Promise<void>((r) => (soltar = r));
+        let listo = (_foto: string) => {};
+        const fotoLista = new Promise<string>((r) => (listo = r));
+        const transaccionMony = mony.db.transaction(async (tx) => {
+          await tx.select({ id: tabla.id }).from(tabla).where(eq(tabla.id, id)).for("update");
+          const nueva = await guardarFoto(tx, PNG_PRUEBA);
+          await tx.update(tabla).set({ foto_id: nueva }).where(eq(tabla.id, id));
+          listo(nueva);
+          await suelta;
+        });
+        try {
+          // Si la transacción de Mony falla antes, su error sale acá en vez de un timeout.
+          const fotoMony = await Promise.race([fotoLista, transaccionMony.then(() => "")]);
+          const envio = enviar(app, datos, fotos);
+          await esperarBloqueo();
+          soltar();
+          await transaccionMony;
+          expect((await envio).statusCode).toBe(201);
+
+          const [ficha] = await db.select({ foto_id: tabla.foto_id }).from(tabla).where(eq(tabla.id, id));
+          expect(ficha?.foto_id).toBe(fotoMony);
+          const copias = await db.select().from(fichasPrevias);
+          const copia = copias.find((c) => (tabla === apoderados ? c.apoderado_id : c.jugador_id) === id);
+          expect(copia?.datos).toMatchObject({ foto_id: fotoMony });
+        } finally {
+          soltar();
+          await transaccionMony.catch(() => {});
+          await mony.cerrar();
+          await app.close();
+        }
+      },
+    );
 
     it("un hijo ya marcado por otra solicitud: la otra recibe el aviso y no se crea una copia nueva", async () => {
       const mama = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });

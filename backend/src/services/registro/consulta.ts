@@ -111,6 +111,15 @@ export async function faltantesJugador(
 }
 
 /**
+ * `bloquear`: toma la fila con `FOR NO KEY UPDATE` (solo dentro de una transacción). La solicitud lo usa
+ * en lo que puede copiar a `fichas_previas` y modificar: si Mony cambia la foto o los datos en el
+ * panel al mismo tiempo, la solicitud espera y copia lo que dejó Mony, en vez de copiar lo que
+ * leyó antes y pisarlo después. `NO KEY` basta: choca con el `FOR UPDATE` y los `UPDATE` del
+ * panel, sin frenar los inserts que solo apuntan a la fila (vínculos).
+ */
+type Bloqueo = { bloquear?: boolean };
+
+/**
  * Hijos del apoderado, en el orden que fija el contrato: sus vínculos, sin filtrar por estado,
  * por `jugador_apoderado.creado_en, jugador_id`. La posición en esta lista es lo único que
  * identifica a un hijo precargado entre la consulta de RUT y la solicitud.
@@ -124,8 +133,8 @@ export async function faltantesJugador(
  * Cuando Mony aprueba un vínculo oculto, el hijo aparece en su lugar por `creado_en` y puede
  * correr las posiciones: un formulario abierto recibe 409 `conflicto` porque el nombre no calza.
  */
-export async function hijosDeApoderado(db: Ejecutor, apoderadoId: string) {
-  const filas = await db
+export async function hijosDeApoderado(db: Ejecutor, apoderadoId: string, opciones: Bloqueo = {}) {
+  const consulta = db
     .select({ jugador: jugadores, vinculo: jugadorApoderado })
     .from(jugadorApoderado)
     .innerJoin(jugadores, eq(jugadores.id, jugadorApoderado.jugador_id))
@@ -139,16 +148,19 @@ export async function hijosDeApoderado(db: Ejecutor, apoderadoId: string) {
       ),
     )
     .orderBy(asc(jugadorApoderado.creado_en), asc(jugadorApoderado.jugador_id));
+  const filas = opciones.bloquear ? await consulta.for("no key update", { of: jugadores }) : await consulta;
   return filas.map((f, posicion) => ({ posicion, ...f }));
 }
 
-export async function apoderadoPorRut(db: Ejecutor, rut: string): Promise<Apoderado | null> {
-  const [a] = await db.select().from(apoderados).where(eq(apoderados.rut, rut));
+export async function apoderadoPorRut(db: Ejecutor, rut: string, opciones: Bloqueo = {}): Promise<Apoderado | null> {
+  const consulta = db.select().from(apoderados).where(eq(apoderados.rut, rut));
+  const [a] = opciones.bloquear ? await consulta.for("no key update") : await consulta;
   return a ?? null;
 }
 
-export async function jugadorPorRut(db: Ejecutor, rut: string): Promise<Jugador | null> {
-  const [j] = await db.select().from(jugadores).where(eq(jugadores.rut, rut));
+export async function jugadorPorRut(db: Ejecutor, rut: string, opciones: Bloqueo = {}): Promise<Jugador | null> {
+  const consulta = db.select().from(jugadores).where(eq(jugadores.rut, rut));
+  const [j] = opciones.bloquear ? await consulta.for("no key update") : await consulta;
   return j ?? null;
 }
 
