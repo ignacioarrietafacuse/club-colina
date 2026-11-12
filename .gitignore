@@ -21,3 +21,6 @@ uploads/
 *.xlsx
 *.xls
 *.csv
+
+# Grafo de graphify: se genera en cada máquina, no se versiona.
+graphify-out/

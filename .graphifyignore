@@ -1,0 +1,65 @@
+# graphify-estandar:inicio
+# Bloque del estándar: lo escribe la skill graphify-estandar desde su plantilla y lo
+# reemplaza entero al actualizar. Las rutas y comentarios propios del repo van debajo de
+# «graphify-estandar:fin», nunca dentro del bloque.
+
+# Lo que graphify no indexa. Solo código: así `graphify extract . --code-only` y
+# `graphify update .` ven lo mismo (sin esto, `update` sí indexaría los .md).
+# Los hooks de git (.githooks/) leen este mismo archivo para decidir si reconstruir el grafo:
+# no hay otra lista que mantener a mano.
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+graphify-out/
+.claude/
+.githooks/
+.github/
+docs/
+*.md
+*.lock
+package-lock.json
+# graphify indexa los package.json como nodos de dependencias (*_ref_<paquete>). `extract`
+# fusiona los que se repiten entre paquetes y `update` no, así que con más de un package.json
+# los conteos de ambos divergen (en un monorepo con dos paquetes web, 63 nodos). Además, un
+# manifiesto no es código.
+package.json
+.env*
+# Datos y configuración que no son código: los .sql (volcados, seeds; el extractor de SQL ni
+# siquiera está instalado en el aislado) y los .tfvars (valores de variables de Terraform,
+# que pueden llevar secretos). .conductor/ es la configuración de Conductor (settings.toml,
+# setup.sh y el JSON de reglas deny): no es código del producto, y su contenido nunca debe
+# llegar al grafo.
+*.sql
+*.tfvars
+.conductor/
+# Documentos, papers, imágenes y archivos de Office: lo que graphify 0.9.76 no lee por AST
+# y solo procesaría con un modelo (DOC_, PAPER_, IMAGE_ y OFFICE_EXTENSIONS, detect.py:48-51;
+# *.md ya está arriba). Así ni `update` ni un extract sin --code-only los ve.
+*.mdx
+*.qmd
+*.skill
+*.txt
+*.rst
+*.html
+*.yaml
+*.yml
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.svg
+*.docx
+*.xlsx
+# graphify-estandar:fin
+frontend/public/
+backend/migrations/
+# Los tsconfig*.json: graphify indexa su «extends» como nodo de referencia, y `extract`
+# fusiona las referencias repetidas entre paquetes (backend/ y shared/ extienden
+# ../tsconfig.base.json) mientras `update` no, así que los grafos divergen (G3). Son
+# configuración, no código.
+tsconfig*.json
