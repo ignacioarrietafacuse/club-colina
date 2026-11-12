@@ -544,8 +544,14 @@ export const solicitudDetalle = z.object({
   revisada_en: fechaHora.nullable(),
   coincide_base: z.boolean(),
   avisos: z.array(avisoSolicitud),
-  jugadores: z.array(jugadorDetalle),
-  apoderados: z.array(apoderadoDetalle),
+  /**
+   * `propia`: true si la persona se aprueba o rechaza desde esta solicitud. Las demás (el titular
+   * que ya estaba activo, un hijo de otra solicitud nombrado por RUT, un hijo marcado "ya no
+   * está") solo se muestran; desde aquí se decide, a lo más, su vínculo. Se aprueba o rechaza
+   * con `propia && estado === "pendiente"`: una propia ya decidida sigue `propia` pero responde 409.
+   */
+  jugadores: z.array(jugadorDetalle.extend({ propia: z.boolean() })),
+  apoderados: z.array(apoderadoDetalle.extend({ propia: z.boolean() })),
   vinculos: z.array(
     z.object({
       jugador_id: id,
@@ -571,9 +577,10 @@ export const aprobarRequest = z.object({
         metodo_pago: metodoPago.optional(),
       }),
     )
+    .max(50)
     .default([]),
-  apoderados: z.array(z.object({ id, metodo_pago: metodoPago.optional() })).default([]),
-  vinculos: z.array(z.object({ jugador_id: id, apoderado_id: id })).default([]),
+  apoderados: z.array(z.object({ id, metodo_pago: metodoPago.optional() })).max(50).default([]),
+  vinculos: z.array(z.object({ jugador_id: id, apoderado_id: id })).max(50).default([]),
 });
 
 /**

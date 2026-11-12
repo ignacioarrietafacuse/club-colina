@@ -1,8 +1,4 @@
-import {
-  generarRutFicticio,
-  type JugadorDetalle,
-  type SolicitudDetalle,
-} from "@club-colina/shared";
+import { generarRutFicticio, type SolicitudDetalle } from "@club-colina/shared";
 import { describe, expect, it } from "vitest";
 import {
   armarAprobacion,
@@ -28,8 +24,11 @@ const A1 = "33333333-3333-4333-8333-333333333333";
 const S = "44444444-4444-4444-8444-444444444444";
 const AHORA = "2026-11-12T10:00:00.000Z";
 
-function jugador(id: string, cambios: Partial<JugadorDetalle> = {}): JugadorDetalle {
+// `propia` viene en el detalle de la solicitud desde el #29 (S1); aquí todos son propios.
+type JugadorDeSolicitud = SolicitudDetalle["jugadores"][number];
+function jugador(id: string, cambios: Partial<JugadorDeSolicitud> = {}): JugadorDeSolicitud {
   return {
+    propia: true,
     id,
     nombre: "Ana",
     apellido: "Pérez",
@@ -91,6 +90,7 @@ function solicitud(cambios: Partial<SolicitudDetalle> = {}): SolicitudDetalle {
         jugadores: [],
         creado_en: AHORA,
         actualizado_en: AHORA,
+        propia: true,
       },
     ],
     vinculos: [
