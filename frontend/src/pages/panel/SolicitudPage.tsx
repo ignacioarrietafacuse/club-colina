@@ -45,6 +45,12 @@ import {
 
 export function SolicitudPage() {
   const { id } = useParams({ from: "/_panel/jugadores/solicitudes/$id" });
+  // Otra solicitud parte de cero: el estado de esta pantalla (por ejemplo, si se rechazó a alguien)
+  // no se arrastra a la siguiente.
+  return <PantallaSolicitud key={id} id={id} />;
+}
+
+function PantallaSolicitud({ id }: { id: string }) {
   const consulta = useQuery({
     queryKey: ["panel", "solicitud", id],
     queryFn: ({ signal }) => api.panel.solicitud(id, signal),
@@ -60,6 +66,9 @@ export function SolicitudPage() {
   // Jugadores a los que se les quitó la marca «ya no está» en esta pantalla: parten sin marcar
   // cada vez que el formulario se rehace.
   const [desmarcados, setDesmarcados] = useState<ReadonlySet<string>>(() => new Set());
+  // Si se rechazó a alguien en esta pantalla. Vive aquí, fuera del formulario que se rehace: una
+  // persona nueva rechazada se borra y ya no queda en el detalle para mostrarlo.
+  const [rechazoHecho, setRechazoHecho] = useState(false);
 
   return (
     <div>
@@ -95,6 +104,8 @@ export function SolicitudPage() {
             s={consulta.data}
             categorias={categorias.data}
             desmarcados={desmarcados}
+            rechazoHecho={rechazoHecho}
+            alRechazar={() => setRechazoHecho(true)}
             alCambiar={(desmarcar = []) => {
               if (desmarcar.length > 0) setDesmarcados((d) => new Set([...d, ...desmarcar]));
               setGeneracion((g) => g + 1);
@@ -115,12 +126,17 @@ function DetalleSolicitud({
   s,
   categorias,
   desmarcados,
+  rechazoHecho,
+  alRechazar,
   alCambiar,
 }: {
   s: SolicitudDetalle;
   /** `undefined` mientras no carguen (o si fallaron): el selector queda deshabilitado. */
   categorias: CategoriaPanel[] | undefined;
   desmarcados: ReadonlySet<string>;
+  /** Si ya se rechazó a alguien de esta solicitud en esta pantalla. */
+  rechazoHecho: boolean;
+  alRechazar: () => void;
   /** Rehace el formulario; `desmarcar` = jugadores que deben partir sin marcar. */
   alCambiar: (desmarcar?: string[]) => void;
 }) {
@@ -161,7 +177,10 @@ function DetalleSolicitud({
   const rechazar = useMutation({
     mutationFn: (datos: Parameters<typeof api.panel.rechazarSolicitud>[1]) =>
       api.panel.rechazarSolicitud(s.id, datos),
-    onSuccess: refrescar,
+    onSuccess: async () => {
+      alRechazar();
+      await refrescar();
+    },
   });
 
   const quitarMarca = useMutation({
@@ -181,7 +200,10 @@ function DetalleSolicitud({
   const ocupado = aprobar.isPending || rechazar.isPending || quitarMarca.isPending || desfasado;
   const rechazaTodo = alcanceRechazoTotal(s).map((id) => nombres[id] ?? "");
   const conPosterior = s.avisos.includes("hay_solicitud_posterior");
-  const huboRechazo = [...s.jugadores, ...s.apoderados].some((p) => p.estado === "rechazado");
+  // Una persona nueva rechazada se borra y ya no sale en el detalle: cuenta el rechazo hecho en
+  // esta pantalla (o un `rechazado` de antes de que se borraran).
+  const huboRechazo =
+    rechazoHecho || [...s.jugadores, ...s.apoderados].some((p) => p.estado === "rechazado");
 
   function enviarAprobacion() {
     if (desfasado) return;
@@ -441,12 +463,20 @@ function DetalleSolicitud({
         </div>
       )}
 
+      {confirmar === "marcadas" && (
+        <div role="alert" className="mb-4 rounded-lg bg-destructive/10 px-4 py-3 text-sm">
+          Las personas nuevas se borran con su foto; los precargados vuelven a como estaban. No se
+          deshace desde el panel.
+        </div>
+      )}
+
       {confirmar === "todo" && (
         <div role="alert" className="mb-4 rounded-lg bg-destructive/10 px-4 py-3 text-sm">
           {rechazaTodo.length > 0
             ? `«Rechazar todo lo pendiente» rechaza, estén marcadas o no, a ${rechazaTodo.join(", ")}, y los vínculos pendientes de la solicitud.`
             : "«Rechazar todo lo pendiente» rechaza los vínculos pendientes de la solicitud (no queda ninguna persona por decidir desde acá)."}{" "}
-          No se deshace desde el panel.
+          Las personas nuevas se borran con su foto; los precargados vuelven a como estaban. No se
+          deshace desde el panel.
         </div>
       )}
 

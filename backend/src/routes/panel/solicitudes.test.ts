@@ -322,7 +322,9 @@ describe("solicitudes: solo desde la propia", () => {
     await db.insert(jugadorApoderado).values({ jugador_id: ajeno, apoderado_id: otra.apo, solicitud_id: otra.s.id, estado: "activo" });
     await app.inject({ method: "POST", url: `/api/panel/solicitudes/${otra.s.id}/rechazar`, cookies, payload: {} });
     expect(await vinculo(ajeno, otra.apo)).toBeUndefined();
-    expect(await estadoA(otra.apo)).toMatchObject({ estado: "rechazado", credencial_token: null });
+    // Era nuevo: se borra (decisión de Ignacio, 2026-11-12). El jugador ajeno sigue.
+    expect(await estadoA(otra.apo)).toBeUndefined();
+    expect(await estadoJ(ajeno)).toMatchObject({ estado: "activo" });
     await app.close();
   });
 
@@ -347,6 +349,8 @@ describe("solicitudes: solo desde la propia", () => {
     expect(r.statusCode).toBe(200);
     expect(await estadoS(segunda.id)).toBe("revisada");
     expect(await vinculo(hijo, otro)).toBeUndefined();
+    // Era nuevo: se borra.
+    expect(await estadoA(otro)).toBeUndefined();
 
     // La de origen se termina de decidir y se cierra.
     await app.inject({
@@ -433,9 +437,10 @@ describe("solicitudes: rechazar vuelve a como estaba", () => {
     await app.close();
   });
 
-  it("una persona nueva rechazada queda rechazada y sin credencial", async () => {
+  it("una persona nueva rechazada se borra con su foto, y su RUT queda libre", async () => {
     const { app, cookies } = await appConSesion(db);
-    const { s, hijo } = await familia();
+    const { s, apo, hijo } = await familia();
+    const antes = await estadoJ(hijo);
     const r = await app.inject({
       method: "POST",
       url: `/api/panel/solicitudes/${s.id}/rechazar`,
@@ -443,10 +448,145 @@ describe("solicitudes: rechazar vuelve a como estaba", () => {
       payload: { personas: [{ rol: "jugador", id: hijo }] },
     });
     expect(r.statusCode).toBe(200);
-    expect(await estadoJ(hijo)).toMatchObject({ estado: "rechazado", credencial_token: null });
+    expect(await estadoJ(hijo)).toBeUndefined();
+    expect(await db.select().from(fotos).where(eq(fotos.id, antes?.foto_id ?? ""))).toHaveLength(0);
+    expect(await vinculo(hijo, apo)).toBeUndefined();
+    // El titular sigue pendiente, con su foto, y la solicitud también.
+    expect(await estadoA(apo)).toMatchObject({ estado: "pendiente" });
     expect(r.json().estado).toBe("pendiente");
+    // El RUT se puede volver a usar.
+    await crearJugador(db, { rut: antes?.rut, nombre: "Luis" });
     await app.close();
   });
+
+  it("«Rechazar todo» con un titular nuevo: se borran todos, la solicitud se cierra sin titular", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo, hijo } = await familia();
+    const fotosAntes = (await db.select().from(fotos)).length;
+    const r = await app.inject({ method: "POST", url: `/api/panel/solicitudes/${s.id}/rechazar`, cookies, payload: {} });
+    expect(r.statusCode).toBe(200);
+    expect(await estadoA(apo)).toBeUndefined();
+    expect(await estadoJ(hijo)).toBeUndefined();
+    expect((await db.select().from(fotos)).length).toBe(fotosAntes - 2);
+    const [cerrada] = await db.select().from(solicitudesRegistro).where(eq(solicitudesRegistro.id, s.id));
+    expect(cerrada).toMatchObject({ estado: "revisada", titular_apoderado_id: null });
+    // El detalle sigue abriendo, sin personas.
+    const d = await app.inject({ method: "GET", url: `/api/panel/solicitudes/${s.id}`, cookies });
+    expect(d.statusCode).toBe(200);
+    expect(d.json()).toMatchObject({ jugadores: [], apoderados: [] });
+    await app.close();
+  });
+
+  it("si otra solicitud tiene un vínculo hacia la persona nueva, 409 hasta que Mony decida esa otra", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo, hijo } = await familia();
+    // Otra familia, ya registrada, nombró a ese hijo por RUT: su solicitud solo tiene ese vínculo.
+    const otra = await nuevaSolicitud();
+    const otroApo = await crearApoderado(db, { estado: "activo", foto_id: await fotoPrueba(db), credencial_token: generarToken() });
+    await db.update(solicitudesRegistro).set({ titular_apoderado_id: otroApo }).where(eq(solicitudesRegistro.id, otra.id));
+    await db.insert(jugadorApoderado).values({ jugador_id: hijo, apoderado_id: otroApo, solicitud_id: otra.id });
+    const rechazarHijo = () =>
+      app.inject({
+        method: "POST",
+        url: `/api/panel/solicitudes/${s.id}/rechazar`,
+        cookies,
+        payload: { personas: [{ rol: "jugador", id: hijo }] },
+      });
+    const fotoHijo = (await estadoJ(hijo))?.foto_id;
+    if (!fotoHijo) throw new Error("el hijo de la prueba no tiene foto");
+    const r = await rechazarHijo();
+    expect(r.statusCode).toBe(409);
+    expect(r.json().error.mensaje).toMatch(/otra solicitud pendiente \(recibida el \d{2}-\d{2}-\d{4} \d{2}:\d{2}\)/);
+    // No cambió nada: ni el hijo y su foto, ni su vínculo con esta, ni el de la otra, ni su estado.
+    expect(await estadoJ(hijo)).toMatchObject({ estado: "pendiente" });
+    expect(await db.select().from(fotos).where(eq(fotos.id, fotoHijo))).toHaveLength(1);
+    expect(await vinculo(hijo, apo)).toBeDefined();
+    expect(await vinculo(hijo, otroApo)).toBeDefined();
+    expect(await estadoS(otra.id)).toBe("pendiente");
+    // Mony decide primero la otra (rechaza su vínculo) y después puede rechazar al hijo.
+    const v = await app.inject({
+      method: "POST",
+      url: `/api/panel/solicitudes/${otra.id}/rechazar`,
+      cookies,
+      payload: { vinculos: [{ jugador_id: hijo, apoderado_id: otroApo }] },
+    });
+    expect(v.statusCode).toBe(200);
+    expect(await estadoS(otra.id)).toBe("revisada");
+    expect((await rechazarHijo()).statusCode).toBe(200);
+    expect(await estadoJ(hijo)).toBeUndefined();
+    expect(await estadoA(otroApo)).toMatchObject({ estado: "activo" });
+    await app.close();
+  });
+
+  it("si la persona nueva es titular de otra solicitud pendiente, 409 hasta que Mony decida esa otra", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo } = await familia();
+    // El mismo apoderado volvió a llenar el formulario para agregar un hijo olvidado.
+    const otra = await nuevaSolicitud({ titular_apoderado_id: apo });
+    const olvidado = await crearJugador(db, {
+      nombre: "Ema",
+      estado: "pendiente",
+      origen: "formulario",
+      solicitud_id: otra.id,
+      foto_id: await fotoPrueba(db),
+    });
+    await db.insert(jugadorApoderado).values({ jugador_id: olvidado, apoderado_id: apo, solicitud_id: otra.id });
+    const rechazarTodo = () => app.inject({ method: "POST", url: `/api/panel/solicitudes/${s.id}/rechazar`, cookies, payload: {} });
+    expect((await rechazarTodo()).statusCode).toBe(409);
+    expect(await estadoA(apo)).toMatchObject({ estado: "pendiente" });
+    expect(await estadoJ(olvidado)).toMatchObject({ estado: "pendiente" });
+    // Decidida la otra (se rechaza a la hija nueva, que se borra), ya se puede rechazar todo.
+    expect((await app.inject({ method: "POST", url: `/api/panel/solicitudes/${otra.id}/rechazar`, cookies, payload: {} })).statusCode).toBe(200);
+    expect(await estadoJ(olvidado)).toBeUndefined();
+    expect((await rechazarTodo()).statusCode).toBe(200);
+    expect(await estadoA(apo)).toBeUndefined();
+    const [cerrada] = await db.select().from(solicitudesRegistro).where(eq(solicitudesRegistro.id, otra.id));
+    expect(cerrada).toMatchObject({ estado: "revisada", titular_apoderado_id: null });
+    await app.close();
+  });
+
+  it("si la persona nueva es titular de otra solicitud pendiente sin ningún vínculo de ella, también 409", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo } = await familia();
+    // La otra solicitud solo agregó un segundo apoderado: no tiene vínculos hacia `apo`.
+    const otra = await nuevaSolicitud({ titular_apoderado_id: apo });
+    const rechazarApo = () =>
+      app.inject({
+        method: "POST",
+        url: `/api/panel/solicitudes/${s.id}/rechazar`,
+        cookies,
+        payload: { personas: [{ rol: "apoderado", id: apo }] },
+      });
+    const bloqueado = await rechazarApo();
+    expect(bloqueado.statusCode).toBe(409);
+    expect(bloqueado.json().error.mensaje).toMatch(/otra solicitud pendiente \(recibida el/);
+    expect(await estadoA(apo)).toMatchObject({ estado: "pendiente" });
+    // Decidida la otra, ya se puede.
+    await db.update(solicitudesRegistro).set({ estado: "revisada", revisada_en: new Date() }).where(eq(solicitudesRegistro.id, otra.id));
+    expect((await rechazarApo()).statusCode).toBe(200);
+    expect(await estadoA(apo)).toBeUndefined();
+    await app.close();
+  });
+
+  it("un jugador adulto nuevo que llenó la solicitud se borra y la solicitud queda sin titular", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const s = await nuevaSolicitud();
+    const adulto = await crearJugador(db, {
+      nombre: "Ana",
+      estado: "pendiente",
+      origen: "formulario",
+      solicitud_id: s.id,
+      foto_id: await fotoPrueba(db),
+    });
+    await db.update(solicitudesRegistro).set({ titular_jugador_id: adulto }).where(eq(solicitudesRegistro.id, s.id));
+    const r = await app.inject({ method: "POST", url: `/api/panel/solicitudes/${s.id}/rechazar`, cookies, payload: {} });
+    expect(r.statusCode).toBe(200);
+    expect(await estadoJ(adulto)).toBeUndefined();
+    const [cerrada] = await db.select().from(solicitudesRegistro).where(eq(solicitudesRegistro.id, s.id));
+    expect(cerrada).toMatchObject({ estado: "revisada", titular_jugador_id: null });
+    await app.close();
+  });
+
 });
 
 describe("solicitudes: dos solicitudes sobre un precargado y casos sin copia", () => {
@@ -644,7 +784,8 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
       soltar();
       await candado;
       expect((await pedido).statusCode).toBe(200);
-      expect((await estadoA(apo))?.estado).toBe(accion === "rechazar" ? "rechazado" : "activo");
+      // Rechazado, el apoderado nuevo se borra.
+      expect((await estadoA(apo))?.estado).toBe(accion === "rechazar" ? undefined : "activo");
     } finally {
       soltar();
       await candado.catch(() => {});

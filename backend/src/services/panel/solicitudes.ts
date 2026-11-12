@@ -25,7 +25,7 @@ import {
   type solicitudResumen,
   type solicitudesQuery,
 } from "@club-colina/shared";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import type { Ejecutor } from "../../db/cliente";
 import {
@@ -595,14 +595,17 @@ async function fotoAlRestaurar(
 /**
  * Rechaza a una persona. Si ya existía antes de la solicitud (hay ficha previa), vuelve a como
  * estaba: sus campos, su foto, su estado y su `solicitud_id`, y se borra la foto que trajo la
- * solicitud (una que Mony subió después se conserva; ver `fotoAlRestaurar`). Si es nueva, queda `rechazado`. En los dos casos, sin credencial.
+ * solicitud (una que Mony subió después se conserva; ver `fotoAlRestaurar`). Si es nueva (la creó
+ * el formulario y nunca estuvo activa), devuelve true: `borrarNuevas` la borra al final del
+ * rechazo, con su foto y sus vínculos (decisión de Ignacio, 2026-11-12). Mientras tanto queda
+ * `rechazado`, sin credencial.
  */
 async function rechazarPersona(
   tx: Ejecutor,
   solicitudId: string,
   tipo: "jugador" | "apoderado",
   personaId: string,
-): Promise<void> {
+): Promise<boolean> {
   // A lo más una por persona (unique): la del estado original, antes de la primera solicitud.
   const [previa] = await tx
     .select({ datos: fichasPrevias.datos, solicitud_id: fichasPrevias.solicitud_id })
@@ -634,7 +637,7 @@ async function rechazarPersona(
     }
     if (tipo === "jugador") await tx.update(jugadores).set({ estado: "rechazado", credencial_token: null }).where(eq(jugadores.id, personaId));
     else await tx.update(apoderados).set({ estado: "rechazado", credencial_token: null }).where(eq(apoderados.id, personaId));
-    return;
+    return true;
   }
   // Si la copia no tiene la forma esperada, falla (500) y no se toca nada: denegar por defecto.
   const estadoPrevio = (tipo === "jugador" ? previoJugador : previoApoderado).parse(previa.datos).estado;
@@ -677,6 +680,135 @@ async function rechazarPersona(
   }
   const [despues] = await tx.select({ foto_id: tabla.foto_id }).from(tabla).where(eq(tabla.id, personaId));
   if (actual.foto_id && actual.foto_id !== despues?.foto_id) await borrarFoto(tx, actual.foto_id);
+  return false;
+}
+
+/** Fecha y hora de Chile para un mensaje del panel, por ejemplo "12-11-2026 16:40". */
+function fechaChile(d: Date): string {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("es-CL", {
+      timeZone: "America/Santiago",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(d)
+      .map((x) => [x.type, x.value]),
+  );
+  return `${p.day}-${p.month}-${p.year} ${p.hour}:${p.minute}`;
+}
+
+/**
+ * Borra a las personas nuevas que se acaban de rechazar, con su foto y sus vínculos, para liberar
+ * su RUT y no guardar datos (muchas veces de menores) sin motivo (Ley 21.719). Solo llegan aquí
+ * personas que creó el formulario, sin ficha previa y pendientes al rechazarlas: nunca estuvieron
+ * activas, porque cualquier cambio sobre una persona que ya existía pasa por `fichas_previas`.
+ *
+ * El borrado no decide nada fuera de esta solicitud (`familia`: ella, su origen y sus segundas):
+ * si la persona tiene un vínculo de otra solicitud (o hecho en el panel), o es titular de otra
+ * solicitud pendiente, responde 409 y no cambia nada. Mony decide primero esa otra solicitud, que
+ * así no pierde un vínculo ni se cierra sin que nadie la revise.
+ */
+async function borrarNuevas(tx: Ejecutor, familia: string[], jugadoresIds: string[], apoderadosIds: string[]): Promise<void> {
+  if (jugadoresIds.length + apoderadosIds.length === 0) return;
+  const porVinculo = or(
+    jugadoresIds.length > 0 ? inArray(jugadorApoderado.jugador_id, jugadoresIds) : undefined,
+    apoderadosIds.length > 0 ? inArray(jugadorApoderado.apoderado_id, apoderadosIds) : undefined,
+  );
+  // La solicitud que todavía nombra a la persona, para decirle a Mony cuál decidir primero (por su
+  // fecha: el mensaje no lleva datos personales).
+  const [ajeno] = await tx
+    .select({ solicitud_id: jugadorApoderado.solicitud_id, creada_en: solicitudesRegistro.creada_en })
+    .from(jugadorApoderado)
+    .leftJoin(solicitudesRegistro, eq(solicitudesRegistro.id, jugadorApoderado.solicitud_id))
+    .where(
+      and(
+        porVinculo,
+        or(isNull(jugadorApoderado.solicitud_id), notInArray(jugadorApoderado.solicitud_id, familia)),
+      ),
+    )
+    .orderBy(asc(solicitudesRegistro.creada_en))
+    .limit(1);
+  const comoTitular = or(
+    jugadoresIds.length > 0 ? inArray(solicitudesRegistro.titular_jugador_id, jugadoresIds) : undefined,
+    apoderadosIds.length > 0 ? inArray(solicitudesRegistro.titular_apoderado_id, apoderadosIds) : undefined,
+  );
+  const [titularDeOtra] = await tx
+    .select({ creada_en: solicitudesRegistro.creada_en })
+    .from(solicitudesRegistro)
+    .where(
+      and(comoTitular, eq(solicitudesRegistro.estado, "pendiente"), notInArray(solicitudesRegistro.id, familia)),
+    )
+    .orderBy(asc(solicitudesRegistro.creada_en))
+    .limit(1);
+  if (ajeno && !ajeno.creada_en) {
+    // Hoy no ocurre: todo vínculo hacia una persona del formulario lo crea una solicitud.
+    throw conflicto("Esa persona tiene un vínculo que no viene de una solicitud: no se puede borrar");
+  }
+  const otra = ajeno?.creada_en ?? titularDeOtra?.creada_en;
+  if (otra) {
+    throw conflicto(
+      `Esa persona también está en otra solicitud pendiente (recibida el ${fechaChile(otra)}): decide primero esa y después rechaza esta`,
+    );
+  }
+  // titular_* es restrict: la solicitud deja de tener titular (nulo = sin QR de hijos en /familia,
+  // lo mismo que con un titular rechazado). Esto alcanza también a una solicitud ya revisada fuera
+  // de la familia (por ejemplo, la que el mismo apoderado mandó para agregar un hijo): no decide
+  // nada, solo quita la referencia. Las de la familia se revisan otra vez al final.
+  const afectadas = new Set<string>();
+  const sinTitular = await tx
+    .update(solicitudesRegistro)
+    .set({
+      ...(jugadoresIds.length > 0
+        ? { titular_jugador_id: sql`case when ${inArray(solicitudesRegistro.titular_jugador_id, jugadoresIds)} then null else ${solicitudesRegistro.titular_jugador_id} end` }
+        : {}),
+      ...(apoderadosIds.length > 0
+        ? { titular_apoderado_id: sql`case when ${inArray(solicitudesRegistro.titular_apoderado_id, apoderadosIds)} then null else ${solicitudesRegistro.titular_apoderado_id} end` }
+        : {}),
+    })
+    .where(comoTitular)
+    .returning({ id: solicitudesRegistro.id });
+  for (const f of sinTitular) if (familia.includes(f.id)) afectadas.add(f.id);
+  // Los vínculos y las fichas previas se van en cascada; las fotos son restrict y se borran después.
+  const sinCopia = (columna: typeof fichasPrevias.jugador_id | typeof fichasPrevias.apoderado_id, id: typeof jugadores.id | typeof apoderados.id) =>
+    sql`not exists (select 1 from ${fichasPrevias} where ${columna} = ${id})`;
+  const fotosJ =
+    jugadoresIds.length === 0
+      ? []
+      : await tx
+          .delete(jugadores)
+          .where(
+            and(
+              inArray(jugadores.id, jugadoresIds),
+              eq(jugadores.estado, "rechazado"),
+              eq(jugadores.origen, "formulario"),
+              sinCopia(fichasPrevias.jugador_id, jugadores.id),
+            ),
+          )
+          .returning({ id: jugadores.id, foto_id: jugadores.foto_id });
+  const fotosA =
+    apoderadosIds.length === 0
+      ? []
+      : await tx
+          .delete(apoderados)
+          .where(
+            and(
+              inArray(apoderados.id, apoderadosIds),
+              eq(apoderados.estado, "rechazado"),
+              eq(apoderados.origen, "formulario"),
+              sinCopia(fichasPrevias.apoderado_id, apoderados.id),
+            ),
+          )
+          .returning({ id: apoderados.id, foto_id: apoderados.foto_id });
+  if (fotosJ.length !== jugadoresIds.length || fotosA.length !== apoderadosIds.length) {
+    // Denegar por defecto: si alguna no calza con lo esperado, no se borra nada.
+    throw new Error("borrarNuevas: una persona por borrar no era nueva ni estaba rechazada");
+  }
+  for (const f of [...fotosJ, ...fotosA]) if (f.foto_id) await borrarFoto(tx, f.foto_id);
+  for (const id of afectadas) await cerrarSiCorresponde(tx, id);
 }
 
 /**
@@ -799,22 +931,27 @@ export async function rechazarSolicitud(
     // origen, que es quien escribió su ficha previa.
     const rechJOrigen: string[] = [];
     const rechAOrigen: string[] = [];
+    const nuevasJ: string[] = [];
+    const nuevasA: string[] = [];
     if (origen && mOrigen) {
       const despuesOrigen = await miembros(tx, origen);
       rechJOrigen.push(...(await arrastrados(mOrigen.propiosJ, despuesOrigen.propiosJ, rechJ, jugadores)));
       rechAOrigen.push(...(await arrastrados(mOrigen.propiosA, despuesOrigen.propiosA, rechA, apoderados)));
-      for (const j of rechJOrigen) await rechazarPersona(tx, origen.id, "jugador", j);
-      for (const a of rechAOrigen) await rechazarPersona(tx, origen.id, "apoderado", a);
+      for (const j of rechJOrigen) if (await rechazarPersona(tx, origen.id, "jugador", j)) nuevasJ.push(j);
+      for (const a of rechAOrigen) if (await rechazarPersona(tx, origen.id, "apoderado", a)) nuevasA.push(a);
     }
 
-    for (const j of rechJ) await rechazarPersona(tx, s.id, "jugador", j);
-    for (const a of rechA) await rechazarPersona(tx, s.id, "apoderado", a);
+    for (const j of rechJ) if (await rechazarPersona(tx, s.id, "jugador", j)) nuevasJ.push(j);
+    for (const a of rechA) if (await rechazarPersona(tx, s.id, "apoderado", a)) nuevasA.push(a);
     rechJ.push(...rechJOrigen);
     rechA.push(...rechAOrigen);
-    await borrarFichasPrevias(tx, "jugador", rechJ);
-    await borrarFichasPrevias(tx, "apoderado", rechA);
+    // Las copias de las personas nuevas no se borran aquí: no deberían existir, y si existieran el
+    // DELETE de `borrarNuevas` no las borra y falla (denegar por defecto).
+    await borrarFichasPrevias(tx, "jugador", rechJ.filter((j) => !nuevasJ.includes(j)));
+    await borrarFichasPrevias(tx, "apoderado", rechA.filter((a) => !nuevasA.includes(a)));
     await cerrarSiCorresponde(tx, id);
     await cerrarRelacionadas(tx, s, rechJ, rechA);
+    await borrarNuevas(tx, familia, nuevasJ, nuevasA);
   });
 }
 
