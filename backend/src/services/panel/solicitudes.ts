@@ -1,12 +1,19 @@
 /**
  * Solicitudes de registro en el panel: listado, detalle, aprobar, rechazar y link nuevo.
  *
- * Qué personas son de una solicitud `s` (lo escribe S2, ver CLAUDE.md):
- * - las que tienen `solicitud_id = s` (personas nuevas, o precargadas del RUT de quien llena);
- * - las de los vínculos que creó la solicitud (`jugador_apoderado.solicitud_id = s`): un hijo que
- *   ya existía y se nombró por RUT, o el apoderado ya registrado que vuelve a usar el formulario.
- * Una solicitud de segundo apoderado tiene su propia fila (`tipo = segundo_apoderado`) y su
- * apoderado apunta a ella.
+ * Quién se decide desde una solicitud `s` (decisión de Ignacio, 2026-11-12: "solo desde la
+ * propia"). Lo escribe S2; ver CLAUDE.md.
+ * - Personas propias, que se aprueban o rechazan desde `s`:
+ *   - las que tienen `solicitud_id = s`;
+ *   - el segundo apoderado que agregó `s` (su `solicitud_id` es una solicitud
+ *     `segundo_apoderado` con `solicitud_origen_id = s`);
+ *   - una persona que ya existía, que `s` dejó `pendiente` sin asignarle solicitud (un hijo
+ *     precargado sin apoderado, nombrado por RUT): no tiene otra solicitud desde donde decidirla.
+ * - Vínculos de `s`: los que creó (`jugador_apoderado.solicitud_id = s`). En una solicitud de
+ *   segundo apoderado, también los de su apoderado que creó la solicitud de origen.
+ * - Una persona de otra solicitud que aparece en un vínculo de `s` se muestra, pero desde `s`
+ *   solo se decide el vínculo. Un vínculo se aprueba solo si el jugador y el apoderado quedan
+ *   activos.
  */
 import type {
   aprobarRequest,
@@ -15,112 +22,202 @@ import type {
   solicitudResumen,
   solicitudesQuery,
 } from "@club-colina/shared";
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
-import type { z } from "zod";
+import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { z } from "zod";
 import type { Ejecutor } from "../../db/cliente";
-import { apoderados, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
+import {
+  apoderados,
+  fichasPrevias,
+  jugadorApoderado,
+  jugadores,
+  solicitudesRegistro,
+} from "../../db/schema";
 import { ErrorApi, noEncontrado } from "../../lib/errores";
+import { borrarFoto } from "../../lib/fotos";
 import { generarToken, hashToken } from "../../lib/tokens";
-import { incompleto } from "./acciones";
+import { incompleto, MENSAJE_MARCADO } from "./acciones";
 import { conRestricciones } from "./errores-db";
 import { cargarCategorias, detalleApoderado, detalleJugador, tieneApoderadoVigente, verificarCategoria } from "./personas";
 import { faltantesApoderado, faltantesJugador, nombreCompleto, requisitosJugador } from "./reglas";
 
 type SolicitudResumen = z.input<typeof solicitudResumen>;
 type SolicitudDetalle = z.input<typeof solicitudDetalle>;
+type Fila = typeof solicitudesRegistro.$inferSelect;
 
 const fechaHora = (d: Date | null) => (d ? d.toISOString() : null);
+const conflicto = (mensaje: string) => new ErrorApi(409, "conflicto", mensaje);
+const fueraDeLaSolicitud = () =>
+  conflicto("Esa persona o vínculo no está pendiente en esta solicitud: se decide desde su propia solicitud");
 
-/** Ids de las personas y los vínculos de una solicitud. */
-async function miembros(db: Ejecutor, solicitudId: string) {
-  const vinculos = await db
-    .select({
-      jugador_id: jugadorApoderado.jugador_id,
-      apoderado_id: jugadorApoderado.apoderado_id,
-      paga_mensualidad: jugadorApoderado.paga_mensualidad,
-      estado: jugadorApoderado.estado,
-      creado_en: jugadorApoderado.creado_en,
-    })
-    .from(jugadorApoderado)
-    .where(eq(jugadorApoderado.solicitud_id, solicitudId))
-    .orderBy(jugadorApoderado.creado_en, jugadorApoderado.jugador_id, jugadorApoderado.apoderado_id);
-  const jugadoresIds = new Set(vinculos.map((v) => v.jugador_id));
-  const apoderadosIds = new Set(vinculos.map((v) => v.apoderado_id));
-  const propiosJ = await db.select({ id: jugadores.id }).from(jugadores).where(eq(jugadores.solicitud_id, solicitudId));
-  const propiosA = await db.select({ id: apoderados.id }).from(apoderados).where(eq(apoderados.solicitud_id, solicitudId));
-  for (const j of propiosJ) jugadoresIds.add(j.id);
-  for (const a of propiosA) apoderadosIds.add(a.id);
-  return { vinculos, jugadoresIds: [...jugadoresIds], apoderadosIds: [...apoderadosIds] };
-}
-
-async function filaSolicitud(db: Ejecutor, id: string, bloquear = false) {
+async function filaSolicitud(db: Ejecutor, id: string, bloquear = false): Promise<Fila> {
   const consulta = db.select().from(solicitudesRegistro).where(eq(solicitudesRegistro.id, id));
   const [fila] = bloquear ? await consulta.for("update") : await consulta;
   if (!fila) throw noEncontrado();
   return fila;
 }
 
-/**
- * Quién llenó la solicitud, para el listado. En orden: el apoderado con ese `solicitud_id`; el
- * apoderado de los vínculos que creó (uno ya registrado que vuelve a usar el formulario), sin
- * contar a los otros apoderados que esa solicitud agregó; y si no, el jugador adulto.
- */
-async function titular(
-  db: Ejecutor,
-  s: { id: string; tipo: string },
-): Promise<SolicitudResumen["titular"]> {
-  const [apo] = await db
-    .select({ nombre: apoderados.nombre, apellido: apoderados.apellido })
+const unicos = (ids: Iterable<string>) => [...new Set(ids)];
+
+// ---------------------------------------------------------------------------
+// Quién es de la solicitud
+// ---------------------------------------------------------------------------
+
+interface Miembros {
+  vinculos: Array<{ jugador_id: string; apoderado_id: string; paga_mensualidad: boolean; estado: "pendiente" | "activo" }>;
+  propiosJ: string[];
+  propiosA: string[];
+  /** Los que se muestran en el detalle: propios, los de sus vínculos, el titular y los marcados. */
+  visiblesJ: string[];
+  visiblesA: string[];
+}
+
+/** La condición de "vínculo de esta solicitud" (ver el comentario del archivo). */
+async function condicionVinculos(db: Ejecutor, s: Fila): Promise<SQL | undefined> {
+  const deEsta = eq(jugadorApoderado.solicitud_id, s.id);
+  if (s.tipo !== "segundo_apoderado" || !s.solicitud_origen_id) return deEsta;
+  const suyos = await db.select({ id: apoderados.id }).from(apoderados).where(eq(apoderados.solicitud_id, s.id));
+  if (suyos.length === 0) return deEsta;
+  return or(
+    deEsta,
+    and(
+      eq(jugadorApoderado.solicitud_id, s.solicitud_origen_id),
+      inArray(
+        jugadorApoderado.apoderado_id,
+        suyos.map((a) => a.id),
+      ),
+    ),
+  );
+}
+
+async function miembros(db: Ejecutor, s: Fila): Promise<Miembros> {
+  const vinculos = await db
+    .select({
+      jugador_id: jugadorApoderado.jugador_id,
+      apoderado_id: jugadorApoderado.apoderado_id,
+      paga_mensualidad: jugadorApoderado.paga_mensualidad,
+      estado: jugadorApoderado.estado,
+    })
+    .from(jugadorApoderado)
+    .where(await condicionVinculos(db, s))
+    .orderBy(asc(jugadorApoderado.creado_en), asc(jugadorApoderado.jugador_id), asc(jugadorApoderado.apoderado_id));
+  const enVinculosJ = unicos(vinculos.map((v) => v.jugador_id));
+  const enVinculosA = unicos(vinculos.map((v) => v.apoderado_id));
+
+  const segundas = db
+    .select({ id: solicitudesRegistro.id })
+    .from(solicitudesRegistro)
+    .where(eq(solicitudesRegistro.solicitud_origen_id, s.id));
+  const propiosJ = await db
+    .select({ id: jugadores.id })
+    .from(jugadores)
+    .where(
+      or(
+        eq(jugadores.solicitud_id, s.id),
+        enVinculosJ.length > 0
+          ? and(isNull(jugadores.solicitud_id), eq(jugadores.estado, "pendiente"), inArray(jugadores.id, enVinculosJ))
+          : undefined,
+      ),
+    );
+  const propiosA = await db
+    .select({ id: apoderados.id })
     .from(apoderados)
-    .where(eq(apoderados.solicitud_id, s.id))
-    .orderBy(apoderados.creado_en)
-    .limit(1);
-  if (apo) return { nombre_completo: nombreCompleto(apo.nombre, apo.apellido), rol: "apoderado" };
-  if (s.tipo === "formulario") {
-    const [porVinculo] = await db
+    .where(
+      or(
+        eq(apoderados.solicitud_id, s.id),
+        inArray(apoderados.solicitud_id, segundas),
+        enVinculosA.length > 0
+          ? and(isNull(apoderados.solicitud_id), eq(apoderados.estado, "pendiente"), inArray(apoderados.id, enVinculosA))
+          : undefined,
+      ),
+    );
+
+  const pJ = propiosJ.map((f) => f.id);
+  const pA = propiosA.map((f) => f.id);
+  const titularA = s.titular_apoderado_id ? [s.titular_apoderado_id] : [];
+  const titularJ = s.titular_jugador_id ? [s.titular_jugador_id] : [];
+  const visiblesJ = unicos([...titularJ, ...pJ, ...enVinculosJ]);
+  const marcados = await marcadosYaNoEsta(db, s.titular_apoderado_id, visiblesJ);
+  return {
+    vinculos,
+    propiosJ: pJ,
+    propiosA: pA,
+    visiblesJ: [...visiblesJ, ...marcados],
+    visiblesA: unicos([...titularA, ...pA, ...enVinculosA]),
+  };
+}
+
+/**
+ * Hijos del titular marcados "ya no está en el club" que Mony todavía no dio de baja, para que el
+ * aviso `hijo_marcado_ya_no_esta` apunte a una ficha. S2 no les asigna `solicitud_id`, así que
+ * se buscan por su vínculo con el titular. Solo se muestran: no se deciden por la solicitud.
+ */
+async function marcadosYaNoEsta(db: Ejecutor, titularApoderadoId: string | null, excluir: string[]): Promise<string[]> {
+  if (!titularApoderadoId) return [];
+  const filas = await db
+    .selectDistinct({ id: jugadores.id })
+    .from(jugadorApoderado)
+    .innerJoin(jugadores, eq(jugadores.id, jugadorApoderado.jugador_id))
+    .where(
+      and(
+        eq(jugadorApoderado.apoderado_id, titularApoderadoId),
+        sql`${jugadores.marcado_retiro_en} is not null`,
+        inArray(jugadores.estado, ["precargado", "activo"]),
+      ),
+    );
+  return filas.map((f) => f.id).filter((j) => !excluir.includes(j));
+}
+
+async function titular(db: Ejecutor, s: Fila): Promise<SolicitudResumen["titular"]> {
+  if (s.titular_apoderado_id) {
+    const [a] = await db
       .select({ nombre: apoderados.nombre, apellido: apoderados.apellido })
-      .from(jugadorApoderado)
-      .innerJoin(apoderados, eq(apoderados.id, jugadorApoderado.apoderado_id))
-      .where(
-        and(
-          eq(jugadorApoderado.solicitud_id, s.id),
-          sql`(${apoderados.solicitud_id} is null or ${apoderados.solicitud_id} not in (select ${solicitudesRegistro.id} from ${solicitudesRegistro} where ${solicitudesRegistro.solicitud_origen_id} = ${s.id}))`,
-        ),
-      )
-      .orderBy(jugadorApoderado.creado_en)
-      .limit(1);
-    if (porVinculo) {
-      return { nombre_completo: nombreCompleto(porVinculo.nombre, porVinculo.apellido), rol: "apoderado" };
-    }
-    const [jug] = await db
+      .from(apoderados)
+      .where(eq(apoderados.id, s.titular_apoderado_id));
+    if (a) return { nombre_completo: nombreCompleto(a.nombre, a.apellido), rol: "apoderado" };
+  }
+  if (s.titular_jugador_id) {
+    const [j] = await db
       .select({ nombre: jugadores.nombre, apellido: jugadores.apellido })
       .from(jugadores)
-      .where(eq(jugadores.solicitud_id, s.id))
-      .orderBy(jugadores.creado_en)
+      .where(eq(jugadores.id, s.titular_jugador_id));
+    if (j) return { nombre_completo: nombreCompleto(j.nombre, j.apellido), rol: "jugador" };
+  }
+  // La solicitud de un segundo apoderado no tiene titular: es él mismo.
+  if (s.tipo === "segundo_apoderado") {
+    const [a] = await db
+      .select({ nombre: apoderados.nombre, apellido: apoderados.apellido })
+      .from(apoderados)
+      .where(eq(apoderados.solicitud_id, s.id))
       .limit(1);
-    if (jug) return { nombre_completo: nombreCompleto(jug.nombre, jug.apellido), rol: "jugador" };
+    if (a) return { nombre_completo: nombreCompleto(a.nombre, a.apellido), rol: "apoderado" };
   }
   return { nombre_completo: "(sin datos)", rol: "apoderado" };
 }
 
-async function personasPendientes(db: Ejecutor, jugadoresIds: string[], apoderadosIds: string[]): Promise<number> {
+async function pendientes(db: Ejecutor, jugadoresIds: string[], apoderadosIds: string[]): Promise<number> {
   let total = 0;
   if (jugadoresIds.length > 0) {
-    const filas = await db
-      .select({ id: jugadores.id })
-      .from(jugadores)
-      .where(and(inArray(jugadores.id, jugadoresIds), eq(jugadores.estado, "pendiente")));
-    total += filas.length;
+    total += (
+      await db
+        .select({ id: jugadores.id })
+        .from(jugadores)
+        .where(and(inArray(jugadores.id, jugadoresIds), eq(jugadores.estado, "pendiente")))
+    ).length;
   }
   if (apoderadosIds.length > 0) {
-    const filas = await db
-      .select({ id: apoderados.id })
-      .from(apoderados)
-      .where(and(inArray(apoderados.id, apoderadosIds), eq(apoderados.estado, "pendiente")));
-    total += filas.length;
+    total += (
+      await db
+        .select({ id: apoderados.id })
+        .from(apoderados)
+        .where(and(inArray(apoderados.id, apoderadosIds), eq(apoderados.estado, "pendiente")))
+    ).length;
   }
   return total;
 }
+
+// ---------------------------------------------------------------------------
+// Lectura
+// ---------------------------------------------------------------------------
 
 export async function listarSolicitudes(
   db: Ejecutor,
@@ -131,10 +228,9 @@ export async function listarSolicitudes(
     .from(solicitudesRegistro)
     .where(filtros.estado ? eq(solicitudesRegistro.estado, filtros.estado) : undefined)
     .orderBy(desc(solicitudesRegistro.creada_en), solicitudesRegistro.id);
-  // Son decenas; una consulta chica por solicitud es más clara que un join de todo.
   return Promise.all(
     filas.map(async (s) => {
-      const m = await miembros(db, s.id);
+      const m = await miembros(db, s);
       return {
         id: s.id,
         creada_en: s.creada_en.toISOString(),
@@ -143,39 +239,15 @@ export async function listarSolicitudes(
         coincide_base: s.coincide_base,
         avisos: s.avisos,
         titular: await titular(db, s),
-        personas_pendientes: await personasPendientes(db, m.jugadoresIds, m.apoderadosIds),
+        personas_pendientes: await pendientes(db, m.propiosJ, m.propiosA),
       };
     }),
   );
 }
 
-/**
- * Hijos de los apoderados de la solicitud marcados "ya no está en el club" y que Mony todavía no
- * dio de baja. El formulario no les asigna `solicitud_id` ni crea un vínculo nuevo, así que la
- * base no guarda qué solicitud los marcó: se muestran todos los marcados de esa familia, para
- * que el aviso `hijo_marcado_ya_no_esta` apunte a una ficha concreta. Solo se muestran: no se
- * aprueban ni se rechazan por la solicitud (se desactivan desde su ficha).
- */
-async function marcadosYaNoEsta(db: Ejecutor, apoderadosIds: string[], excluir: string[]): Promise<string[]> {
-  if (apoderadosIds.length === 0) return [];
-  const filas = await db
-    .selectDistinct({ id: jugadores.id })
-    .from(jugadorApoderado)
-    .innerJoin(jugadores, eq(jugadores.id, jugadorApoderado.jugador_id))
-    .where(
-      and(
-        inArray(jugadorApoderado.apoderado_id, apoderadosIds),
-        sql`${jugadores.marcado_retiro_en} is not null`,
-        sql`${jugadores.estado} <> 'inactivo'`,
-      ),
-    );
-  return filas.map((f) => f.id).filter((j) => !excluir.includes(j));
-}
-
 export async function detalleSolicitud(db: Ejecutor, id: string): Promise<SolicitudDetalle> {
   const s = await filaSolicitud(db, id);
-  const m = await miembros(db, id);
-  const marcados = await marcadosYaNoEsta(db, m.apoderadosIds, m.jugadoresIds);
+  const m = await miembros(db, s);
   return {
     id: s.id,
     creada_en: s.creada_en.toISOString(),
@@ -185,8 +257,8 @@ export async function detalleSolicitud(db: Ejecutor, id: string): Promise<Solici
     revisada_en: fechaHora(s.revisada_en),
     coincide_base: s.coincide_base,
     avisos: s.avisos,
-    jugadores: await Promise.all([...m.jugadoresIds, ...marcados].map((j) => detalleJugador(db, j))),
-    apoderados: await Promise.all(m.apoderadosIds.map((a) => detalleApoderado(db, a))),
+    jugadores: await Promise.all(m.visiblesJ.map((j) => detalleJugador(db, j))),
+    apoderados: await Promise.all(m.visiblesA.map((a) => detalleApoderado(db, a))),
     vinculos: m.vinculos.map((v) => ({
       jugador_id: v.jugador_id,
       apoderado_id: v.apoderado_id,
@@ -196,54 +268,67 @@ export async function detalleSolicitud(db: Ejecutor, id: string): Promise<Solici
   };
 }
 
-const fueraDeLaSolicitud = () =>
-  new ErrorApi(409, "conflicto", "Esa persona o vínculo no está pendiente en esta solicitud");
+// ---------------------------------------------------------------------------
+// Cierre
+// ---------------------------------------------------------------------------
 
-/**
- * Después de aprobar o rechazar desde una solicitud, revisa también las solicitudes propias de
- * las personas tocadas: el segundo apoderado se decide desde la solicitud que lo agregó (ahí
- * está su vínculo), pero tiene su propia fila, que también tiene que cerrarse.
- */
-async function cerrarRelacionadas(tx: Ejecutor, actual: string, jugadoresIds: string[], apoderadosIds: string[]) {
-  const ids = new Set<string>();
-  if (jugadoresIds.length > 0) {
-    for (const f of await tx
-      .select({ s: jugadores.solicitud_id })
-      .from(jugadores)
-      .where(inArray(jugadores.id, jugadoresIds))) {
-      if (f.s) ids.add(f.s);
-    }
-  }
-  if (apoderadosIds.length > 0) {
-    for (const f of await tx
-      .select({ s: apoderados.solicitud_id })
-      .from(apoderados)
-      .where(inArray(apoderados.id, apoderadosIds))) {
-      if (f.s) ids.add(f.s);
-    }
-  }
-  ids.delete(actual);
-  for (const otra of ids) await cerrarSiCorresponde(tx, otra);
-}
-
-/** Si ya no queda nada pendiente, la solicitud pasa a revisada. */
+/** Si ya no queda nada pendiente de decidir desde la solicitud, pasa a revisada. */
 async function cerrarSiCorresponde(tx: Ejecutor, solicitudId: string): Promise<void> {
-  const m = await miembros(tx, solicitudId);
-  const quedan =
-    (await personasPendientes(tx, m.jugadoresIds, m.apoderadosIds)) +
-    m.vinculos.filter((v) => v.estado === "pendiente").length;
+  const s = await filaSolicitud(tx, solicitudId);
+  if (s.estado !== "pendiente") return;
+  const m = await miembros(tx, s);
+  const quedan = (await pendientes(tx, m.propiosJ, m.propiosA)) + m.vinculos.filter((v) => v.estado === "pendiente").length;
   if (quedan === 0) {
     await tx
       .update(solicitudesRegistro)
       .set({ estado: "revisada", revisada_en: new Date() })
-      .where(and(eq(solicitudesRegistro.id, solicitudId), eq(solicitudesRegistro.estado, "pendiente")));
+      .where(eq(solicitudesRegistro.id, solicitudId));
   }
 }
 
 /**
- * Aprobación total o parcial. Cada persona tiene que estar pendiente y ser de la solicitud;
- * Mony completa número, categoría, becas y método de pago. Si a alguien le falta algo, no se
- * aprueba nada (422) y la transacción se deshace entera.
+ * Revisa también las otras solicitudes afectadas: la propia de cada persona decidida (el segundo
+ * apoderado se decide desde la que lo agregó), la de origen y las de segundo apoderado de esta.
+ */
+async function cerrarRelacionadas(tx: Ejecutor, s: Fila, jugadoresIds: string[], apoderadosIds: string[]) {
+  const ids = new Set<string>();
+  if (s.solicitud_origen_id) ids.add(s.solicitud_origen_id);
+  for (const f of await tx
+    .select({ id: solicitudesRegistro.id })
+    .from(solicitudesRegistro)
+    .where(eq(solicitudesRegistro.solicitud_origen_id, s.id))) {
+    ids.add(f.id);
+  }
+  if (jugadoresIds.length > 0) {
+    for (const f of await tx.select({ s: jugadores.solicitud_id }).from(jugadores).where(inArray(jugadores.id, jugadoresIds))) {
+      if (f.s) ids.add(f.s);
+    }
+  }
+  if (apoderadosIds.length > 0) {
+    for (const f of await tx.select({ s: apoderados.solicitud_id }).from(apoderados).where(inArray(apoderados.id, apoderadosIds))) {
+      if (f.s) ids.add(f.s);
+    }
+  }
+  ids.delete(s.id);
+  for (const otra of ids) await cerrarSiCorresponde(tx, otra);
+}
+
+/** Las copias de la ficha previa de una persona ya no se necesitan una vez decidida. */
+async function borrarFichasPrevias(tx: Ejecutor, tipo: "jugador" | "apoderado", ids: string[]) {
+  if (ids.length === 0) return;
+  const columna = tipo === "jugador" ? fichasPrevias.jugador_id : fichasPrevias.apoderado_id;
+  await tx.delete(fichasPrevias).where(inArray(columna, ids));
+}
+
+// ---------------------------------------------------------------------------
+// Aprobar
+// ---------------------------------------------------------------------------
+
+/**
+ * Aprobación total o parcial. Cada persona tiene que ser propia de la solicitud y estar
+ * pendiente; Mony completa número, categoría, becas y método de pago. Los vínculos se aprueban
+ * solo si vienen listados, y solo si al final el jugador y el apoderado quedan activos. Si algo
+ * no se cumple, no se aprueba nada.
  */
 export async function aprobarSolicitud(
   db: Ejecutor,
@@ -251,14 +336,14 @@ export async function aprobarSolicitud(
   pedido: z.output<typeof aprobarRequest>,
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    await filaSolicitud(tx, id, true);
-    const m = await miembros(tx, id);
-    const sonJugadores = new Set(m.jugadoresIds);
-    const sonApoderados = new Set(m.apoderadosIds);
+    const s = await filaSolicitud(tx, id, true);
+    const m = await miembros(tx, s);
+    const propiosJ = new Set(m.propiosJ);
+    const propiosA = new Set(m.propiosA);
     const cats = await cargarCategorias(tx);
 
     for (const pj of pedido.jugadores) {
-      if (!sonJugadores.has(pj.id)) throw fueraDeLaSolicitud();
+      if (!propiosJ.has(pj.id)) throw fueraDeLaSolicitud();
       const [j] = await tx
         .select({
           estado: jugadores.estado,
@@ -268,19 +353,19 @@ export async function aprobarSolicitud(
           fecha_nacimiento: jugadores.fecha_nacimiento,
           telefono: jugadores.telefono,
           foto_id: jugadores.foto_id,
+          marcado_retiro_en: jugadores.marcado_retiro_en,
           tiene_apoderado: tieneApoderadoVigente,
         })
         .from(jugadores)
         .where(eq(jugadores.id, pj.id))
         .for("update");
       if (!j || j.estado !== "pendiente") throw fueraDeLaSolicitud();
+      if (j.marcado_retiro_en !== null) {
+        throw conflicto(MENSAJE_MARCADO);
+      }
       if (pj.categoria_id !== null) await verificarCategoria(tx, pj.categoria_id, j.disciplina);
       const faltan = requisitosJugador(
-        faltantesJugador(
-          { ...j, categoria_id: pj.categoria_id, numero_camiseta: pj.numero_camiseta },
-          j.tiene_apoderado,
-          cats,
-        ),
+        faltantesJugador({ ...j, categoria_id: pj.categoria_id, numero_camiseta: pj.numero_camiseta }, j.tiene_apoderado, cats),
       );
       if (faltan.length > 0) throw incompleto(faltan);
       await conRestricciones(() =>
@@ -301,7 +386,7 @@ export async function aprobarSolicitud(
     }
 
     for (const pa of pedido.apoderados) {
-      if (!sonApoderados.has(pa.id)) throw fueraDeLaSolicitud();
+      if (!propiosA.has(pa.id)) throw fueraDeLaSolicitud();
       const [a] = await tx
         .select({
           estado: apoderados.estado,
@@ -328,49 +413,140 @@ export async function aprobarSolicitud(
       );
     }
 
+    // Los vínculos van al final: así cuentan las personas aprobadas en este mismo pedido.
+    const deEsta = new Set(m.vinculos.filter((v) => v.estado === "pendiente").map((v) => `${v.jugador_id}|${v.apoderado_id}`));
     for (const pv of pedido.vinculos) {
-      // Un vínculo hacia un jugador que ya existía (de otra solicitud o de la base) y que está
-      // inactivo o rechazado no se aprueba: primero se decide sobre el jugador, en su ficha.
-      const [jv] = await tx
-        .select({ estado: jugadores.estado, solicitud_id: jugadores.solicitud_id })
-        .from(jugadores)
-        .where(eq(jugadores.id, pv.jugador_id));
-      if (jv && jv.solicitud_id !== id && (jv.estado === "inactivo" || jv.estado === "rechazado")) {
-        throw new ErrorApi(
-          409,
-          "conflicto",
-          `El jugador de ese vínculo está ${jv.estado}: reactívalo en su ficha antes de aprobar el vínculo`,
-        );
+      if (!deEsta.has(`${pv.jugador_id}|${pv.apoderado_id}`)) throw fueraDeLaSolicitud();
+      const [jv] = await tx.select({ estado: jugadores.estado }).from(jugadores).where(eq(jugadores.id, pv.jugador_id)).for("update");
+      const [av] = await tx.select({ estado: apoderados.estado }).from(apoderados).where(eq(apoderados.id, pv.apoderado_id)).for("update");
+      if (jv?.estado === "inactivo") {
+        throw conflicto("El jugador de ese vínculo está inactivo: reactívalo en su ficha antes de aprobar el vínculo");
       }
-      const filas = await tx
+      if (jv?.estado !== "activo") {
+        throw conflicto("El jugador de ese vínculo no está activo: hay que aprobarlo antes que el vínculo");
+      }
+      if (av?.estado !== "activo") {
+        throw conflicto("El apoderado de ese vínculo no está activo: hay que aprobarlo antes que el vínculo");
+      }
+      await tx
         .update(jugadorApoderado)
         .set({ estado: "activo" })
         .where(
           and(
             eq(jugadorApoderado.jugador_id, pv.jugador_id),
             eq(jugadorApoderado.apoderado_id, pv.apoderado_id),
-            eq(jugadorApoderado.solicitud_id, id),
             eq(jugadorApoderado.estado, "pendiente"),
           ),
-        )
-        .returning({ jugador_id: jugadorApoderado.jugador_id });
-      if (filas.length === 0) throw fueraDeLaSolicitud();
+        );
     }
 
+    const aprobadosJ = pedido.jugadores.map((j) => j.id);
+    const aprobadosA = pedido.apoderados.map((a) => a.id);
+    await borrarFichasPrevias(tx, "jugador", aprobadosJ);
+    await borrarFichasPrevias(tx, "apoderado", aprobadosA);
     await cerrarSiCorresponde(tx, id);
-    await cerrarRelacionadas(
-      tx,
-      id,
-      pedido.jugadores.map((j) => j.id),
-      pedido.apoderados.map((a) => a.id),
-    );
+    await cerrarRelacionadas(tx, s, aprobadosJ, aprobadosA);
   });
 }
 
+// ---------------------------------------------------------------------------
+// Rechazar
+// ---------------------------------------------------------------------------
+
+const textoONulo = z.string().nullable();
+/** Lo que S2 guarda en `fichas_previas.datos` (ver el PR #23). Se restaura solo lo que viene. */
+const previoJugador = z
+  .object({
+    nombre: textoONulo,
+    apellido: textoONulo,
+    fecha_nacimiento: textoONulo,
+    disciplina: z.enum(["basketball", "voleibol"]),
+    categoria_id: z.number().int().nullable(),
+    numero_camiseta: textoONulo,
+    telefono: textoONulo,
+    email: textoONulo,
+    metodo_pago: z.enum(["forpay_mensual", "transferencia_anual", "tarjeta_credito_anual"]).nullable(),
+    foto_id: z.uuid().nullable(),
+    estado: z.enum(["precargado", "pendiente", "activo", "rechazado", "inactivo"]),
+    solicitud_id: z.uuid().nullable(),
+    marcado_retiro_en: textoONulo,
+  })
+  .partial();
+const previoApoderado = previoJugador.pick({
+  nombre: true,
+  apellido: true,
+  telefono: true,
+  email: true,
+  metodo_pago: true,
+  foto_id: true,
+  estado: true,
+  solicitud_id: true,
+});
+
 /**
- * Rechaza a las personas indicadas, o a todo lo pendiente de la solicitud. Una persona
- * rechazada queda sin credencial, y los vínculos pendientes que la solicitud creó para ella
- * se borran: no se aprobó a nadie con quien vincularla.
+ * Rechaza a una persona. Si ya existía antes de la solicitud (hay ficha previa), vuelve a como
+ * estaba: sus campos, su foto, su estado y su `solicitud_id`, y se borra la foto que trajo la
+ * solicitud. Si es nueva, queda `rechazado`. En los dos casos, sin credencial.
+ */
+async function rechazarPersona(
+  tx: Ejecutor,
+  solicitudId: string,
+  tipo: "jugador" | "apoderado",
+  personaId: string,
+): Promise<void> {
+  // A lo más una por persona (unique): la del estado original, antes de la primera solicitud.
+  const [previa] = await tx
+    .select({ datos: fichasPrevias.datos, solicitud_id: fichasPrevias.solicitud_id })
+    .from(fichasPrevias)
+    .where(eq(tipo === "jugador" ? fichasPrevias.jugador_id : fichasPrevias.apoderado_id, personaId));
+  const tabla = tipo === "jugador" ? jugadores : apoderados;
+  const [actual] = await tx.select({ foto_id: tabla.foto_id }).from(tabla).where(eq(tabla.id, personaId));
+  if (!actual) throw noEncontrado();
+  // La copia la restaura solo la solicitud que la escribió (regla de fichas_previas).
+  if (previa && previa.solicitud_id !== solicitudId) {
+    throw conflicto("Esa persona tiene cambios de otra solicitud: se decide desde esa solicitud");
+  }
+
+  if (!previa) {
+    if (tipo === "jugador") await tx.update(jugadores).set({ estado: "rechazado", credencial_token: null }).where(eq(jugadores.id, personaId));
+    else await tx.update(apoderados).set({ estado: "rechazado", credencial_token: null }).where(eq(apoderados.id, personaId));
+    return;
+  }
+  // Si la copia no tiene la forma esperada, falla (500) y no se toca nada: denegar por defecto.
+  if (tipo === "jugador") {
+    const d = previoJugador.parse(previa.datos);
+    const { marcado_retiro_en, ...resto } = d;
+    await tx
+      .update(jugadores)
+      .set({
+        ...resto,
+        ...(marcado_retiro_en !== undefined
+          ? { marcado_retiro_en: marcado_retiro_en === null ? null : new Date(marcado_retiro_en) }
+          : {}),
+        estado: d.estado === "activo" ? "activo" : (d.estado ?? "precargado"),
+        credencial_token: d.estado === "activo" ? generarToken() : null,
+      })
+      .where(eq(jugadores.id, personaId));
+  } else {
+    const d = previoApoderado.parse(previa.datos);
+    await tx
+      .update(apoderados)
+      .set({
+        ...d,
+        estado: d.estado ?? "precargado",
+        credencial_token: d.estado === "activo" ? generarToken() : null,
+      })
+      .where(eq(apoderados.id, personaId));
+  }
+  const [despues] = await tx.select({ foto_id: tabla.foto_id }).from(tabla).where(eq(tabla.id, personaId));
+  if (actual.foto_id && actual.foto_id !== despues?.foto_id) await borrarFoto(tx, actual.foto_id);
+}
+
+/**
+ * Rechaza a las personas indicadas (propias de la solicitud y pendientes), o a todas las propias
+ * pendientes. Se borran los vínculos que esta solicitud (o su origen) creó para ellas, también si
+ * ya estaban activos: no queda ninguno hacia alguien rechazado. Sin `personas`, también se borran
+ * los vínculos pendientes hacia personas de otras solicitudes.
  */
 export async function rechazarSolicitud(
   db: Ejecutor,
@@ -378,83 +554,89 @@ export async function rechazarSolicitud(
   pedido: z.output<typeof rechazarRequest>,
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    await filaSolicitud(tx, id, true);
-    const m = await miembros(tx, id);
-    let jugadoresRech: string[];
-    let apoderadosRech: string[];
+    const s = await filaSolicitud(tx, id, true);
+    const m = await miembros(tx, s);
+    let candidatosJ: string[];
+    let candidatosA: string[];
     if (pedido.personas) {
-      jugadoresRech = [...new Set(pedido.personas.filter((p) => p.rol === "jugador").map((p) => p.id))];
-      apoderadosRech = [...new Set(pedido.personas.filter((p) => p.rol === "apoderado").map((p) => p.id))];
-      if (jugadoresRech.some((j) => !m.jugadoresIds.includes(j))) throw fueraDeLaSolicitud();
-      if (apoderadosRech.some((a) => !m.apoderadosIds.includes(a))) throw fueraDeLaSolicitud();
+      candidatosJ = unicos(pedido.personas.filter((p) => p.rol === "jugador").map((p) => p.id));
+      candidatosA = unicos(pedido.personas.filter((p) => p.rol === "apoderado").map((p) => p.id));
+      if (candidatosJ.some((j) => !m.propiosJ.includes(j)) || candidatosA.some((a) => !m.propiosA.includes(a))) {
+        throw fueraDeLaSolicitud();
+      }
     } else {
-      jugadoresRech = m.jugadoresIds;
-      apoderadosRech = m.apoderadosIds;
+      candidatosJ = m.propiosJ;
+      candidatosA = m.propiosA;
     }
-    const cambio = { estado: "rechazado" as const, credencial_token: null };
     const rechJ =
-      jugadoresRech.length === 0
+      candidatosJ.length === 0
         ? []
-        : await tx
-            .update(jugadores)
-            .set(cambio)
-            .where(and(inArray(jugadores.id, jugadoresRech), eq(jugadores.estado, "pendiente")))
-            .returning({ id: jugadores.id });
+        : (
+            await tx
+              .select({ id: jugadores.id })
+              .from(jugadores)
+              .where(and(inArray(jugadores.id, candidatosJ), eq(jugadores.estado, "pendiente")))
+              .for("update")
+          ).map((f) => f.id);
     const rechA =
-      apoderadosRech.length === 0
+      candidatosA.length === 0
         ? []
-        : await tx
-            .update(apoderados)
-            .set(cambio)
-            .where(and(inArray(apoderados.id, apoderadosRech), eq(apoderados.estado, "pendiente")))
-            .returning({ id: apoderados.id });
-    // Pedir el rechazo de alguien que no está pendiente es un error (ya aprobado, por ejemplo).
-    if (pedido.personas && rechJ.length + rechA.length !== jugadoresRech.length + apoderadosRech.length) {
+        : (
+            await tx
+              .select({ id: apoderados.id })
+              .from(apoderados)
+              .where(and(inArray(apoderados.id, candidatosA), eq(apoderados.estado, "pendiente")))
+              .for("update")
+          ).map((f) => f.id);
+    if (pedido.personas && rechJ.length + rechA.length !== candidatosJ.length + candidatosA.length) {
       throw fueraDeLaSolicitud();
     }
-    const idsJ = pedido.personas ? jugadoresRech : rechJ.map((j) => j.id);
-    const idsA = pedido.personas ? apoderadosRech : rechA.map((a) => a.id);
-    const condicionPersonas = pedido.personas
-      ? or(
-          idsJ.length > 0 ? inArray(jugadorApoderado.jugador_id, idsJ) : undefined,
-          idsA.length > 0 ? inArray(jugadorApoderado.apoderado_id, idsA) : undefined,
-        )
-      : undefined;
-    // Sin `personas`, se rechaza todo: también los vínculos pendientes de personas que ya
-    // existían (un hijo de otra familia nombrado por RUT).
-    if (!pedido.personas || condicionPersonas) {
+
+    // Vínculos que crearon esta solicitud, su origen o sus segundas, hacia los rechazados.
+    const familia = [s.id, ...(s.solicitud_origen_id ? [s.solicitud_origen_id] : [])];
+    const segundas = await tx
+      .select({ id: solicitudesRegistro.id })
+      .from(solicitudesRegistro)
+      .where(eq(solicitudesRegistro.solicitud_origen_id, s.id));
+    familia.push(...segundas.map((f) => f.id));
+    const haciaRechazados = or(
+      rechJ.length > 0 ? inArray(jugadorApoderado.jugador_id, rechJ) : undefined,
+      rechA.length > 0 ? inArray(jugadorApoderado.apoderado_id, rechA) : undefined,
+    );
+    if (haciaRechazados) {
+      await tx.delete(jugadorApoderado).where(and(inArray(jugadorApoderado.solicitud_id, familia), haciaRechazados));
+    }
+    if (!pedido.personas) {
       await tx
         .delete(jugadorApoderado)
-        .where(
-          and(
-            eq(jugadorApoderado.solicitud_id, id),
-            eq(jugadorApoderado.estado, "pendiente"),
-            condicionPersonas,
-          ),
-        );
+        .where(and(eq(jugadorApoderado.solicitud_id, s.id), eq(jugadorApoderado.estado, "pendiente")));
     }
+
+    for (const j of rechJ) await rechazarPersona(tx, s.id, "jugador", j);
+    for (const a of rechA) await rechazarPersona(tx, s.id, "apoderado", a);
+    await borrarFichasPrevias(tx, "jugador", rechJ);
+    await borrarFichasPrevias(tx, "apoderado", rechA);
     await cerrarSiCorresponde(tx, id);
-    await cerrarRelacionadas(
-      tx,
-      id,
-      rechJ.map((j) => j.id),
-      rechA.map((a) => a.id),
-    );
+    await cerrarRelacionadas(tx, s, rechJ, rechA);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Link
+// ---------------------------------------------------------------------------
 
 /**
  * Link privado nuevo: `/familia/:token` en una solicitud de formulario, `/completar/:token` en
  * una de segundo apoderado. La base guarda solo el hash, así que el anterior deja de servir.
  */
 export async function nuevoLink(db: Ejecutor, id: string, baseUrl: string): Promise<string> {
-  const s = await filaSolicitud(db, id);
   const token = generarToken();
-  await db
+  const [fila] = await db
     .update(solicitudesRegistro)
     .set({ token_acceso_hash: hashToken(token) })
-    .where(eq(solicitudesRegistro.id, id));
-  const ruta = s.tipo === "segundo_apoderado" ? "completar" : "familia";
-  const base = baseUrl.replace(/\/+$/, "");
-  return `${base}/${ruta}/${encodeURIComponent(token)}`;
+    .where(eq(solicitudesRegistro.id, id))
+    .returning({ tipo: solicitudesRegistro.tipo });
+  if (!fila) throw noEncontrado();
+  const ruta = fila.tipo === "segundo_apoderado" ? "completar" : "familia";
+  return `${baseUrl.replace(/\/+$/, "")}/${ruta}/${encodeURIComponent(token)}`;
 }
