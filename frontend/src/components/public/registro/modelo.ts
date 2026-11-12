@@ -144,13 +144,21 @@ export function camposTitular(t: Titular): Campos {
   return campos(faltantes);
 }
 
+/**
+ * El contrato no lleva teléfono para un hijo (`hijoSolicitud`): si el servidor lo trata como
+ * adulto (o no sabe su edad), igual no se le pide a la familia.
+ */
+function sinTelefono<T extends string>(faltantes: readonly T[]): T[] {
+  return faltantes.filter((x) => x !== "telefono");
+}
+
 /** Lo que se pregunta de un hijo. Uno marcado "ya no está" no lleva nada más. */
 export function camposHijo(h: Hijo): Campos {
   if (h.ya_no_esta) return campos([]);
   // Un hijo que ya se registró (por otro apoderado o antes) no lleva datos: solo se vincula.
   if (h.origen.tipo === "precargado") {
     const { ya_registrado, faltantes } = h.origen.hijo;
-    return ya_registrado ? campos([]) : campos(faltantes);
+    return ya_registrado ? campos([]) : campos(sinTelefono(faltantes));
   }
   const b = h.origen.busqueda;
   if (b.estado === "nuevo") return campos(TODO_HIJO);
@@ -256,9 +264,7 @@ export function busquedaDesdeLookup(lookup: RutLookupResponse): BusquedaHijo | {
     estado: "precargado",
     primer_nombre: lookup.primer_nombre,
     ya_registrado: lookup.ya_registrado,
-    // El contrato no lleva teléfono para un hijo: si el servidor lo trata como adulto (o no
-    // sabe su edad), igual no se le pide a la familia.
-    faltantes: lookup.faltantes.filter((x) => x !== "telefono"),
+    faltantes: sinTelefono(lookup.faltantes),
   };
 }
 

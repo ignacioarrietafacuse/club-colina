@@ -18,6 +18,8 @@ export function FamiliaPage() {
     queryFn: ({ signal }) => api.publico.familia(token, signal),
     enabled: conForma,
     retry: false,
+    // Sin red falla y ofrece reintentar, en vez de quedar cargando.
+    networkMode: "always",
   });
 
   return (
@@ -32,8 +34,12 @@ export function FamiliaPage() {
         ) : (
           <div className="space-y-3">
             <Aviso tono="error">{mensajeError(consulta.error)}</Aviso>
-            <Button variant="outline" onClick={() => void consulta.refetch()}>
-              Reintentar
+            <Button
+              variant="outline"
+              disabled={consulta.isFetching}
+              onClick={() => void consulta.refetch()}
+            >
+              {consulta.isFetching ? "Reintentando…" : "Reintentar"}
             </Button>
           </div>
         )

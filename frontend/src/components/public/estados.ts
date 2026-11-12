@@ -9,12 +9,12 @@ export function tokenConForma(t: string): boolean {
 }
 
 /**
- * Un error de la API que significa "no existe o no está activa" (404 y cualquier otro 4xx
- * salvo el límite de intentos). Lo demás es "no pudimos verificar": nunca "válida".
+ * Un error de la API que significa "no existe o no está activa": el 404 genérico del contrato.
+ * Cualquier otro error (un 4xx de un proxy, 5xx, sin red) es "no pudimos verificar", que se
+ * puede reintentar: nunca "válida" y tampoco un rechazo de alguien que quizás sí está activo.
  */
 export function esNoEncontrado(e: unknown): boolean {
-  const s = statusDe(e);
-  return s !== null && s >= 400 && s < 500 && s !== 429;
+  return statusDe(e) === 404;
 }
 
 /** Cuánto vale una verificación en pantalla. Pasado esto, hay que volver a escanear. */
@@ -39,7 +39,9 @@ export function estadoDesdeConsulta(c: {
   if (c.error === "demasiados_intentos") return { tipo: "demasiados_intentos" };
   if (c.error === "otro") return { tipo: "error" };
   if (c.pendiente || c.enCurso || !c.datos) return { tipo: "cargando" };
-  if (c.ahora - c.actualizadaEn > VIGENCIA_VERIFICACION_MS) return { tipo: "vencida" };
+  const antiguedad = c.ahora - c.actualizadaEn;
+  // Negativa: el reloj del teléfono retrocedió. No se puede saber cuánto pasó: hay que verificar.
+  if (antiguedad < 0 || antiguedad > VIGENCIA_VERIFICACION_MS) return { tipo: "vencida" };
   return {
     tipo: "valida",
     datos: c.datos,

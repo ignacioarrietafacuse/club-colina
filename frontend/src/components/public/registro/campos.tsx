@@ -191,7 +191,11 @@ export function CamposPersona({
         <Campo
           etiqueta="Categoría"
           error={e("categoria_id")}
-          ayuda="No pudimos calcularla con la fecha de nacimiento que tenemos."
+          ayuda={
+            c.pedir.has("fecha_nacimiento")
+              ? "Si no la sabes, elige la que corresponde a su año de nacimiento."
+              : "No pudimos calcularla con la fecha de nacimiento que tenemos."
+          }
         >
           {(id) => (
             <select

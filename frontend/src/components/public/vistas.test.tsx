@@ -60,7 +60,7 @@ describe("familia", () => {
     expect(h).toContain("Ana Pérez");
     expect(h).toContain("Pendiente de aprobación");
     expect(h).toContain("No aprobada");
-    expect(h).toContain("El club está revisando tu registro");
+    expect(h).toContain("Algunas personas siguen en revisión");
     expect(h).toContain("Eva Soto");
     expect(h).toContain("Falta que suba su foto");
     // El QR se dibuja en el navegador; en el HTML inicial hay un solo espacio reservado.

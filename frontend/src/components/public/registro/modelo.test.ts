@@ -143,6 +143,25 @@ describe("qué se pregunta", () => {
     });
   });
 
+  it("a un hijo precargado tampoco se le pide teléfono", () => {
+    const f = formulario(
+      iniciarFormulario(RUT, {
+        ...apoderadoBase,
+        hijos: [
+          {
+            posicion: 0,
+            primer_nombre: "Ana",
+            ya_registrado: false,
+            faltantes: ["telefono", "foto"],
+          },
+        ],
+      }),
+    );
+    const [h] = f.hijos;
+    if (!h) throw new Error("falta el hijo");
+    expect([...camposHijo(h).pedir]).toEqual(["foto"]);
+  });
+
   it("el nombre de un hijo es el que escribió la familia, si se le pidió", () => {
     const f = formulario(
       iniciarFormulario(RUT, {

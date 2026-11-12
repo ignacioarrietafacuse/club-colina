@@ -22,7 +22,9 @@ export function VistaFamilia({ datos, baseUrl }: { datos: FamiliaResponse; baseU
     <div className="space-y-4">
       {enRevision && (
         <Aviso tono="atencion">
-          El club está revisando tu registro. Cuando lo apruebe, aquí aparecerán los códigos QR.
+          {hayActivas
+            ? "Algunas personas siguen en revisión. Sus códigos QR aparecerán aquí cuando el club las apruebe."
+            : "El club está revisando tu registro. Cuando lo apruebe, aquí aparecerán los códigos QR."}{" "}
           Guarda este link para volver.
         </Aviso>
       )}

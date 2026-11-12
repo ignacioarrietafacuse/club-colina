@@ -16,9 +16,10 @@ describe("tokenConForma", () => {
 });
 
 describe("esNoEncontrado", () => {
-  it("404 y otros 4xx: no válida", () => {
+  it("solo el 404 es «no válida»; otro 4xx (un proxy, por ejemplo) se puede reintentar", () => {
     expect(esNoEncontrado(new ErrorApi(404, "no_encontrado", "x"))).toBe(true);
-    expect(esNoEncontrado(new ErrorApi(400, "validacion", "x"))).toBe(true);
+    expect(esNoEncontrado(new ErrorApi(400, "validacion", "x"))).toBe(false);
+    expect(esNoEncontrado(new ErrorApi(403, "error_interno", "x"))).toBe(false);
   });
 
   it("sin red, 429, 5xx o un error cualquiera: no se pudo verificar", () => {

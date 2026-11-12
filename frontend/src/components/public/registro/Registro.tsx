@@ -5,7 +5,7 @@ import {
   type SolicitudCreadaResponse,
 } from "@club-colina/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
@@ -310,7 +310,16 @@ function Pasos({
       {actual === "confirmar" && <PasoConfirmar f={f} onCambio={onCambio} errores={errores} />}
 
       {categorias.isError && pideCategoria && (
-        <Aviso tono="error">No pudimos cargar las categorías. Revisa tu conexión.</Aviso>
+        <Aviso tono="error">
+          No pudimos cargar las categorías. Revisa tu conexión.{" "}
+          <button
+            type="button"
+            className="font-medium underline"
+            onClick={() => void categorias.refetch()}
+          >
+            Reintentar
+          </button>
+        </Aviso>
       )}
       {Object.keys(errores).length > 0 && (
         <Aviso tono="error">Revisa los campos marcados en rojo.</Aviso>
@@ -402,8 +411,11 @@ function PasoHijos({
   const [buscando, setBuscando] = useState<string | null>(null);
   const [fallas, setFallas] = useState<Record<string, string>>({});
 
+  // RUT que se está buscando por hijo. Si la persona lo corrige, la respuesta vieja se descarta.
+  const enBusqueda = useRef<Record<string, string | undefined>>({});
+
   async function buscar(h: Hijo) {
-    if (h.origen.tipo !== "rut") return;
+    if (h.origen.tipo !== "rut" || buscando === h.clave) return;
     const rut = normalizarRut(h.origen.rut);
     if (rut === null) {
       setFallas((x) => ({ ...x, [h.clave]: "Escribe un RUT válido." }));
@@ -415,10 +427,13 @@ function PasoHijos({
     }
     setFallas((x) => ({ ...x, [h.clave]: "" }));
     setBuscando(h.clave);
+    enBusqueda.current[h.clave] = rut;
+    const sigueVigente = () => enBusqueda.current[h.clave] === rut;
     try {
       const r = busquedaDesdeLookup(await api.publico.consultarRut(rut));
-      if ("error" in r) setFallas((x) => ({ ...x, [h.clave]: r.error }));
-      else
+      if ("error" in r) {
+        if (sigueVigente()) setFallas((x) => ({ ...x, [h.clave]: r.error }));
+      } else
         // Si mientras tanto corrigió el RUT, el resultado ya no es de ese RUT: se descarta.
         onCambio((f) =>
           conHijo(f, h.clave, (y) =>
@@ -428,9 +443,9 @@ function PasoHijos({
           ),
         );
     } catch (e) {
-      setFallas((x) => ({ ...x, [h.clave]: mensajeError(e) }));
+      if (sigueVigente()) setFallas((x) => ({ ...x, [h.clave]: mensajeError(e) }));
     } finally {
-      setBuscando(null);
+      setBuscando((b) => (b === h.clave ? null : b));
     }
   }
 
@@ -480,18 +495,21 @@ function PasoHijos({
                             void buscar(h);
                           }
                         }}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const valor = e.target.value;
+                          enBusqueda.current[h.clave] = undefined;
+                          setFallas((x) => ({ ...x, [h.clave]: "" }));
                           onCambio((f) =>
                             conHijo(f, h.clave, (y) => ({
                               ...y,
                               origen: {
                                 tipo: "rut",
-                                rut: e.target.value,
+                                rut: valor,
                                 busqueda: { estado: "sin_buscar" },
                               },
                             })),
-                          )
-                        }
+                          );
+                        }}
                       />
                       <Button
                         type="button"
@@ -627,7 +645,10 @@ function PasoOtro({ f, onCambio, errores }: PropsPaso) {
             className="h-10"
             maxLength={80}
             value={o.nombre}
-            onChange={(e) => set(() => ({ nombre: e.target.value }))}
+            onChange={(e) => {
+              const valor = e.target.value;
+              set(() => ({ nombre: valor }));
+            }}
           />
         )}
       </Campo>
@@ -638,7 +659,10 @@ function PasoOtro({ f, onCambio, errores }: PropsPaso) {
             className="h-10"
             maxLength={80}
             value={o.apellido}
-            onChange={(e) => set(() => ({ apellido: e.target.value }))}
+            onChange={(e) => {
+              const valor = e.target.value;
+              set(() => ({ apellido: valor }));
+            }}
           />
         )}
       </Campo>
@@ -650,7 +674,10 @@ function PasoOtro({ f, onCambio, errores }: PropsPaso) {
             autoComplete="off"
             maxLength={14}
             value={o.rut}
-            onChange={(e) => set(() => ({ rut: e.target.value }))}
+            onChange={(e) => {
+              const valor = e.target.value;
+              set(() => ({ rut: valor }));
+            }}
           />
         )}
       </Campo>
@@ -667,7 +694,10 @@ function PasoOtro({ f, onCambio, errores }: PropsPaso) {
             className="h-10"
             maxLength={20}
             value={o.telefono}
-            onChange={(e) => set(() => ({ telefono: e.target.value }))}
+            onChange={(e) => {
+              const valor = e.target.value;
+              set(() => ({ telefono: valor }));
+            }}
           />
         )}
       </Campo>
