@@ -271,6 +271,14 @@ describe("casos de la segunda revisión", () => {
 
   it("la firma cambia si cambia el estado de una persona o vínculo, no por otros datos", () => {
     const base = solicitud();
+    // Si una persona deja de ser propia, el formulario armado ya no sirve.
+    expect(
+      firmaSolicitud(
+        solicitud({
+          jugadores: [jugador(J1, { propia: false }), jugador(J2, { estado: "activo" })],
+        }),
+      ),
+    ).not.toBe(firmaSolicitud(base));
     expect(firmaSolicitud(solicitud({ coincide_base: true }))).toBe(firmaSolicitud(base));
     // Un hijo que queda marcado «ya no está», un aviso nuevo o un faltante cambian la firma.
     expect(

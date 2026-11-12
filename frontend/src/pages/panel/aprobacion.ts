@@ -208,9 +208,9 @@ export function firmaSolicitud(s: SolicitudDetalle): string {
   return [
     `s:${s.estado}:${lista(s.avisos)}`,
     ...s.jugadores.map(
-      (j) => `j:${j.id}:${j.estado}:${j.marcado_retiro_en ?? ""}:${lista(j.faltantes)}`,
+      (j) => `j:${j.id}:${j.estado}:${j.propia}:${j.marcado_retiro_en ?? ""}:${lista(j.faltantes)}`,
     ),
-    ...s.apoderados.map((a) => `a:${a.id}:${a.estado}:${lista(a.faltantes)}`),
+    ...s.apoderados.map((a) => `a:${a.id}:${a.estado}:${a.propia}:${lista(a.faltantes)}`),
     ...s.vinculos.map((v) => `v:${llaveVinculo(v)}:${v.estado}`),
   ]
     .sort()

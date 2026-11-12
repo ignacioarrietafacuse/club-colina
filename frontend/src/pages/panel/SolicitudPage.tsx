@@ -443,9 +443,10 @@ function DetalleSolicitud({
 
       {confirmar === "todo" && (
         <div role="alert" className="mb-4 rounded-lg bg-destructive/10 px-4 py-3 text-sm">
-          «Rechazar todo lo pendiente» rechaza, estén marcadas o no,
-          {rechazaTodo.length > 0 ? ` a ${rechazaTodo.join(", ")}` : " a nadie más"}, y los vínculos
-          pendientes de la solicitud. No se deshace desde el panel.
+          {rechazaTodo.length > 0
+            ? `«Rechazar todo lo pendiente» rechaza, estén marcadas o no, a ${rechazaTodo.join(", ")}, y los vínculos pendientes de la solicitud.`
+            : "«Rechazar todo lo pendiente» rechaza los vínculos pendientes de la solicitud (no queda ninguna persona por decidir desde acá)."}{" "}
+          No se deshace desde el panel.
         </div>
       )}
 
