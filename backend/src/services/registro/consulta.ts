@@ -111,6 +111,15 @@ export async function faltantesJugador(
 }
 
 /**
+ * `bloquear`: toma la fila con `FOR NO KEY UPDATE` (solo dentro de una transacción). La solicitud lo usa
+ * en lo que puede copiar a `fichas_previas` y modificar: si Mony cambia la foto o los datos en el
+ * panel al mismo tiempo, la solicitud espera y copia lo que dejó Mony, en vez de copiar lo que
+ * leyó antes y pisarlo después. `NO KEY` basta: choca con el `FOR UPDATE` y los `UPDATE` del
+ * panel, sin frenar los inserts que solo apuntan a la fila (vínculos).
+ */
+type Bloqueo = { bloquear?: boolean };
+
+/**
  * Hijos del apoderado, en el orden que fija el contrato: sus vínculos, sin filtrar por estado,
  * por `jugador_apoderado.creado_en, jugador_id`. La posición en esta lista es lo único que
  * identifica a un hijo precargado entre la consulta de RUT y la solicitud.
@@ -139,27 +148,19 @@ export async function hijosDeApoderado(db: Ejecutor, apoderadoId: string, opcion
       ),
     )
     .orderBy(asc(jugadorApoderado.creado_en), asc(jugadorApoderado.jugador_id));
-  const filas = opciones.bloquear ? await consulta.for("update", { of: jugadores }) : await consulta;
+  const filas = opciones.bloquear ? await consulta.for("no key update", { of: jugadores }) : await consulta;
   return filas.map((f, posicion) => ({ posicion, ...f }));
 }
 
-/**
- * `bloquear`: toma la fila con `FOR UPDATE` (solo dentro de una transacción). La solicitud lo usa
- * en lo que puede copiar a `fichas_previas` y modificar: si Mony cambia la foto o los datos en el
- * panel al mismo tiempo, la solicitud espera y copia lo que dejó Mony, en vez de copiar lo que
- * leyó antes y pisarlo después.
- */
-type Bloqueo = { bloquear?: boolean };
-
 export async function apoderadoPorRut(db: Ejecutor, rut: string, opciones: Bloqueo = {}): Promise<Apoderado | null> {
   const consulta = db.select().from(apoderados).where(eq(apoderados.rut, rut));
-  const [a] = opciones.bloquear ? await consulta.for("update") : await consulta;
+  const [a] = opciones.bloquear ? await consulta.for("no key update") : await consulta;
   return a ?? null;
 }
 
 export async function jugadorPorRut(db: Ejecutor, rut: string, opciones: Bloqueo = {}): Promise<Jugador | null> {
   const consulta = db.select().from(jugadores).where(eq(jugadores.rut, rut));
-  const [j] = opciones.bloquear ? await consulta.for("update") : await consulta;
+  const [j] = opciones.bloquear ? await consulta.for("no key update") : await consulta;
   return j ?? null;
 }
 
