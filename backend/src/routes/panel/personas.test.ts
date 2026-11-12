@@ -54,13 +54,25 @@ describe("panel: sin sesión todo niega", () => {
 });
 
 describe("dashboard y categorías", () => {
+  it("sin caché también en el 401 sin sesión y en el 404 del panel", async () => {
+    const { app } = await appConSesion(db);
+    for (const url of ["/api/panel/dashboard", "/api/panel/no-existe"]) {
+      const r = await app.inject({ method: "GET", url });
+      expect(r.statusCode, url).toBe(401);
+      expect(r.headers["cache-control"], url).toBe("private, no-store");
+    }
+    await app.close();
+  });
+
   it("cuenta lo real", async () => {
     const { app, cookies } = await appConSesion(db);
     const antes = (await app.inject({ method: "GET", url: "/api/panel/dashboard", cookies })).json();
     await crearJugadorActivo(db);
     await crearJugador(db);
     await crearApoderado(db);
-    const despues = (await app.inject({ method: "GET", url: "/api/panel/dashboard", cookies })).json();
+    const r = await app.inject({ method: "GET", url: "/api/panel/dashboard", cookies });
+    expect(r.headers["cache-control"]).toBe("private, no-store");
+    const despues = r.json();
     expect(despues.jugadores_activos).toBe(antes.jugadores_activos + 1);
     expect(despues.precargados_sin_registrar.jugadores).toBe(antes.precargados_sin_registrar.jugadores + 1);
     expect(despues.precargados_sin_registrar.apoderados).toBe(antes.precargados_sin_registrar.apoderados + 1);

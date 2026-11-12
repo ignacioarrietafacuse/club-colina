@@ -46,6 +46,7 @@ describe("login y sesiones", () => {
     const usuario = await usuarioNuevo();
     const r = await login(app, usuario);
     expect(r.statusCode).toBe(200);
+    expect(r.headers["cache-control"]).toBe("private, no-store");
     expect(r.json()).toEqual({ usuario: { id: expect.any(String), nombre: "Usuaria Prueba" } });
     const c = r.cookies.find((x) => x.name === COOKIE_SESION);
     expect(c?.httpOnly).toBe(true);
@@ -117,6 +118,14 @@ describe("login y sesiones", () => {
       expect(r.cookies.find((x) => x.name === COOKIE_SESION)).toBeUndefined();
     }
     expect(new Set(respuestas.map((r) => r.body)).size).toBe(1);
+    await app.close();
+  });
+
+  it("/me sin sesión: 401 y sin caché", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const r = await app.inject({ method: "GET", url: "/api/auth/me" });
+    expect(r.statusCode).toBe(401);
+    expect(r.headers["cache-control"]).toBe("private, no-store");
     await app.close();
   });
 
