@@ -102,7 +102,7 @@ describe("GET /api/public/familia/:token", () => {
     await app.close();
   });
 
-  it("un RUT ajeno nombrado en la solicitud no devuelve su nombre ni su credencial hasta que Mony aprueba el vínculo", async () => {
+  it("un RUT ajeno nombrado en la solicitud nunca devuelve su nombre ni su credencial, aunque Mony apruebe el vínculo", async () => {
     const app = await construirApp({ config: configTest(), db });
     const otraMadre = await crearApoderado(db);
     const ajeno = await crearJugador(db, {
@@ -129,13 +129,12 @@ describe("GET /api/public/familia/:token", () => {
       .update(jugadorApoderado)
       .set({ estado: "activo" })
       .where(and(eq(jugadorApoderado.jugador_id, ajeno.id), eq(jugadorApoderado.apoderado_id, titular[0]?.id ?? "")));
+    // Un link de familia solo muestra a quienes entraron por esa solicitud, también con un titular
+    // nuevo: Mony entrega ese QR desde la ficha si el vínculo es legítimo.
     const despues = await app.inject({ method: "GET", url: API.public.familia(token_acceso) });
-    expect(despues.json().personas[1]).toEqual({
-      nombre_completo: "Florencia Inventado",
-      rol: "jugador",
-      estado: "activo",
-      credencial_token: ajeno.credencial_token,
-    });
+    expect(despues.body).not.toContain("Florencia");
+    expect(despues.body).not.toContain(ajeno.credencial_token ?? "x");
+    expect(despues.json().personas).toHaveLength(1);
     await app.close();
   });
 
@@ -168,7 +167,7 @@ describe("GET /api/public/familia/:token", () => {
     await app.close();
   });
 
-  it("titular ya registrado que completa a un hijo precargado: el QR sale con él y se va si Mony lo da de baja", async () => {
+  it("titular ya registrado que completa a un hijo precargado de su lista: el hijo no aparece (solo lo que la solicitud creó)", async () => {
     const app = await construirApp({ config: configTest(), db });
     const titular = await crearApoderado(db, { estado: "pendiente", foto_id: await guardarFoto(db, JPEG_PRUEBA) });
     const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: "3", foto_id: await guardarFoto(db, JPEG_PRUEBA) });
@@ -179,17 +178,13 @@ describe("GET /api/public/familia/:token", () => {
       {},
     );
     const credencial = await activar(jugadores, hijo.rut);
-    const qr = async () =>
-      (await app.inject({ method: "GET", url: API.public.familia(token_acceso) })).json().personas.find(
-        (p: { rol: string }) => p.rol === "jugador",
-      )?.credencial_token;
-    expect(await qr()).toBe(credencial);
-    await db.update(apoderados).set({ estado: "inactivo" }).where(eq(apoderados.id, titular.id));
-    expect(await qr()).toBeUndefined();
+    const r = await app.inject({ method: "GET", url: API.public.familia(token_acceso) });
+    expect(r.json().personas).toEqual([]);
+    expect(r.body).not.toContain(credencial);
     await app.close();
   });
 
-  it("titular ya registrado que además agrega un otro apoderado nuevo: el QR del hijo aparece al aprobarlo", async () => {
+  it("titular ya registrado que además agrega un otro apoderado nuevo: ve al otro apoderado, no al hijo precargado", async () => {
     const app = await construirApp({ config: configTest(), db });
     const titular = await crearApoderado(db, { estado: "pendiente", foto_id: await guardarFoto(db, JPEG_PRUEBA) });
     const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: "3", foto_id: await guardarFoto(db, JPEG_PRUEBA) });
@@ -207,9 +202,9 @@ describe("GET /api/public/familia/:token", () => {
     );
     const credencial = await activar(jugadores, hijo.rut);
     const r = await app.inject({ method: "GET", url: API.public.familia(token_acceso) });
-    expect(r.json().personas).toEqual([
-      { nombre_completo: "Tomás Inventado", rol: "jugador", estado: "activo", credencial_token: credencial },
-    ]);
+    expect(r.json().personas).toEqual([]);
+    expect(r.body).not.toContain(credencial);
+    expect(r.json().otros_apoderados).toEqual([{ nombre_completo: "Diego", foto_subida: false }]);
     await app.close();
   });
 
@@ -303,6 +298,127 @@ describe("GET /api/public/familia/:token", () => {
     const jugador = r.json().personas.find((p: { rol: string }) => p.rol === "jugador");
     expect(jugador?.credencial_token).toBe(credencial);
     await app.close();
+  });
+
+  describe("titular ya registrado: solo las personas que la solicitud creó", () => {
+    /** Un apoderado ya activo, con un hijo propio activo. */
+    async function apoderadoRegistrado() {
+      const titular = await crearApoderado(db, {
+        estado: "activo",
+        foto_id: await guardarFoto(db, JPEG_PRUEBA),
+        credencial_token: generarToken(),
+      });
+      const propio = await crearJugador(db, {
+        nombre: "Tomás",
+        estado: "activo",
+        numero_camiseta: "3",
+        foto_id: await guardarFoto(db, JPEG_PRUEBA),
+        credencial_token: generarToken(),
+      });
+      await vincular(db, propio.id, titular.id);
+      return { titular, propio };
+    }
+    const hijoPorRut = (rut: string): NonNullable<SolicitudDatos["hijos"]>[number] => ({
+      ref: { rut },
+      nombre: "Agustina",
+      apellido: "Inventada",
+      fecha_nacimiento: "2014-04-04",
+      disciplina: "basketball",
+      numero_camiseta: "10",
+      foto: "h",
+    });
+    /** Mony aprueba todo lo de la solicitud: personas activas con credencial y vínculos activos. */
+    async function aprobarTodo(solicitudId: string) {
+      for (const tabla of [jugadores, apoderados] as const) {
+        await db.update(tabla).set({ estado: "activo", credencial_token: generarToken() }).where(eq(tabla.estado, "pendiente"));
+      }
+      await db.update(jugadorApoderado).set({ estado: "activo" }).where(eq(jugadorApoderado.solicitud_id, solicitudId));
+    }
+    async function solicitudDe(titularId: string) {
+      const [s] = await db.select().from(solicitudesRegistro).where(eq(solicitudesRegistro.titular_apoderado_id, titularId));
+      if (!s) throw new Error("sin solicitud");
+      return s;
+    }
+    const verFamilia = async (app: FastifyInstance, token: string) =>
+      (await app.inject({ method: "GET", url: API.public.familia(token) })).json();
+
+    it("el impostor que nombra por RUT a un hijo activo de otra familia no lo ve, aunque Mony apruebe el vínculo", async () => {
+      const app = await construirApp({ config: configTest(), db });
+      const { titular } = await apoderadoRegistrado();
+      const otraMadre = await crearApoderado(db);
+      const ajeno = await crearJugador(db, {
+        nombre: "Florencia",
+        estado: "activo",
+        numero_camiseta: "5",
+        foto_id: await guardarFoto(db, JPEG_PRUEBA),
+        credencial_token: generarToken(),
+      });
+      await vincular(db, ajeno.id, otraMadre.id);
+      const r = await crearSolicitud(
+        app,
+        { rut: titular.rut, tipo: "apoderado", consentimiento: true, hijos: [hijoPorRut(ajeno.rut)] },
+        { h: JPEG_PRUEBA },
+      );
+      const s = await solicitudDe(titular.id);
+      expect(s.avisos).toContain("titular_ya_registrado");
+      await aprobarTodo(s.id);
+      const [v] = await db
+        .select()
+        .from(jugadorApoderado)
+        .where(and(eq(jugadorApoderado.jugador_id, ajeno.id), eq(jugadorApoderado.apoderado_id, titular.id)));
+      expect(v?.estado).toBe("activo");
+      const familia = await verFamilia(app, r.token_acceso);
+      expect(JSON.stringify(familia)).not.toContain("Florencia");
+      expect(JSON.stringify(familia)).not.toContain(ajeno.credencial_token ?? "x");
+      expect(familia.personas).toEqual([]);
+      await app.close();
+    });
+
+    it("el impostor que nombra por RUT a un precargado sin apoderado no lo ve al aprobarse (entra solo por su vínculo)", async () => {
+      const app = await construirApp({ config: configTest(), db });
+      const { titular } = await apoderadoRegistrado();
+      const suelto = await crearJugador(db, { nombre: "Florencia", numero_camiseta: "5", foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+      const r = await crearSolicitud(
+        app,
+        { rut: titular.rut, tipo: "apoderado", consentimiento: true, hijos: [hijoPorRut(suelto.rut)] },
+        { h: JPEG_PRUEBA },
+      );
+      await aprobarTodo((await solicitudDe(titular.id)).id);
+      const [j] = await db.select().from(jugadores).where(eq(jugadores.id, suelto.id));
+      expect(j?.estado).toBe("activo");
+      const familia = await verFamilia(app, r.token_acceso);
+      expect(JSON.stringify(familia)).not.toContain("Florencia");
+      expect(JSON.stringify(familia)).not.toContain(j?.credencial_token ?? "x");
+      await app.close();
+    });
+
+    it("su propio hijo, ya activo antes, tampoco aparece en el link nuevo; el hijo nuevo sí", async () => {
+      const app = await construirApp({ config: configTest(), db });
+      const { titular, propio } = await apoderadoRegistrado();
+      const r = await crearSolicitud(
+        app,
+        {
+          rut: titular.rut,
+          tipo: "apoderado",
+          consentimiento: true,
+          hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }, hijoPorRut(rutNuevo())],
+        },
+        { h: JPEG_PRUEBA },
+      );
+      await aprobarTodo((await solicitudDe(titular.id)).id);
+      const familia = await verFamilia(app, r.token_acceso);
+      expect(JSON.stringify(familia)).not.toContain(propio.credencial_token ?? "x");
+      expect(JSON.stringify(familia)).not.toContain("Tomás");
+      expect(familia.personas).toEqual([
+        expect.objectContaining({
+          nombre_completo: "Agustina Inventada",
+          rol: "jugador",
+          estado: "activo",
+          credencial_token: expect.any(String),
+        }),
+      ]);
+      await app.close();
+    });
   });
 
   it("token mal formado, desconocido o de otro tipo de link: el mismo 404", async () => {

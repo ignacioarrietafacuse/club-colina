@@ -15,6 +15,7 @@ import {
   vinculoAprobable,
   vinculoConocido,
   vinculoVa,
+  fueraDelLink,
 } from "./aprobacion";
 
 // Datos siempre ficticios.
@@ -29,6 +30,7 @@ type JugadorDeSolicitud = SolicitudDetalle["jugadores"][number];
 function jugador(id: string, cambios: Partial<JugadorDeSolicitud> = {}): JugadorDeSolicitud {
   return {
     propia: true,
+    en_link_familia: true,
     id,
     nombre: "Ana",
     apellido: "Pérez",
@@ -455,5 +457,14 @@ describe("rechazar un vínculo suelto (#27)", () => {
 
   it("una llave rota no se envía", () => {
     expect(armarRechazoVinculo("x").ok).toBe(false);
+  });
+});
+
+describe("recordatorio del QR fuera del link", () => {
+  it("solo en una solicitud de formulario y para quien no está en el link", () => {
+    const base = solicitud({ jugadores: [jugador(J1, { en_link_familia: false }), jugador(J2)] });
+    expect(fueraDelLink(base, J1)).toBe(true);
+    expect(fueraDelLink(base, J2)).toBe(false);
+    expect(fueraDelLink({ ...base, tipo: "segundo_apoderado" }, J1)).toBe(false);
   });
 });

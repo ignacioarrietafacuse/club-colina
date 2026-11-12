@@ -1,5 +1,5 @@
 import { type CompletarResponse, type FamiliaResponse, token as esquemaToken } from "@club-colina/shared";
-import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import type { Db, Ejecutor } from "../../db/cliente";
 import { apoderados, entrenadores, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
 import { ErrorApi, noEncontrado } from "../../lib/errores";
@@ -47,19 +47,37 @@ function nombreVisible(p: Persona): string {
 }
 
 /**
- * GET /familia/:token_acceso — solo las personas que llegaron en esa solicitud: las que tienen ese
- * `solicitud_id` y los hijos cuyo vínculo con el titular creó la solicitud, estos solo cuando Mony
- * lo aprobó. Nunca el resto de la familia de la base. Un hijo marcado "ya no está" sigue apareciendo:
- * la marca es solo una señal para Mony; lo saca de aquí la baja que ella decide en la ficha. El token se
- * busca solo entre solicitudes de tipo `formulario`.
+ * Si una persona entró al club por esta solicitud y por eso aparece en su /familia (decisión de
+ * Ignacio, 2026-11-12): un link de familia solo muestra a las personas que entraron por esa
+ * solicitud. Son las de su `solicitud_id`, que se asigna solo a quien no tenía (persona nueva, o
+ * precargada del RUT de quien llena) y nunca se reasigna. Si el titular ya estaba registrado
+ * (aviso `titular_ya_registrado`), solo las que la solicitud creó (`origen = 'formulario'`): un
+ * precargado de su lista que la solicitud completó tampoco, porque quien usa el RUT de un
+ * apoderado registrado puede ser otro. Un hijo que ya existía y se nombró por RUT (entra solo por
+ * su vínculo) nunca aparece, aunque Mony apruebe el vínculo: si es legítimo, Mony le entrega ese
+ * QR en PNG desde la ficha, y el panel se lo recuerda. El panel usa esta misma regla.
+ */
+export function entraPorSolicitud(
+  s: { id: string; avisos: readonly string[] },
+  persona: { solicitud_id: string | null; origen: string },
+): boolean {
+  if (persona.solicitud_id !== s.id) return false;
+  return !s.avisos.includes("titular_ya_registrado") || persona.origen === "formulario";
+}
+
+/**
+ * GET /familia/:token_acceso — solo las personas que entraron por esa solicitud
+ * (`entraPorSolicitud`), nunca el resto de la familia de la base. Un hijo marcado "ya no está" sigue
+ * apareciendo: la marca es solo una señal para Mony; lo saca de aquí la baja que ella decide en la
+ * ficha. El token se busca solo entre solicitudes de tipo `formulario`.
  *
  * El titular es quien llenó el formulario (`titular_apoderado_id` o `titular_jugador_id`). El QR
  * de un hijo se entrega solo si está activo y tiene un vínculo activo con ese titular, y el titular
  * está pendiente o activo (`TITULAR_VIGENTE`): si Mony corta el vínculo o lo da de baja, el link
  * deja de mostrarlo. El jugador adulto titular ve su propio QR.
  *
- * Una solicitud sin titular guardado (anterior a la columna) no entrega ningún QR ni hijos por
- * vínculo: ante la duda, no mostrar. Mony puede generarle un link nuevo, pero el titular queda nulo.
+ * Una solicitud sin titular guardado (anterior a la columna) no entrega ningún QR: ante la duda, no
+ * mostrar. Mony puede generarle un link nuevo, pero el titular queda nulo.
  */
 export async function verFamilia(db: Db, token: string): Promise<FamiliaResponse> {
   const s = await solicitudPorToken(db, token, "formulario");
@@ -79,11 +97,13 @@ export async function verFamilia(db: Db, token: string): Promise<FamiliaResponse
           .where(inArray(apoderados.solicitud_id, segundas.map((x) => x.id)))
           .orderBy(asc(apoderados.creado_en), asc(apoderados.id));
 
-  const aps = await db
-    .select()
-    .from(apoderados)
-    .where(eq(apoderados.solicitud_id, s.id))
-    .orderBy(asc(apoderados.creado_en), asc(apoderados.id));
+  const aps = (
+    await db
+      .select()
+      .from(apoderados)
+      .where(eq(apoderados.solicitud_id, s.id))
+      .orderBy(asc(apoderados.creado_en), asc(apoderados.id))
+  ).filter((a) => entraPorSolicitud(s, a));
 
   // El titular apoderado cuenta solo en un estado permitido.
   let titularApoderado: string | null = null;
@@ -95,33 +115,13 @@ export async function verFamilia(db: Db, token: string): Promise<FamiliaResponse
     if (t && TITULAR_VIGENTE.has(t.estado)) titularApoderado = t.id;
   }
 
-  // Hijos que llegaron por un vínculo de esta solicitud con el titular, ya aprobado por Mony.
-  const porVinculo =
-    titularApoderado === null
-      ? []
-      : (
-          await db
-            .select({ jugador_id: jugadorApoderado.jugador_id })
-            .from(jugadorApoderado)
-            .where(
-              and(
-                eq(jugadorApoderado.solicitud_id, s.id),
-                eq(jugadorApoderado.apoderado_id, titularApoderado),
-                eq(jugadorApoderado.estado, "activo"),
-              ),
-            )
-        ).map((f) => f.jugador_id);
-  const jugadoresSolicitud = await db
-    .select()
-    .from(jugadores)
-    .where(
-      and(
-        porVinculo.length > 0
-          ? or(eq(jugadores.solicitud_id, s.id), inArray(jugadores.id, porVinculo))
-          : eq(jugadores.solicitud_id, s.id),
-      ),
-    )
-    .orderBy(asc(jugadores.creado_en), asc(jugadores.id));
+  const jugadoresSolicitud = (
+    await db
+      .select()
+      .from(jugadores)
+      .where(eq(jugadores.solicitud_id, s.id))
+      .orderBy(asc(jugadores.creado_en), asc(jugadores.id))
+  ).filter((j) => entraPorSolicitud(s, j));
 
   // Jugadores con un vínculo activo con el titular (de esta solicitud o de la base).
   const ids = jugadoresSolicitud.map((j) => j.id);

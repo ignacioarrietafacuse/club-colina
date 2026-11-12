@@ -754,8 +754,8 @@ function PasoConfirmar({ f, onCambio, errores }: PropsPaso) {
     <div className="space-y-4">
       {errores["envio"] && <Aviso tono="error">{errores["envio"]}</Aviso>}
       <p className="text-sm text-muted-foreground">
-        El club revisará tu registro. Cuando lo apruebe, verás los códigos QR en el link privado que
-        te daremos al enviar.
+        El club revisará tu registro. Cuando lo apruebe, verás los códigos QR de las personas nuevas
+        en el link privado que te daremos al enviar; los demás te los enviará el club.
       </p>
       <Casilla
         marcada={f.consentimiento}

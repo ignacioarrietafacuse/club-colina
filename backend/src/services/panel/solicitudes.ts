@@ -41,6 +41,7 @@ import { ErrorApi, noEncontrado } from "../../lib/errores";
 import { borrarFoto } from "../../lib/fotos";
 import { generarToken, hashToken } from "../../lib/tokens";
 import { incompleto } from "./acciones";
+import { entraPorSolicitud } from "../registro/links";
 import { conRestricciones } from "./errores-db";
 import { cargarCategorias, detalleApoderado, detalleJugador, marcadoSinResolver, tieneApoderadoVigente, verificarCategoria } from "./personas";
 import { faltantesApoderado, faltantesJugador, nombreCompleto, requisitosJugador } from "./reglas";
@@ -282,6 +283,19 @@ export async function listarSolicitudes(
 export async function detalleSolicitud(db: Ejecutor, id: string): Promise<SolicitudDetalle> {
   const s = await filaSolicitud(db, id);
   const m = await miembros(db, s);
+  // Quién aparece en el /familia de esta solicitud: la misma regla que el link (S2).
+  const enLink = new Set(
+    s.tipo !== "formulario" || m.visiblesJ.length === 0
+      ? []
+      : (
+          await db
+            .select({ id: jugadores.id, solicitud_id: jugadores.solicitud_id, origen: jugadores.origen })
+            .from(jugadores)
+            .where(inArray(jugadores.id, m.visiblesJ))
+        )
+          .filter((j) => entraPorSolicitud(s, j))
+          .map((j) => j.id),
+  );
   return {
     id: s.id,
     creada_en: s.creada_en.toISOString(),
@@ -292,7 +306,11 @@ export async function detalleSolicitud(db: Ejecutor, id: string): Promise<Solici
     coincide_base: s.coincide_base,
     avisos: s.avisos,
     jugadores: await Promise.all(
-      m.visiblesJ.map(async (j) => ({ ...(await detalleJugador(db, j)), propia: m.propiosJ.includes(j) })),
+      m.visiblesJ.map(async (j) => ({
+        ...(await detalleJugador(db, j)),
+        propia: m.propiosJ.includes(j),
+        en_link_familia: enLink.has(j),
+      })),
     ),
     apoderados: await Promise.all(
       m.visiblesA.map(async (a) => ({ ...(await detalleApoderado(db, a)), propia: m.propiosA.includes(a) })),
@@ -317,18 +335,41 @@ export async function detalleSolicitud(db: Ejecutor, id: string): Promise<Solici
 export async function cerrarSiCorresponde(tx: Ejecutor, solicitudId: string): Promise<void> {
   const s = await filaSolicitud(tx, solicitudId);
   if (s.estado !== "pendiente") return;
+  if ((await quedanPorDecidir(tx, s)) === 0) await cerrar(tx, solicitudId);
+}
+
+/** Personas propias pendientes más vínculos pendientes: lo que todavía se decide desde la solicitud. */
+async function quedanPorDecidir(tx: Ejecutor, s: Fila): Promise<number> {
   const m = await miembros(tx, s);
-  const quedan = (await pendientes(tx, m.propiosJ, m.propiosA)) + m.vinculos.filter((v) => v.estado === "pendiente").length;
-  if (quedan === 0) {
-    await tx
-      .update(solicitudesRegistro)
-      .set({ estado: "revisada", revisada_en: new Date() })
-      .where(eq(solicitudesRegistro.id, solicitudId));
-    // Una solicitud revisada ya no restaura a nadie: una copia que le quedara solo bloquearía a las
-    // solicitudes que vengan. La marca "ya no está" no tiene copia ni se toca al aprobar o
-    // rechazar: la decide siempre Mony en la ficha (dejarlo inactivo o quitar la marca).
-    await tx.delete(fichasPrevias).where(eq(fichasPrevias.solicitud_id, solicitudId));
-  }
+  return (await pendientes(tx, m.propiosJ, m.propiosA)) + m.vinculos.filter((v) => v.estado === "pendiente").length;
+}
+
+async function cerrar(tx: Ejecutor, solicitudId: string): Promise<void> {
+  await tx
+    .update(solicitudesRegistro)
+    .set({ estado: "revisada", revisada_en: new Date() })
+    .where(eq(solicitudesRegistro.id, solicitudId));
+  // Una solicitud revisada ya no restaura a nadie: una copia que le quedara solo bloquearía a las
+  // solicitudes que vengan. La marca "ya no está" no tiene copia ni se toca al aprobar o
+  // rechazar: la decide siempre Mony en la ficha (dejarlo inactivo o quitar la marca).
+  await tx.delete(fichasPrevias).where(eq(fichasPrevias.solicitud_id, solicitudId));
+}
+
+/**
+ * "Dar por revisada": Mony cierra a mano una solicitud pendiente que no deja nada por decidir (por
+ * ejemplo, una cuyos cambios bloqueó otra solicitud, o cuyas personas se decidieron desde otra).
+ * Con algo pendiente todavía es 409: eso se aprueba o se rechaza, no se da por revisado.
+ */
+export async function darPorRevisada(db: Ejecutor, id: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tomarCandado(tx);
+    const s = await filaSolicitud(tx, id, true);
+    if (s.estado !== "pendiente") throw conflicto("Esta solicitud ya está revisada.");
+    if ((await quedanPorDecidir(tx, s)) > 0) {
+      throw conflicto("Todavía hay personas o vínculos por decidir en esta solicitud: apruébalos o recházalos.");
+    }
+    await cerrar(tx, id);
+  });
 }
 
 /**
