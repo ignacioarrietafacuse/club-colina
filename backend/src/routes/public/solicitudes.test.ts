@@ -536,7 +536,7 @@ describe("POST /api/public/solicitudes", () => {
       const titular = await crearApoderado(db, { estado, foto_id: null });
       const r = await enviar(
         app,
-        { rut: titular.rut, tipo: "apoderado", consentimiento: true, telefono: "911111111", nombre: "Nueva", foto: "t", hijos: [hijoNuevo(rutNuevo())] },
+        { rut: titular.rut, tipo: "apoderado", consentimiento: true, nombre: "Nueva", foto: "t", hijos: [hijoNuevo(rutNuevo())] },
         { t: JPEG_PRUEBA, h0: JPEG_PRUEBA },
       );
       expect(r.statusCode).toBe(201);
