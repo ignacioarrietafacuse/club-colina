@@ -479,7 +479,7 @@ describe("solicitudes: rechazar vuelve a como estaba", () => {
 
   it("si otra solicitud tiene un vínculo hacia la persona nueva, 409 hasta que Mony decida esa otra", async () => {
     const { app, cookies } = await appConSesion(db);
-    const { s, hijo } = await familia();
+    const { s, apo, hijo } = await familia();
     // Otra familia, ya registrada, nombró a ese hijo por RUT: su solicitud solo tiene ese vínculo.
     const otra = await nuevaSolicitud();
     const otroApo = await crearApoderado(db, { estado: "activo", foto_id: await fotoPrueba(db), credencial_token: generarToken() });
@@ -492,10 +492,14 @@ describe("solicitudes: rechazar vuelve a como estaba", () => {
         cookies,
         payload: { personas: [{ rol: "jugador", id: hijo }] },
       });
+    const fotoHijo = (await estadoJ(hijo))?.foto_id ?? "";
     const r = await rechazarHijo();
     expect(r.statusCode).toBe(409);
-    // No cambió nada: ni el hijo, ni el vínculo de la otra, ni su estado.
+    expect(r.json().error.mensaje).toMatch(/otra solicitud pendiente \(recibida el \d{2}-\d{2}-\d{4} \d{2}:\d{2}\)/);
+    // No cambió nada: ni el hijo y su foto, ni su vínculo con esta, ni el de la otra, ni su estado.
     expect(await estadoJ(hijo)).toMatchObject({ estado: "pendiente" });
+    expect(await db.select().from(fotos).where(eq(fotos.id, fotoHijo))).toHaveLength(1);
+    expect(await vinculo(hijo, apo)).toBeDefined();
     expect(await vinculo(hijo, otroApo)).toBeDefined();
     expect(await estadoS(otra.id)).toBe("pendiente");
     // Mony decide primero la otra (rechaza su vínculo) y después puede rechazar al hijo.
@@ -537,6 +541,27 @@ describe("solicitudes: rechazar vuelve a como estaba", () => {
     expect(await estadoA(apo)).toBeUndefined();
     const [cerrada] = await db.select().from(solicitudesRegistro).where(eq(solicitudesRegistro.id, otra.id));
     expect(cerrada).toMatchObject({ estado: "revisada", titular_apoderado_id: null });
+    await app.close();
+  });
+
+  it("si la persona nueva es titular de otra solicitud pendiente sin ningún vínculo de ella, también 409", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo } = await familia();
+    // La otra solicitud solo agregó un segundo apoderado: no tiene vínculos hacia `apo`.
+    const otra = await nuevaSolicitud({ titular_apoderado_id: apo });
+    const rechazarApo = () =>
+      app.inject({
+        method: "POST",
+        url: `/api/panel/solicitudes/${s.id}/rechazar`,
+        cookies,
+        payload: { personas: [{ rol: "apoderado", id: apo }] },
+      });
+    expect((await rechazarApo()).statusCode).toBe(409);
+    expect(await estadoA(apo)).toMatchObject({ estado: "pendiente" });
+    // Decidida la otra, ya se puede.
+    await db.update(solicitudesRegistro).set({ estado: "revisada", revisada_en: new Date() }).where(eq(solicitudesRegistro.id, otra.id));
+    expect((await rechazarApo()).statusCode).toBe(200);
+    expect(await estadoA(apo)).toBeUndefined();
     await app.close();
   });
 

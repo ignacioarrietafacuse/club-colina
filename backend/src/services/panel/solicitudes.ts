@@ -683,6 +683,24 @@ async function rechazarPersona(
   return false;
 }
 
+/** Fecha y hora de Chile para un mensaje del panel, por ejemplo "12-11-2026 16:40". */
+function fechaChile(d: Date): string {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("es-CL", {
+      timeZone: "America/Santiago",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(d)
+      .map((x) => [x.type, x.value]),
+  );
+  return `${p.day}-${p.month}-${p.year} ${p.hour}:${p.minute}`;
+}
+
 /**
  * Borra a las personas nuevas que se acaban de rechazar, con su foto y sus vínculos, para liberar
  * su RUT y no guardar datos (muchas veces de menores) sin motivo (Ley 21.719). Solo llegan aquí
@@ -700,9 +718,12 @@ async function borrarNuevas(tx: Ejecutor, familia: string[], jugadoresIds: strin
     jugadoresIds.length > 0 ? inArray(jugadorApoderado.jugador_id, jugadoresIds) : undefined,
     apoderadosIds.length > 0 ? inArray(jugadorApoderado.apoderado_id, apoderadosIds) : undefined,
   );
-  const ajenos = await tx
-    .select({ id: jugadorApoderado.jugador_id })
+  // La solicitud que todavía nombra a la persona, para decirle a Mony cuál decidir primero (por su
+  // fecha: el mensaje no lleva datos personales).
+  const [ajeno] = await tx
+    .select({ solicitud_id: jugadorApoderado.solicitud_id, creada_en: solicitudesRegistro.creada_en })
     .from(jugadorApoderado)
+    .leftJoin(solicitudesRegistro, eq(solicitudesRegistro.id, jugadorApoderado.solicitud_id))
     .where(
       and(
         porVinculo,
@@ -714,20 +735,27 @@ async function borrarNuevas(tx: Ejecutor, familia: string[], jugadoresIds: strin
     jugadoresIds.length > 0 ? inArray(solicitudesRegistro.titular_jugador_id, jugadoresIds) : undefined,
     apoderadosIds.length > 0 ? inArray(solicitudesRegistro.titular_apoderado_id, apoderadosIds) : undefined,
   );
-  const titularDeOtra = await tx
-    .select({ id: solicitudesRegistro.id })
+  const [titularDeOtra] = await tx
+    .select({ creada_en: solicitudesRegistro.creada_en })
     .from(solicitudesRegistro)
     .where(
       and(comoTitular, eq(solicitudesRegistro.estado, "pendiente"), notInArray(solicitudesRegistro.id, familia)),
     )
     .limit(1);
-  if (ajenos.length > 0 || titularDeOtra.length > 0) {
+  if (ajeno && !ajeno.creada_en) {
+    // Hoy no ocurre: todo vínculo hacia una persona del formulario lo crea una solicitud.
+    throw conflicto("Esa persona tiene un vínculo que no viene de una solicitud: no se puede borrar");
+  }
+  const otra = ajeno?.creada_en ?? titularDeOtra?.creada_en;
+  if (otra) {
     throw conflicto(
-      "Esa persona también está en otra solicitud pendiente: decide primero esa otra solicitud y después rechaza esta",
+      `Esa persona también está en otra solicitud pendiente (recibida el ${fechaChile(otra)}): decide primero esa y después rechaza esta`,
     );
   }
   // titular_* es restrict: la solicitud deja de tener titular (nulo = sin QR de hijos en /familia,
-  // lo mismo que con un titular rechazado). Las de la familia se revisan otra vez al final.
+  // lo mismo que con un titular rechazado). Esto alcanza también a una solicitud ya revisada fuera
+  // de la familia (por ejemplo, la que el mismo apoderado mandó para agregar un hijo): no decide
+  // nada, solo quita la referencia. Las de la familia se revisan otra vez al final.
   const afectadas = new Set<string>();
   const sinTitular = await tx
     .update(solicitudesRegistro)
@@ -915,8 +943,10 @@ export async function rechazarSolicitud(
     for (const a of rechA) if (await rechazarPersona(tx, s.id, "apoderado", a)) nuevasA.push(a);
     rechJ.push(...rechJOrigen);
     rechA.push(...rechAOrigen);
-    await borrarFichasPrevias(tx, "jugador", rechJ);
-    await borrarFichasPrevias(tx, "apoderado", rechA);
+    // Las copias de las personas nuevas no se borran aquí: no deberían existir, y si existieran el
+    // DELETE de `borrarNuevas` no las borra y falla (denegar por defecto).
+    await borrarFichasPrevias(tx, "jugador", rechJ.filter((j) => !nuevasJ.includes(j)));
+    await borrarFichasPrevias(tx, "apoderado", rechA.filter((a) => !nuevasA.includes(a)));
     await cerrarSiCorresponde(tx, id);
     await cerrarRelacionadas(tx, s, rechJ, rechA);
     await borrarNuevas(tx, familia, nuevasJ, nuevasA);

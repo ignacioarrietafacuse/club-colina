@@ -60,6 +60,9 @@ export function SolicitudPage() {
   // Jugadores a los que se les quitó la marca «ya no está» en esta pantalla: parten sin marcar
   // cada vez que el formulario se rehace.
   const [desmarcados, setDesmarcados] = useState<ReadonlySet<string>>(() => new Set());
+  // Si se rechazó a alguien en esta pantalla. Vive aquí, fuera del formulario que se rehace: una
+  // persona nueva rechazada se borra y ya no queda en el detalle para mostrarlo.
+  const [rechazoHecho, setRechazoHecho] = useState(false);
 
   return (
     <div>
@@ -95,6 +98,8 @@ export function SolicitudPage() {
             s={consulta.data}
             categorias={categorias.data}
             desmarcados={desmarcados}
+            rechazoHecho={rechazoHecho}
+            alRechazar={() => setRechazoHecho(true)}
             alCambiar={(desmarcar = []) => {
               if (desmarcar.length > 0) setDesmarcados((d) => new Set([...d, ...desmarcar]));
               setGeneracion((g) => g + 1);
@@ -115,12 +120,17 @@ function DetalleSolicitud({
   s,
   categorias,
   desmarcados,
+  rechazoHecho,
+  alRechazar,
   alCambiar,
 }: {
   s: SolicitudDetalle;
   /** `undefined` mientras no carguen (o si fallaron): el selector queda deshabilitado. */
   categorias: CategoriaPanel[] | undefined;
   desmarcados: ReadonlySet<string>;
+  /** Si ya se rechazó a alguien de esta solicitud en esta pantalla. */
+  rechazoHecho: boolean;
+  alRechazar: () => void;
   /** Rehace el formulario; `desmarcar` = jugadores que deben partir sin marcar. */
   alCambiar: (desmarcar?: string[]) => void;
 }) {
@@ -161,7 +171,10 @@ function DetalleSolicitud({
   const rechazar = useMutation({
     mutationFn: (datos: Parameters<typeof api.panel.rechazarSolicitud>[1]) =>
       api.panel.rechazarSolicitud(s.id, datos),
-    onSuccess: refrescar,
+    onSuccess: async () => {
+      alRechazar();
+      await refrescar();
+    },
   });
 
   const quitarMarca = useMutation({
@@ -181,10 +194,10 @@ function DetalleSolicitud({
   const ocupado = aprobar.isPending || rechazar.isPending || quitarMarca.isPending || desfasado;
   const rechazaTodo = alcanceRechazoTotal(s).map((id) => nombres[id] ?? "");
   const conPosterior = s.avisos.includes("hay_solicitud_posterior");
-  // Una persona nueva rechazada se borra y ya no sale en el detalle: también cuenta el rechazo
-  // que se acaba de hacer en esta pantalla.
+  // Una persona nueva rechazada se borra y ya no sale en el detalle: cuenta el rechazo hecho en
+  // esta pantalla (o un `rechazado` de antes de que se borraran).
   const huboRechazo =
-    rechazar.isSuccess || [...s.jugadores, ...s.apoderados].some((p) => p.estado === "rechazado");
+    rechazoHecho || [...s.jugadores, ...s.apoderados].some((p) => p.estado === "rechazado");
 
   function enviarAprobacion() {
     if (desfasado) return;
