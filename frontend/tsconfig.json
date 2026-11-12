@@ -1,5 +1,5 @@
 {
-  "include": ["src", "vite.config.ts", "vitest.config.ts"],
+  "include": ["src", "middleware.ts", "middleware.test.ts", "vite.config.ts", "vitest.config.ts"],
   "exclude": ["src/pages/panel/_lovable"],
   "compilerOptions": {
     "target": "ES2022",
