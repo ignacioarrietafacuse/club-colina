@@ -1,7 +1,7 @@
 import type { DashboardResponse } from "@club-colina/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ClipboardList, IdCard, UserCog, UserRoundX, Users } from "lucide-react";
+import { ClipboardList, IdCard, UserCog, UserMinus, UserRoundX, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { EtiquetaPendiente } from "@/components/panel/Pendiente";
 import { PageHeader } from "@/components/panel/ui";
@@ -54,7 +54,7 @@ export function IndicadoresEtapa1({ datos }: { datos: DashboardResponse | undefi
     ? datos.precargados_sin_registrar.jugadores + datos.precargados_sin_registrar.apoderados
     : undefined;
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
       <Indicador
         etiqueta="Jugadores activos"
         valor={n(datos?.jugadores_activos)}
@@ -79,6 +79,18 @@ export function IndicadoresEtapa1({ datos }: { datos: DashboardResponse | undefi
         icono={<ClipboardList className="size-5" />}
         destacado={(datos?.solicitudes_pendientes ?? 0) > 0}
         enlace={<Link to="/jugadores/solicitudes">Revisar solicitudes</Link>}
+      />
+      <Indicador
+        etiqueta='Marcados "ya no está"'
+        valor={n(datos?.jugadores_marcados_ya_no_esta)}
+        icono={<UserMinus className="size-5" />}
+        destacado={(datos?.jugadores_marcados_ya_no_esta ?? 0) > 0}
+        detalle="Déjalos inactivos o quita la marca en su ficha"
+        enlace={
+          <Link to="/jugadores" search={{ marcados: true }}>
+            Ver marcados
+          </Link>
+        }
       />
       <Indicador
         etiqueta="Precargados sin registrarse"

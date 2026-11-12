@@ -500,6 +500,33 @@ describe("casos que pidió la revisión", () => {
     await app.close();
   });
 
+  it("dashboard y lista: los marcados 'ya no está' sin resolver son los mismos", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const apellido = `Marca${Date.now()}`;
+    const marca = new Date("2026-11-01T00:00:00Z");
+    const pendientes = [
+      await crearJugador(db, { apellido, marcado_retiro_en: marca }),
+      await crearJugador(db, { apellido, marcado_retiro_en: marca, estado: "pendiente" }),
+    ];
+    // Resueltos por Mony: inactivo con la marca, o sin marca.
+    await crearJugador(db, { apellido, marcado_retiro_en: marca, estado: "inactivo" });
+    await crearJugador(db, { apellido });
+    const dashboard = (await app.inject({ method: "GET", url: "/api/panel/dashboard", cookies })).json();
+    const lista = async (q: string) =>
+      (await app.inject({ method: "GET", url: `/api/panel/jugadores?q=${apellido}&${q}`, cookies }))
+        .json()
+        .map((j: { id: string }) => j.id)
+        .sort();
+    expect(await lista("marcado_ya_no_esta=true")).toEqual([...pendientes].sort());
+    expect(await lista("marcado_ya_no_esta=false")).toHaveLength(2);
+    const todos = (await app.inject({ method: "GET", url: "/api/panel/jugadores?marcado_ya_no_esta=true", cookies })).json();
+    expect(dashboard.jugadores_marcados_ya_no_esta).toBe(todos.length);
+    expect((await app.inject({ method: "DELETE", url: API.panel.marcaRetiro(pendientes[0] ?? ""), cookies })).statusCode).toBe(200);
+    const despues = (await app.inject({ method: "GET", url: "/api/panel/dashboard", cookies })).json();
+    expect(despues.jugadores_marcados_ya_no_esta).toBe(dashboard.jugadores_marcados_ya_no_esta - 1);
+    await app.close();
+  });
+
   it("apoderados: 409 por RUT repetido y 422 si un activo queda incompleto; un rechazado no se activa", async () => {
     const { app, cookies } = await appConSesion(db);
     const rut = generarRutFicticio();

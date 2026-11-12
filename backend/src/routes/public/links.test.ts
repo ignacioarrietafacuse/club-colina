@@ -278,24 +278,30 @@ describe("GET /api/public/familia/:token", () => {
     await app.close();
   });
 
-  it("un hijo marcado 'ya no está' no aparece", async () => {
+  it("un hijo marcado 'ya no está' sigue apareciendo con su QR: la marca es solo una señal", async () => {
     const app = await construirApp({ config: configTest(), db });
-    const titular = await crearApoderado(db);
-    const hijo = await crearJugador(db, { nombre: "Tomás" });
+    const titular = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+    const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: "3", foto_id: await guardarFoto(db, JPEG_PRUEBA) });
     await vincular(db, hijo.id, titular.id);
     const { token_acceso } = await crearSolicitud(
       app,
-      {
-        rut: titular.rut,
-        tipo: "apoderado",
-        consentimiento: true, telefono: "911111111",
-        foto: "t",
-        hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
-      },
-      { t: JPEG_PRUEBA },
+      { rut: titular.rut, tipo: "apoderado", consentimiento: true, telefono: "911111111", hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }] },
+      {},
     );
+    const credencial = await activar(jugadores, hijo.rut);
+    await activar(apoderados, titular.rut);
+    // Alguien que conoce el RUT del titular (ya registrado) manda el formulario y lo marca.
+    await crearSolicitud(
+      app,
+      { rut: titular.rut, tipo: "apoderado", consentimiento: true, hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }] },
+      {},
+    );
+    const [j] = await db.select().from(jugadores).where(eq(jugadores.id, hijo.id));
+    expect(j?.marcado_retiro_en).toBeInstanceOf(Date);
+    expect(j).toMatchObject({ estado: "activo", credencial_token: credencial });
     const r = await app.inject({ method: "GET", url: API.public.familia(token_acceso) });
-    expect(r.json().personas.map((p: { rol: string }) => p.rol)).toEqual(["apoderado"]);
+    const jugador = r.json().personas.find((p: { rol: string }) => p.rol === "jugador");
+    expect(jugador?.credencial_token).toBe(credencial);
     await app.close();
   });
 

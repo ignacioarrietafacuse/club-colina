@@ -9,6 +9,7 @@ export interface FormFiltrosJugadores {
   categoria_id: string;
   faltan_datos: boolean;
   sin_numero: boolean;
+  marcado_ya_no_esta: boolean;
 }
 export interface FormFiltrosApoderados {
   q: string;
@@ -30,6 +31,7 @@ export function filtrosJugadores(f: FormFiltrosJugadores): FiltrosJugadores {
     ...(Number.isInteger(categoria) && categoria > 0 ? { categoria_id: categoria } : {}),
     ...(f.faltan_datos ? { faltan_datos: true } : {}),
     ...(f.sin_numero ? { sin_numero: true } : {}),
+    ...(f.marcado_ya_no_esta ? { marcado_ya_no_esta: true } : {}),
   };
 }
 
@@ -40,4 +42,12 @@ export function filtrosApoderados(f: FormFiltrosApoderados): FiltrosApoderados {
     ...(estado(f.estado) ? { estado: estado(f.estado) } : {}),
     ...(f.faltan_datos ? { faltan_datos: true } : {}),
   };
+}
+
+/** Lo que la URL de la lista de jugadores puede traer: el enlace del dashboard abre el filtro de marcados. */
+export interface BusquedaJugadores {
+  marcados?: true;
+}
+export function busquedaJugadores(search: Record<string, unknown>): BusquedaJugadores {
+  return search.marcados === true || search.marcados === "true" ? { marcados: true } : {};
 }

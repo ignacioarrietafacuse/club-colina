@@ -24,3 +24,6 @@ uploads/
 
 # Grafo de graphify: se genera en cada máquina, no se versiona.
 graphify-out/
+
+# Caché de tsc
+*.tsbuildinfo

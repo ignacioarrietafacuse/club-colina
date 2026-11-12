@@ -31,7 +31,9 @@ export function VistaFamilia({ datos }: { datos: FamiliaResponse }) {
       {hayActivas && <Aviso>Muestra el código QR de cada persona al entrar al Pucalán.</Aviso>}
       {!enRevision && !hayActivas && (
         <Aviso>
-          No hay credenciales activas en este registro. Si crees que es un error, escríbele al club.
+          {datos.personas.length === 0
+            ? "No hay códigos QR en este registro. Si tienes dudas, escríbele al club."
+            : "No hay credenciales activas en este registro. Si crees que es un error, escríbele al club."}
         </Aviso>
       )}
 

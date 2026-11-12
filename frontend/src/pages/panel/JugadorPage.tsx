@@ -342,9 +342,9 @@ function FichaJugador({
 }
 
 /**
- * Un jugador marcado «ya no está en el club» por un apoderado: Mony confirma el retiro dejándolo
- * inactivo (en la credencial) o quita la marca si sigue. Quitarla no rehace la ficha: no se pierde
- * lo que esté escribiendo.
+ * Un jugador marcado «ya no está en el club» por un apoderado. La marca es solo una señal: Mony
+ * confirma con la familia y lo deja inactivo (en la credencial) o quita la marca si sigue.
+ * Quitarla no rehace la ficha: no se pierde lo que esté escribiendo.
  */
 function MarcaRetiro({
   jugadorId,
@@ -362,12 +362,12 @@ function MarcaRetiro({
   return (
     <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg bg-warning/15 px-4 py-3 text-sm">
       <span className="flex-1">
-        Un apoderado indicó que ya no está en el club.{" "}
+        Un apoderado indicó que ya no está en el club. Es solo un aviso: confirma con la familia.{" "}
         {estado === "inactivo"
           ? "Ya está inactivo; quita la marca solo si sigue en el club."
           : estado === "activo" || estado === "precargado"
-            ? "Para confirmar el retiro, desactívalo en la credencial. Si sigue en el club, quita la marca."
-            : "Si sigue en el club, quita la marca; si no, decide su solicitud."}
+            ? "Si se fue, desactívalo en la credencial. Si sigue en el club, quita la marca."
+            : "Si sigue en el club, quita la marca; si se fue, decide su solicitud y después dalo de baja en la ficha."}
       </span>
       {quitar.error && (
         <span className="w-full text-destructive">{mensajeDeError(quitar.error)}</span>

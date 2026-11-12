@@ -357,7 +357,8 @@ export const sesiones = pgTable(
  *
  * `datos` guarda solo lo que el formulario puede cambiar, con los nombres de la base:
  * - jugador: nombre, apellido, fecha_nacimiento, disciplina, categoria_id, numero_camiseta,
- *   telefono, email, metodo_pago, foto_id, estado, solicitud_id, marcado_retiro_en;
+ *   telefono, email, metodo_pago, foto_id, estado, solicitud_id, marcado_retiro_en (este último
+ *   se guarda pero no se restaura: la marca "ya no está" es solo una señal y la quita Mony);
  * - apoderado: nombre, apellido, telefono, email, metodo_pago, foto_id, estado, solicitud_id.
  * Nunca el RUT ni `credencial_token`. S1 restaura solo esas llaves.
  *
@@ -366,8 +367,9 @@ export const sesiones = pgTable(
  * restaura y borra la copia solo al decidir a la persona desde la solicitud de la copia.
  *
  * Es una copia de datos personales: cada fila se borra en la misma transacción en que se decide
- * a esa persona (aprobada: ya no hace falta; rechazada: después de restaurar), y se borra sola
- * si se borra la persona (CASCADE).
+ * a esa persona (aprobada: ya no hace falta; rechazada: después de restaurar), y las que le
+ * queden a una solicitud se borran al cerrarse (revisada). Se borra sola si se borra la persona
+ * (CASCADE). La marca "ya no está" no escribe copia: la resuelve Mony en la ficha.
  */
 export const fichasPrevias = pgTable(
   "fichas_previas",

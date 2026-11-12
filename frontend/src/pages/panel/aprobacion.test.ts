@@ -240,7 +240,7 @@ describe("vínculos y personas", () => {
   });
 
   it("un vínculo parte desmarcado si una de sus personas pendientes parte desmarcada", () => {
-    const s = solicitud({ jugadores: [jugador(J1, { marcado_retiro_en: AHORA })] });
+    const s = solicitud({ jugadores: [jugador(J1, { tiene_foto: false, faltantes: ["foto"] })] });
     expect(formInicial(s).vinculos[LLAVE]).toBe(false);
   });
 
@@ -259,9 +259,9 @@ describe("vínculos y personas", () => {
 describe("casos de la segunda revisión", () => {
   const LLAVE = llaveVinculo({ jugador_id: J1, apoderado_id: A1 });
 
-  it("un hijo marcado «ya no está» parte desmarcado", () => {
+  it("la marca «ya no está» es solo una señal: el hijo parte marcado como cualquier otro", () => {
     const s = solicitud({ jugadores: [jugador(J1, { marcado_retiro_en: AHORA })] });
-    expect(formInicial(s).jugadores[J1]?.marcado).toBe(false);
+    expect(formInicial(s).jugadores[J1]?.marcado).toBe(true);
   });
 
   it("un vínculo con una persona inactiva tampoco se aprueba", () => {
@@ -280,14 +280,15 @@ describe("casos de la segunda revisión", () => {
       ),
     ).not.toBe(firmaSolicitud(base));
     expect(firmaSolicitud(solicitud({ coincide_base: true }))).toBe(firmaSolicitud(base));
-    // Un hijo que queda marcado «ya no está», un aviso nuevo o un faltante cambian la firma.
+    // Una marca «ya no está» nueva no cambia la firma (es solo una señal, no cambia el formulario);
+    // un aviso nuevo o un faltante sí.
     expect(
       firmaSolicitud(
         solicitud({
-          jugadores: [jugador(J1, { marcado_retiro_en: AHORA }), jugador(J2, { estado: "activo" })],
+          jugadores: [jugador(J1, { marcado_retiro_en: AHORA }), ...base.jugadores.slice(1)],
         }),
       ),
-    ).not.toBe(firmaSolicitud(base));
+    ).toBe(firmaSolicitud(base));
     expect(firmaSolicitud(solicitud({ avisos: ["hay_solicitud_posterior"] }))).not.toBe(
       firmaSolicitud(base),
     );
@@ -362,21 +363,6 @@ describe("quién se decide desde esta solicitud (propia, #29)", () => {
     expect(fotoPorLinkReenviado({ ...base, solicitud_id: OTRA, propia: false }, origen)).toBe(
       false,
     );
-  });
-});
-
-describe("quitar la marca de retiro", () => {
-  it("al rehacer el formulario, el jugador al que se le quitó la marca parte sin marcar", () => {
-    // Después del DELETE el detalle llega sin la marca: sin la lista, partiría marcado.
-    const despues = solicitud({ jugadores: [jugador(J1)] });
-    expect(formInicial(despues).jugadores[J1]?.marcado).toBe(true);
-    const form = formInicial(despues, new Set([J1]));
-    expect(form.jugadores[J1]?.marcado).toBe(false);
-    // Su vínculo tampoco parte marcado, y nada de él va en la aprobación.
-    expect(form.vinculos[llaveVinculo({ jugador_id: J1, apoderado_id: A1 })]).toBe(false);
-    const r = armarAprobacion(form, nombres);
-    expect(r.ok && r.datos.jugadores).toEqual([]);
-    expect(r.ok && r.datos.vinculos).toEqual([]);
   });
 });
 
