@@ -311,8 +311,11 @@ export async function detalleSolicitud(db: Ejecutor, id: string): Promise<Solici
 // Cierre
 // ---------------------------------------------------------------------------
 
-/** Si ya no queda nada pendiente de decidir desde la solicitud, pasa a revisada. */
-async function cerrarSiCorresponde(tx: Ejecutor, solicitudId: string): Promise<void> {
+/**
+ * Si ya no queda nada pendiente de decidir desde la solicitud, pasa a revisada. S2 la usa también
+ * al crear una solicitud que solo marcó hijos "ya no está". Se llama con el candado tomado.
+ */
+export async function cerrarSiCorresponde(tx: Ejecutor, solicitudId: string): Promise<void> {
   const s = await filaSolicitud(tx, solicitudId);
   if (s.estado !== "pendiente") return;
   const m = await miembros(tx, s);
@@ -322,10 +325,9 @@ async function cerrarSiCorresponde(tx: Ejecutor, solicitudId: string): Promise<v
       .update(solicitudesRegistro)
       .set({ estado: "revisada", revisada_en: new Date() })
       .where(eq(solicitudesRegistro.id, solicitudId));
-    // Una solicitud revisada ya no restaura a nadie: una copia que le quede (la de un hijo marcado
-    // "ya no está", que nunca pasa a pendiente) solo bloquearía a las solicitudes que vengan. La
-    // marca no se toca, ni al aprobar ni al rechazar: la decide siempre Mony en la ficha (dejarlo
-    // inactivo o quitar la marca), como dice el aviso `hijo_marcado_ya_no_esta`.
+    // Una solicitud revisada ya no restaura a nadie: una copia que le quedara solo bloquearía a las
+    // solicitudes que vengan. La marca "ya no está" no tiene copia ni se toca al aprobar o
+    // rechazar: la decide siempre Mony en la ficha (dejarlo inactivo o quitar la marca).
     await tx.delete(fichasPrevias).where(eq(fichasPrevias.solicitud_id, solicitudId));
   }
 }

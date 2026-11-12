@@ -10,6 +10,7 @@ import type { z } from "zod";
 import type { Db, Ejecutor } from "../../db/cliente";
 import { apoderados, categorias, fichasPrevias, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
 import { CANDADO_SOLICITUDES } from "../../lib/candados";
+import { cerrarSiCorresponde } from "../panel/solicitudes";
 import { ErrorApi } from "../../lib/errores";
 import { guardarFoto } from "../../lib/fotos";
 import { generarToken, hashToken } from "../../lib/tokens";
@@ -151,6 +152,10 @@ class Proceso {
         titular_jugador_id: this.titularJugadorId,
       })
       .where(eq(solicitudesRegistro.id, this.solicitudId));
+    // Una solicitud que solo marcó hijos "ya no está" no deja nada que aprobar ni rechazar: queda
+    // revisada al crearse (la marca la resuelve Mony en la ficha). El criterio de "nada pendiente"
+    // es el mismo con que el panel cierra una solicitud.
+    if (this.avisos.has("hijo_marcado_ya_no_esta")) await cerrarSiCorresponde(this.tx, this.solicitudId);
     return { token_acceso: tokenAcceso, otros_apoderados: otros };
   }
 
@@ -534,14 +539,11 @@ class Proceso {
         // Solo se puede marcar a un hijo propio. Queda marcado para que Mony lo confirme, sin
         // `solicitud_id`: no aparece en /familia.
         if (!jugador || !enLista) throw invalido([`${p}ya_no_esta`]);
-        // Si otra solicitud tiene copia de este hijo, no se toca y ella recibe el aviso de solicitud
-        // posterior. Si ya venía marcado, no hay nada que copiar: solo se mira la otra solicitud.
-        // El aviso de "ya no está" va solo si esta solicitud pudo marcarlo.
-        const puede =
-          jugador.marcado_retiro_en === null
-            ? await this.copiaPrevia({ jugador })
-            : !(await this.copiaDeOtra({ jugador }));
-        if (puede) {
+        // La marca no guarda copia en `fichas_previas`: ni aprobar ni rechazar la solicitud la
+        // tocan, la resuelve Mony en la ficha (decisión de Ignacio, 2026-11-12). Si otra solicitud
+        // tiene copia de este hijo, no se toca y ella recibe el aviso de solicitud posterior. El
+        // aviso de "ya no está" va solo si esta solicitud pudo marcarlo.
+        if (!(await this.copiaDeOtra({ jugador }))) {
           if (jugador.marcado_retiro_en === null) {
             await this.tx
               .update(jugadores)

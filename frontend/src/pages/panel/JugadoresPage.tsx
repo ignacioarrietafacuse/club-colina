@@ -1,6 +1,6 @@
 import { DISCIPLINAS, ESTADOS_PERSONA } from "@club-colina/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useSearch } from "@tanstack/react-router";
 import { ClipboardList, Search, Users } from "lucide-react";
 import { useState } from "react";
 import { EstadoBadge } from "@/components/panel/persona";
@@ -16,6 +16,7 @@ import { api, mensajeDeError, type FiltrosJugadores } from "@/lib/api";
 import { filtrosJugadores, type FormFiltrosJugadores } from "./filtros";
 
 export function JugadoresPage() {
+  const busqueda = useSearch({ from: "/_panel/jugadores/" });
   const [form, setForm] = useState<FormFiltrosJugadores>({
     q: "",
     estado: "",
@@ -23,6 +24,7 @@ export function JugadoresPage() {
     categoria_id: "",
     faltan_datos: false,
     sin_numero: false,
+    marcado_ya_no_esta: busqueda.marcados === true,
   });
   const q = useRetrasado(form.q);
   const filtros: FiltrosJugadores = filtrosJugadores({ ...form, q });
@@ -122,6 +124,14 @@ export function JugadoresPage() {
               onChange={(e) => cambiar({ sin_numero: e.target.checked })}
             />
             Sin número (99)
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.marcado_ya_no_esta}
+              onChange={(e) => cambiar({ marcado_ya_no_esta: e.target.checked })}
+            />
+            Marcados &quot;ya no está&quot;
           </label>
         </div>
 

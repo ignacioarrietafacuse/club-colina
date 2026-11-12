@@ -118,7 +118,7 @@ Solo se pregunta lo que no esté en la ficha. Lo habitual:
 **Por cada hijo precargado** (identificado por su primer nombre)
 - Foto.
 - Número de camiseta (texto de ayuda: "Si aún no tiene número asignado, escribe 99").
-- Casilla "Ya no está en el club", que lo saca del registro y lo deja marcado para que Mony lo confirme.
+- Casilla "Ya no está en el club", que lo saca del registro y lo deja marcado para que Mony lo confirme. La marca no se aprueba ni se rechaza con la solicitud: Mony la resuelve en la ficha (lo deja inactivo o quita la marca). Una solicitud que solo marca hijos queda revisada al crearse, y el dashboard muestra cuántos jugadores marcados quedan sin resolver, con un enlace a la lista filtrada (decisión de Ignacio, 2026-11-12).
 
 **Jugador adulto**
 - Su foto y su número de camiseta.
@@ -258,7 +258,7 @@ Horarios, lugar y entrenador se agregan en la Etapa 2.
   - Lista de precargados que aún no se registran, para insistir por los grupos y detectar retirados. Mony puede marcarlos inactivos.
   - Las becas se pueden cambiar después desde la ficha del jugador.
   - Sección Entrenadores: botón para crear un entrenador (nombre, apellido, RUT, teléfono, rama, foto) y botón para descargar su QR como imagen.
-  - Dashboard: jugadores activos, apoderados, entrenadores, solicitudes pendientes y precargados sin registrarse, con números reales; el resto de las tarjetas con la etiqueta "Pendiente".
+  - Dashboard: jugadores activos, apoderados, entrenadores, solicitudes pendientes, marcados "ya no está" sin resolver y precargados sin registrarse, con números reales; el resto de las tarjetas con la etiqueta "Pendiente".
   - Secciones de la Etapa 2 (Categorías, Torneos y campus, Uniformes, IA y Conversaciones, Leads, Pagos): visibles en el menú, con estado "Pendiente — disponible en la próxima etapa".
 - **Datos mock:** se eliminan todos del frontend.
 - **Becas:** visibles solo en el panel. No aparecen en el link privado ni en la credencial.

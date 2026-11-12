@@ -19,7 +19,7 @@ import {
   formEntrenador,
   formJugador,
 } from "./edicion";
-import { filtrosApoderados, filtrosJugadores } from "./filtros";
+import { busquedaJugadores, filtrosApoderados, filtrosJugadores } from "./filtros";
 
 // Datos siempre ficticios.
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -140,6 +140,13 @@ describe("edición del apoderado", () => {
 });
 
 describe("filtros", () => {
+  it("la URL solo abre el filtro de marcados con marcados=true", () => {
+    expect(busquedaJugadores({ marcados: true })).toEqual({ marcados: true });
+    expect(busquedaJugadores({ marcados: "true" })).toEqual({ marcados: true });
+    expect(busquedaJugadores({ marcados: "1" })).toEqual({});
+    expect(busquedaJugadores({ q: "12345678-5" })).toEqual({});
+  });
+
   it("un checkbox apagado no filtra; los vacíos no van", () => {
     expect(
       filtrosJugadores({
@@ -149,6 +156,7 @@ describe("filtros", () => {
         categoria_id: "",
         faltan_datos: false,
         sin_numero: false,
+        marcado_ya_no_esta: false,
       }),
     ).toEqual({});
   });
@@ -162,6 +170,7 @@ describe("filtros", () => {
         categoria_id: "9",
         faltan_datos: true,
         sin_numero: true,
+        marcado_ya_no_esta: true,
       }),
     ).toEqual({
       q: "ana",
@@ -170,6 +179,7 @@ describe("filtros", () => {
       categoria_id: 9,
       faltan_datos: true,
       sin_numero: true,
+      marcado_ya_no_esta: true,
     });
   });
 

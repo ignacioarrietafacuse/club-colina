@@ -126,6 +126,12 @@ function resumenJugador(f: FilaJugador, cats: readonly CategoriaRegla[], hoy: st
   };
 }
 
+/**
+ * Jugador marcado "ya no está en el club" que Mony todavía no resolvió: no lo dejó inactivo ni le
+ * quitó la marca. El dashboard cuenta exactamente estos, y su enlace abre la lista con este filtro.
+ */
+export const marcadoSinResolver = sql`(${jugadores.marcado_retiro_en} is not null and ${jugadores.estado} in ('precargado', 'pendiente', 'activo'))`;
+
 export async function listarJugadores(
   db: Ejecutor,
   filtros: z.output<typeof jugadoresQuery>,
@@ -141,6 +147,9 @@ export async function listarJugadores(
   if (filtros.sin_numero === true) condiciones.push(eq(jugadores.numero_camiseta, NUMERO_SIN_ASIGNAR));
   if (filtros.sin_numero === false) {
     condiciones.push(sql`${jugadores.numero_camiseta} is distinct from ${NUMERO_SIN_ASIGNAR}`);
+  }
+  if (filtros.marcado_ya_no_esta !== undefined) {
+    condiciones.push(filtros.marcado_ya_no_esta ? marcadoSinResolver : sql`not (${marcadoSinResolver})`);
   }
   if (filtros.q) {
     const busqueda = or(

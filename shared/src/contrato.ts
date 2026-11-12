@@ -367,6 +367,8 @@ export const dashboardResponse = z.object({
   apoderados_activos: z.int().min(0),
   entrenadores_activos: z.int().min(0),
   solicitudes_pendientes: z.int().min(0),
+  /** Jugadores marcados "ya no está en el club" que Mony no ha resuelto (ni inactivo ni sin marca). */
+  jugadores_marcados_ya_no_esta: z.int().min(0),
   precargados_sin_registrar: z.object({
     jugadores: z.int().min(0),
     apoderados: z.int().min(0),
@@ -465,6 +467,8 @@ export const jugadoresQuery = z.object({
   faltan_datos: booleanoQuery.optional(),
   /** Número "99". */
   sin_numero: booleanoQuery.optional(),
+  /** Marcados "ya no está en el club" sin resolver: los mismos que cuenta el dashboard. */
+  marcado_ya_no_esta: booleanoQuery.optional(),
   q: z.string().trim().max(100).optional(),
 });
 export const jugadoresResponse = z.array(jugadorResumen);
