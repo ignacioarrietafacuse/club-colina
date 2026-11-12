@@ -62,7 +62,7 @@ export const AVISOS_SOLICITUD = [
   "hijo_precargado_completado_por_rut",
   /**
    * Otra solicitud pendiente ya había modificado a una persona de esta (tiene su ficha previa):
-   * esta no modificó su ficha (ni la completó ni la marcó "ya no está"); a lo más la vinculó. La
+   * esta no modificó su ficha (no la completó); a lo más la vinculó o la marcó "ya no está". La
    * otra recibe `hay_solicitud_posterior`.
    */
   "cambios_bloqueados_por_otra_solicitud",
@@ -227,7 +227,7 @@ export const hijoSolicitud = z.object({
     z.object({ precargado: z.int().min(0), primer_nombre: z.string().min(1) }),
     z.object({ rut: rutEntrada }),
   ]),
-  /** Casilla "Ya no está en el club": lo saca del registro y lo deja marcado para que Mony lo confirme. */
+  /** Casilla "Ya no está en el club": solo una señal para Mony, que confirma con la familia y lo da de baja en la ficha. No lo saca de /familia ni toca su credencial. */
   ya_no_esta: z.literal(true).optional(),
   nombre: nombrePropio.optional(),
   apellido: nombrePropio.optional(),
@@ -306,7 +306,8 @@ export const solicitudCreadaResponse = z.object({
  * GET /api/public/familia/:token_acceso — solo las personas que llegaron en esa solicitud: las
  * que tienen ese `solicitud_id` y los hijos cuyo vínculo creó esa solicitud
  * (`jugador_apoderado.solicitud_id`), estos últimos solo cuando Mony aprobó el vínculo. Nunca el
- * resto de la familia que esté en la base, ni un hijo marcado "ya no está".
+ * resto de la familia que esté en la base. Un hijo marcado "ya no está" sigue apareciendo (la
+ * marca es solo una señal para Mony).
  */
 export const familiaResponse = z.object({
   estado_solicitud: estadoSolicitud,

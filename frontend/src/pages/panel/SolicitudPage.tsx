@@ -63,9 +63,6 @@ function PantallaSolicitud({ id }: { id: string }) {
   // El formulario se rehace solo después de aprobar o rechazar, no cada vez que la consulta
   // vuelve a cargar sola: así no se pierde lo que Mony está escribiendo.
   const [generacion, setGeneracion] = useState(0);
-  // Jugadores a los que se les quitó la marca «ya no está» en esta pantalla: parten sin marcar
-  // cada vez que el formulario se rehace.
-  const [desmarcados, setDesmarcados] = useState<ReadonlySet<string>>(() => new Set());
   // Si se rechazó a alguien en esta pantalla. Vive aquí, fuera del formulario que se rehace: una
   // persona nueva rechazada se borra y ya no queda en el detalle para mostrarlo.
   const [rechazoHecho, setRechazoHecho] = useState(false);
@@ -103,13 +100,9 @@ function PantallaSolicitud({ id }: { id: string }) {
             key={generacion}
             s={consulta.data}
             categorias={categorias.data}
-            desmarcados={desmarcados}
             rechazoHecho={rechazoHecho}
             alRechazar={() => setRechazoHecho(true)}
-            alCambiar={(desmarcar = []) => {
-              if (desmarcar.length > 0) setDesmarcados((d) => new Set([...d, ...desmarcar]));
-              setGeneracion((g) => g + 1);
-            }}
+            alCambiar={() => setGeneracion((g) => g + 1)}
           />
           {/* Fuera del formulario que se rehace: el link se entrega una sola vez. */}
           <LinkPrivado
@@ -125,7 +118,6 @@ function PantallaSolicitud({ id }: { id: string }) {
 function DetalleSolicitud({
   s,
   categorias,
-  desmarcados,
   rechazoHecho,
   alRechazar,
   alCambiar,
@@ -133,15 +125,14 @@ function DetalleSolicitud({
   s: SolicitudDetalle;
   /** `undefined` mientras no carguen (o si fallaron): el selector queda deshabilitado. */
   categorias: CategoriaPanel[] | undefined;
-  desmarcados: ReadonlySet<string>;
   /** Si ya se rechazó a alguien de esta solicitud en esta pantalla. */
   rechazoHecho: boolean;
   alRechazar: () => void;
-  /** Rehace el formulario; `desmarcar` = jugadores que deben partir sin marcar. */
-  alCambiar: (desmarcar?: string[]) => void;
+  /** Rehace el formulario con el detalle nuevo. */
+  alCambiar: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [form, setForm] = useState<FormAprobacion>(() => formInicial(s, desmarcados));
+  const [form, setForm] = useState<FormAprobacion>(() => formInicial(s));
   const [errores, setErrores] = useState<string[]>([]);
   const [confirmar, setConfirmar] = useState<null | "marcadas" | "todo">(null);
   /** Llave del vínculo cuyo rechazo está a medio confirmar. */
@@ -186,11 +177,8 @@ function DetalleSolicitud({
   const quitarMarca = useMutation({
     mutationFn: (jugadorId: string) => api.panel.quitarMarcaRetiro(jugadorId),
     // Como después de aprobar o rechazar: el formulario se rehace con el detalle nuevo (y una
-    // firma nueva), y ese jugador parte sin marcar (decir que sigue en el club no es aprobarlo).
-    onSuccess: async (_ficha, jugadorId) => {
-      await queryClient.invalidateQueries({ queryKey: ["panel"] });
-      alCambiar([jugadorId]);
-    },
+    // firma nueva).
+    onSuccess: refrescar,
   });
 
   const personasPendientes =

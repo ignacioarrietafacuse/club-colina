@@ -49,7 +49,8 @@ function nombreVisible(p: Persona): string {
 /**
  * GET /familia/:token_acceso — solo las personas que llegaron en esa solicitud: las que tienen ese
  * `solicitud_id` y los hijos cuyo vínculo con el titular creó la solicitud, estos solo cuando Mony
- * lo aprobó. Nunca el resto de la familia de la base, ni un hijo marcado "ya no está". El token se
+ * lo aprobó. Nunca el resto de la familia de la base. Un hijo marcado "ya no está" sigue apareciendo:
+ * la marca es solo una señal para Mony; lo saca de aquí la baja que ella decide en la ficha. El token se
  * busca solo entre solicitudes de tipo `formulario`.
  *
  * El titular es quien llenó el formulario (`titular_apoderado_id` o `titular_jugador_id`). El QR
@@ -115,7 +116,6 @@ export async function verFamilia(db: Db, token: string): Promise<FamiliaResponse
     .from(jugadores)
     .where(
       and(
-        isNull(jugadores.marcado_retiro_en),
         porVinculo.length > 0
           ? or(eq(jugadores.solicitud_id, s.id), inArray(jugadores.id, porVinculo))
           : eq(jugadores.solicitud_id, s.id),

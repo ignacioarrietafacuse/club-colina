@@ -40,7 +40,7 @@ import { CANDADO_SOLICITUDES } from "../../lib/candados";
 import { ErrorApi, noEncontrado } from "../../lib/errores";
 import { borrarFoto } from "../../lib/fotos";
 import { generarToken, hashToken } from "../../lib/tokens";
-import { incompleto, MENSAJE_MARCADO } from "./acciones";
+import { incompleto } from "./acciones";
 import { conRestricciones } from "./errores-db";
 import { cargarCategorias, detalleApoderado, detalleJugador, tieneApoderadoVigente, verificarCategoria } from "./personas";
 import { faltantesApoderado, faltantesJugador, nombreCompleto, requisitosJugador } from "./reglas";
@@ -430,16 +430,12 @@ export async function aprobarSolicitud(
           fecha_nacimiento: jugadores.fecha_nacimiento,
           telefono: jugadores.telefono,
           foto_id: jugadores.foto_id,
-          marcado_retiro_en: jugadores.marcado_retiro_en,
           tiene_apoderado: tieneApoderadoVigente,
         })
         .from(jugadores)
         .where(eq(jugadores.id, pj.id))
         .for("update");
       if (!j || j.estado !== "pendiente") throw fueraDeLaSolicitud();
-      if (j.marcado_retiro_en !== null) {
-        throw conflicto(MENSAJE_MARCADO);
-      }
       if (pj.categoria_id !== null) await verificarCategoria(tx, pj.categoria_id, j.disciplina);
       // Un vínculo listado en este pedido puede darle contacto: se confirma al final.
       const contactoEnPedido = pedido.vinculos.some((v) => v.jugador_id === pj.id);
@@ -652,17 +648,14 @@ async function rechazarPersona(
     throw conflicto("La ficha previa de esa persona no es la de un precargado: no se puede restaurar sola");
   }
   if (tipo === "jugador") {
-    const d = previoJugador.parse(previa.datos);
-    // La fecha de "ya no está" va en la copia como texto ISO: vuelve a ser fecha.
-    const { marcado_retiro_en, ...resto } = d;
+    // La marca "ya no está" no se restaura: es una señal independiente de la solicitud (pudo
+    // ponerla otra después de esta copia) y solo la quita Mony en la ficha.
+    const d = previoJugador.omit({ marcado_retiro_en: true }).parse(previa.datos);
     await tx
       .update(jugadores)
       .set({
-        ...resto,
+        ...d,
         ...(await fotoAlRestaurar(tx, solicitudId, actual.foto_id, d.foto_id)),
-        ...(marcado_retiro_en !== undefined
-          ? { marcado_retiro_en: marcado_retiro_en === null ? null : new Date(marcado_retiro_en) }
-          : {}),
         estado: "precargado",
         credencial_token: null,
       })

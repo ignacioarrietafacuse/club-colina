@@ -9,6 +9,7 @@ import { LIMITES } from "../../lib/limite-intentos";
 import { generarToken, hashToken } from "../../lib/tokens";
 import { crearApoderado, crearJugador, rutNuevo, vaciarRegistro, vincular } from "../../services/registro/datos-prueba";
 import { configTest, dbTest, JPEG_PRUEBA, PNG_PRUEBA, urlTest } from "../../test/db";
+import { appConSesion } from "../panel/prueba.test-utils";
 import { crearDb } from "../../db/cliente";
 
 const { db, cerrar } = dbTest();
@@ -776,7 +777,7 @@ describe("POST /api/public/solicitudes", () => {
       await app.close();
     });
 
-    it("un 'ya no está' sobre un hijo con copia de otra solicitud no lo marca, no deja su aviso y le avisa a la otra", async () => {
+    it("un 'ya no está' sobre un hijo con copia de otra solicitud lo marca igual (es solo una señal) y le avisa a la otra", async () => {
       const mama = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
       const papa = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
       const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: null });
@@ -796,12 +797,15 @@ describe("POST /api/public/solicitudes", () => {
         hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
       });
       expect(marca.statusCode).toBe(201);
-      expect((await jugadorRut(hijo.rut)).marcado_retiro_en).toBeNull();
+      // Se marca, pero no se toca nada más: sigue con lo que completó la mamá, y sin copia nueva.
+      expect(await jugadorRut(hijo.rut)).toMatchObject({ numero_camiseta: "4", estado: "pendiente" });
+      expect((await jugadorRut(hijo.rut)).marcado_retiro_en).toBeInstanceOf(Date);
       const [s1, s2] = await solicitudes();
       expect(s1?.avisos).toContain("hay_solicitud_posterior");
-      expect(s2?.avisos).not.toContain("hijo_marcado_ya_no_esta");
-      expect(s2?.avisos).toContain("cambios_bloqueados_por_otra_solicitud");
-      expect(s1?.avisos).not.toContain("cambios_bloqueados_por_otra_solicitud");
+      expect(s2?.avisos).toContain("hijo_marcado_ya_no_esta");
+      expect(s2?.avisos).not.toContain("cambios_bloqueados_por_otra_solicitud");
+      const copias = await db.select().from(fichasPrevias).where(eq(fichasPrevias.jugador_id, hijo.id));
+      expect(copias).toEqual([expect.objectContaining({ solicitud_id: s1?.id })]);
       await app.close();
     });
 
@@ -925,7 +929,7 @@ describe("POST /api/public/solicitudes", () => {
       await app.close();
     });
 
-    it("solo marcar a un hijo con copia de otra solicitud: no se marca, queda revisada y la otra recibe el aviso", async () => {
+    it("solo marcar a un hijo con copia de otra solicitud: se marca, queda revisada, y rechazar la otra no borra la marca", async () => {
       const mama = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
       const papa = await apoderadoRegistrado();
       const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: null });
@@ -951,12 +955,21 @@ describe("POST /api/public/solicitudes", () => {
         hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
       });
       expect(marca.statusCode).toBe(201);
-      expect((await jugadorRut(hijo.rut)).marcado_retiro_en).toBeNull();
+      expect((await jugadorRut(hijo.rut)).marcado_retiro_en).toBeInstanceOf(Date);
       const [s1, s2] = await solicitudes();
       expect(s1).toMatchObject({ estado: "pendiente" });
       expect(s1?.avisos).toContain("hay_solicitud_posterior");
       expect(s2).toMatchObject({ estado: "revisada" });
-      expect(s2?.avisos).toContain("cambios_bloqueados_por_otra_solicitud");
+      expect(s2?.avisos).toContain("hijo_marcado_ya_no_esta");
+      expect(s2?.avisos).not.toContain("cambios_bloqueados_por_otra_solicitud");
+      // Mony rechaza la de la mamá: el hijo vuelve a como estaba, pero la marca (posterior) queda.
+      const { app: panel, cookies } = await appConSesion(db);
+      const r = await panel.inject({ method: "POST", url: API.panel.rechazar(s1?.id ?? ""), cookies, payload: {} });
+      expect(r.statusCode).toBe(200);
+      const j = await jugadorRut(hijo.rut);
+      expect(j).toMatchObject({ estado: "precargado", numero_camiseta: null });
+      expect(j.marcado_retiro_en).toBeInstanceOf(Date);
+      await panel.close();
       await app.close();
     });
 

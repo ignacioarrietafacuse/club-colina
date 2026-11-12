@@ -157,7 +157,8 @@ lo pide.
   Nunca el resto de la familia de la base. `solicitud_id` de una persona se asigna solo si está
   en NULL (persona nueva, o precargada del RUT de quien llena) y **nunca se reasigna**: un hijo
   que ya existía y se nombró por RUT entra solo por su vínculo, y no aparece hasta que Mony lo
-  aprueba. A un hijo marcado "ya no está" no se le asigna `solicitud_id`. S2 cubre esto con un
+  aprueba. A un hijo marcado "ya no está" no se le asigna `solicitud_id`; la marca es solo una
+  señal para Mony y no lo saca de ningún `/familia` (lo saca la baja en la ficha). S2 cubre esto con un
   test (un RUT ajeno nombrado en la solicitud no devuelve su nombre ni su `credencial_token`).
 - **Tipos de link (S2):** `/familia` busca el hash solo entre solicitudes `tipo = 'formulario'` y
   `/completar` solo entre `tipo = 'segundo_apoderado'`; en cualquier otro caso, 404 genérico. Con test.

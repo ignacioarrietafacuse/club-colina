@@ -19,12 +19,10 @@ const DESACTIVABLES = new Set(["activo", "precargado"]);
 
 const conflicto = (mensaje: string) => new ErrorApi(409, "conflicto", mensaje);
 
-export const MENSAJE_MARCADO =
-  'Ese jugador está marcado "ya no está en el club": quita la marca en su ficha antes de activarlo o aprobarlo';
 
 /**
- * Quita la marca "ya no está en el club" que dejó el formulario. Es la decisión explícita de Mony
- * de que el jugador sigue: sin esto no se lo puede aprobar ni activar.
+ * Quita la marca "ya no está en el club" que dejó el formulario: Mony confirmó con la familia que
+ * el jugador sigue. La marca es solo una señal; no impide aprobarlo ni activarlo.
  */
 export async function quitarMarcaRetiro(db: Ejecutor, id: string): Promise<void> {
   const filas = await db
@@ -159,7 +157,6 @@ export async function activar(db: Ejecutor, tipo: TipoPersona, id: string): Prom
           numero_camiseta: jugadores.numero_camiseta,
           telefono: jugadores.telefono,
           foto_id: jugadores.foto_id,
-          marcado_retiro_en: jugadores.marcado_retiro_en,
           disciplina: jugadores.disciplina,
         })
         .from(jugadores)
@@ -167,7 +164,6 @@ export async function activar(db: Ejecutor, tipo: TipoPersona, id: string): Prom
         .for("update");
       if (!j) throw noEncontrado();
       if (!ACTIVABLES.has(j.estado)) throw conflicto("Solo se activa a un precargado o a un inactivo");
-      if (j.marcado_retiro_en !== null) throw conflicto(MENSAJE_MARCADO);
       // Primero sus vínculos de la base: uno con un apoderado activo ya cuenta como contacto. Si
       // después falta algo, la transacción se deshace entera.
       if (j.estado === "precargado") await activarVinculosDeLaBase(tx, "jugador", id);

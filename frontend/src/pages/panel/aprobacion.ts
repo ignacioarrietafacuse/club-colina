@@ -134,24 +134,17 @@ export function contactoPosible(jugadorId: string, s: SolicitudDetalle): boolean
 
 /**
  * Entra al formulario solo quien se decide desde acá (`seDecideAca`); parte marcado con los valores
- * que ya trae, salvo quien no tiene foto (no se puede aprobar), un hijo marcado «ya no está», un
- * adulto sin contacto posible, y los vínculos que no se pueden aprobar o cuyas personas no parten
+ * que ya trae, salvo quien no tiene foto (no se puede aprobar), un adulto sin contacto posible, y los vínculos que no se pueden aprobar o cuyas personas no parten
  * listas (denegar por defecto).
  */
-export function formInicial(
-  s: SolicitudDetalle,
-  /** Jugadores a los que Mony les quitó la marca «ya no está»: decir que sigue no es aprobarlo. */
-  desmarcar: ReadonlySet<string> = new Set(),
-): FormAprobacion {
+export function formInicial(s: SolicitudDetalle): FormAprobacion {
   const jugadores: Record<string, FormJugador> = {};
   for (const j of s.jugadores) {
     if (!seDecideAca(j)) continue;
     jugadores[j.id] = {
-      // Un hijo marcado «ya no está» no se activa por inercia: Mony lo marca a mano si corresponde.
+      // La marca «ya no está» es solo una señal (se ve en la tarjeta): no cambia lo que parte marcado.
       marcado:
         !bloquea(j.faltantes) &&
-        j.marcado_retiro_en === null &&
-        !desmarcar.has(j.id) &&
         // Un adulto sin teléfono que no puede tener contacto desde acá no se puede aprobar.
         (!j.faltantes.includes("telefono") || contactoPosible(j.id, s)),
       categoria_id: j.categoria_id === null ? "" : String(j.categoria_id),

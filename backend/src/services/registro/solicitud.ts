@@ -110,7 +110,7 @@ class Proceso {
   private readonly conCopiaAjena = new Set<string>();
   private solicitudId = "";
   private coincideBase = false;
-  /** Si la solicitud traía alguna casilla "ya no está" (se haya podido marcar o no). */
+  /** Si la solicitud traía alguna casilla "ya no está". */
   private traeMarcas = false;
   /** El titular precargado que esta solicitud modificó (tiene su copia en `fichas_previas`). */
   private titularConCopia: string | null = null;
@@ -155,9 +155,8 @@ class Proceso {
       })
       .where(eq(solicitudesRegistro.id, this.solicitudId));
     // Una solicitud que solo trajo casillas "ya no está" no deja nada que aprobar ni rechazar: queda
-    // revisada al crearse (la marca la resuelve Mony en la ficha), también si un hijo no se pudo
-    // marcar por la copia de otra solicitud. El criterio de "nada pendiente" es el mismo con que el
-    // panel cierra una solicitud.
+    // revisada al crearse (la marca la resuelve Mony en la ficha). El criterio de "nada pendiente"
+    // es el mismo con que el panel cierra una solicitud.
     if (this.traeMarcas) await cerrarSiCorresponde(this.tx, this.solicitudId);
     return { token_acceso: tokenAcceso, otros_apoderados: otros };
   }
@@ -548,19 +547,14 @@ class Proceso {
         // `solicitud_id`: no aparece en /familia.
         if (!jugador || !enLista) throw invalido([`${p}ya_no_esta`]);
         this.traeMarcas = true;
-        // La marca no guarda copia en `fichas_previas`: ni aprobar ni rechazar la solicitud la
-        // tocan, la resuelve Mony en la ficha (decisión de Ignacio, 2026-11-12). Si otra solicitud
-        // tiene copia de este hijo, no se toca y ella recibe el aviso de solicitud posterior. El
-        // aviso de "ya no está" va solo si esta solicitud pudo marcarlo.
-        if (!(await this.copiaDeOtra({ jugador }))) {
-          if (jugador.marcado_retiro_en === null) {
-            await this.tx
-              .update(jugadores)
-              .set({ marcado_retiro_en: this.ahora })
-              .where(eq(jugadores.id, jugador.id));
-          }
-          this.avisos.add("hijo_marcado_ya_no_esta");
+        // La marca es solo una señal para Mony (decisión de Ignacio, 2026-11-12): no saca al hijo de
+        // /familia, no toca su credencial ni su estado, y no guarda copia en `fichas_previas`. Por
+        // eso se aplica siempre, aunque otra solicitud tenga copia de este hijo: no le hace daño a
+        // nadie. Mony confirma con la familia y lo da de baja en la ficha.
+        if (jugador.marcado_retiro_en === null) {
+          await this.tx.update(jugadores).set({ marcado_retiro_en: this.ahora }).where(eq(jugadores.id, jugador.id));
         }
+        this.avisos.add("hijo_marcado_ya_no_esta");
         resueltos.push(null);
         continue;
       }

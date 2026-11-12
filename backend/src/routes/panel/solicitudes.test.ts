@@ -207,28 +207,27 @@ describe("solicitudes: aprobar", () => {
     await app.close();
   });
 
-  it("un jugador marcado 'ya no está' no se aprueba ni se activa hasta que Mony quita la marca", async () => {
+  it("la marca 'ya no está' es solo una señal: no impide aprobar ni activar, y se conserva", async () => {
     const { app, cookies } = await appConSesion(db);
     const { s, hijo } = await familia();
-    await db.update(jugadores).set({ marcado_retiro_en: new Date() }).where(eq(jugadores.id, hijo));
-    const aprobar = () =>
-      app.inject({
-        method: "POST",
-        url: `/api/panel/solicitudes/${s.id}/aprobar`,
-        cookies,
-        payload: { jugadores: [{ id: hijo, categoria_id: null, numero_camiseta: "7", ...becas }] },
-      });
-    let r = await aprobar();
-    expect(r.statusCode).toBe(409);
-    expect(r.json().error.mensaje).toContain("quita la marca");
-
-    const precargado = await crearJugador(db, { numero_camiseta: "3", foto_id: await fotoPrueba(db), marcado_retiro_en: new Date() });
-    expect((await app.inject({ method: "POST", url: `/api/panel/jugadores/${precargado}/activar`, cookies })).statusCode).toBe(409);
-
-    r = await app.inject({ method: "DELETE", url: API.panel.marcaRetiro(hijo), cookies });
+    const marca = new Date("2026-11-01T12:00:00Z");
+    await db.update(jugadores).set({ marcado_retiro_en: marca }).where(eq(jugadores.id, hijo));
+    const r = await app.inject({
+      method: "POST",
+      url: `/api/panel/solicitudes/${s.id}/aprobar`,
+      cookies,
+      payload: { jugadores: [{ id: hijo, categoria_id: null, numero_camiseta: "7", ...becas }] },
+    });
     expect(r.statusCode).toBe(200);
-    expect(r.json().marcado_retiro_en).toBeNull();
-    expect((await aprobar()).statusCode).toBe(200);
+    expect(await estadoJ(hijo)).toMatchObject({ estado: "activo", marcado_retiro_en: marca });
+
+    const precargado = await crearJugador(db, { numero_camiseta: "3", foto_id: await fotoPrueba(db), marcado_retiro_en: marca });
+    expect((await app.inject({ method: "POST", url: `/api/panel/jugadores/${precargado}/activar`, cookies })).statusCode).not.toBe(409);
+
+    // Mony confirma con la familia que sigue: quita la marca.
+    const q = await app.inject({ method: "DELETE", url: API.panel.marcaRetiro(hijo), cookies });
+    expect(q.statusCode).toBe(200);
+    expect(q.json().marcado_retiro_en).toBeNull();
     await app.close();
   });
 
@@ -705,12 +704,12 @@ describe("solicitudes: link", () => {
 });
 
 describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
-  it("restaura la copia como la escribe S2: la fecha de 'ya no está' vuelve a ser fecha y se conserva la foto que Mony cambió", async () => {
+  it("restaura la copia como la escribe S2: la marca 'ya no está' de después no se pisa y se conserva la foto que Mony cambió", async () => {
     const { app, cookies } = await appConSesion(db);
     const s = await nuevaSolicitud();
     const marcadoEn = new Date("2026-10-01T15:30:00.000Z");
     const fotoBase = await fotoPrueba(db);
-    const hijo = await crearJugador(db, { foto_id: fotoBase, marcado_retiro_en: marcadoEn });
+    const hijo = await crearJugador(db, { foto_id: fotoBase });
     const antes = await estadoJ(hijo);
     if (!antes) throw new Error("sin jugador");
     // Las 13 llaves, con la fecha como texto ISO, igual que copiaPrevia de S2.
@@ -721,12 +720,14 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
         nombre: antes.nombre, apellido: antes.apellido, fecha_nacimiento: antes.fecha_nacimiento,
         disciplina: antes.disciplina, categoria_id: antes.categoria_id, numero_camiseta: antes.numero_camiseta,
         telefono: antes.telefono, email: antes.email, metodo_pago: antes.metodo_pago, foto_id: fotoBase,
-        estado: "precargado", solicitud_id: null, marcado_retiro_en: marcadoEn.toISOString(),
+        estado: "precargado", solicitud_id: null, marcado_retiro_en: null,
       },
     });
     await db
       .update(jugadores)
-      .set({ numero_camiseta: "21", estado: "pendiente", solicitud_id: s.id, marcado_retiro_en: null })
+      // Después de la copia, otra solicitud lo marcó "ya no está": la marca es solo una señal y no
+      // se deshace al rechazar esta.
+      .set({ numero_camiseta: "21", estado: "pendiente", solicitud_id: s.id, marcado_retiro_en: marcadoEn })
       .where(eq(jugadores.id, hijo));
     // Mony cambia la foto en el panel: la de la base se borra y la copia apunta a una que no existe.
     const cambio = await app.inject({
