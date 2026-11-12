@@ -5,7 +5,7 @@ import {
   type SolicitudCreadaResponse,
   type solicitudDatos,
 } from "@club-colina/shared";
-import { and, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
 import type { z } from "zod";
 import type { Db, Ejecutor } from "../../db/cliente";
 import { apoderados, categorias, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
@@ -22,7 +22,6 @@ import {
   hijosDeApoderado,
   type Jugador,
   jugadorPorRut,
-  nombreCompleto,
   primerNombre,
 } from "./consulta";
 
@@ -155,24 +154,19 @@ class Proceso {
   }
 
   /**
-   * Categoría: la calculada por año si se puede; si no, la que eligió la familia (de la misma
-   * rama). Si no se puede calcular y no la envió, queda vacía y Mony la completa al aprobar
-   * (decisión de Ignacio, 2026-11-12): la solicitud no se rechaza por eso.
+   * Categoría de una ficha existente: la calculada por año si se puede; si no, la elegida si es de
+   * la rama de la ficha. Si no, queda vacía y Mony la completa al aprobar (decisión de Ignacio,
+   * 2026-11-12). Una elegida de otra rama se ignora en vez de dar 400: lo enviado ya se validó
+   * contra la rama enviada, y un 400 distinto revelaría que el RUT existe.
    */
-  private async categoria(
-    disciplina: Disciplina,
-    fecha: string | null,
-    elegida: number | undefined,
-    campo: string,
-  ): Promise<number | null> {
+  private async categoria(disciplina: Disciplina, fecha: string | null, elegida: number | undefined) {
     const calculada = await calcularCategoria(this.tx, disciplina, fecha);
     if (calculada !== null || elegida === undefined) return calculada;
     const [c] = await this.tx
       .select({ id: categorias.id })
       .from(categorias)
       .where(and(eq(categorias.id, elegida), eq(categorias.disciplina, disciplina)));
-    if (!c) throw invalido([campo]);
-    return c.id;
+    return c?.id ?? null;
   }
 
   /** Teléfono: se completa si falta; si la base ya tiene uno, no se cambia y se avisa si difiere. */
@@ -251,26 +245,34 @@ class Proceso {
     return actualizado;
   }
 
+  /**
+   * Jugador adulto. Exige el formulario completo antes de mirar la base, para que la respuesta
+   * no revele si el RUT está (un menor responde `encontrado: false` en la consulta). Una ficha
+   * existente solo se completa si es un precargado adulto con certeza y sin apoderados: si no,
+   * 409 sin tocar nada (un menor sin fecha en la base no se puede "adoptar" como adulto).
+   */
   private async jugadorAdulto() {
     const d = this.datos;
     if (d.hijos.length > 0) throw invalido(["hijos"]);
     if (d.otro_apoderado !== undefined) throw invalido(["otro_apoderado"]);
+    const faltan = new Faltantes();
+    const nombre = faltan.exigir(d.nombre, "nombre");
+    const apellido = faltan.exigir(d.apellido, "apellido");
+    const telefono = faltan.exigir(d.telefono, "telefono");
+    const fecha = faltan.exigir(d.fecha_nacimiento, "fecha_nacimiento");
+    const disciplina = faltan.exigir(d.disciplina, "disciplina");
+    const numero = faltan.exigir(d.numero_camiseta, "numero_camiseta");
+    const foto = faltan.exigir(d.foto, "foto");
+    faltan.lanzarSiHay();
+    if (edad(seguro(fecha)) < EDAD_ADULTO) throw invalido(["fecha_nacimiento"]);
+    const categoriaElegida = await this.categoriaDeRama(seguro(disciplina), d.categoria_id, "categoria_id");
+
     // Si el RUT es apoderado, el formulario lo trata como apoderado (ver rut-lookup).
     if (await apoderadoPorRut(this.tx, d.rut)) throw conflicto();
     const existente = await jugadorPorRut(this.tx, d.rut);
-    const faltan = new Faltantes();
 
     if (!existente) {
-      const nombre = faltan.exigir(d.nombre, "nombre");
-      const apellido = faltan.exigir(d.apellido, "apellido");
-      const telefono = faltan.exigir(d.telefono, "telefono");
-      const fecha = faltan.exigir(d.fecha_nacimiento, "fecha_nacimiento");
-      const disciplina = faltan.exigir(d.disciplina, "disciplina");
-      const numero = faltan.exigir(d.numero_camiseta, "numero_camiseta");
-      const foto = faltan.exigir(d.foto, "foto");
-      faltan.lanzarSiHay();
-      if (edad(seguro(fecha)) < EDAD_ADULTO) throw invalido(["fecha_nacimiento"]);
-      const categoria = await this.categoria(seguro(disciplina), seguro(fecha), d.categoria_id, "categoria_id");
+      const calculada = await calcularCategoria(this.tx, seguro(disciplina), seguro(fecha));
       const [nuevo] = await this.tx
         .insert(jugadores)
         .values({
@@ -280,7 +282,7 @@ class Proceso {
           telefono: seguro(telefono),
           fecha_nacimiento: seguro(fecha),
           disciplina: seguro(disciplina),
-          categoria_id: categoria,
+          categoria_id: calculada ?? categoriaElegida,
           numero_camiseta: seguro(numero),
           foto_id: await this.foto(seguro(foto)),
           estado: "pendiente",
@@ -293,26 +295,51 @@ class Proceso {
       return;
     }
 
-    this.jugadoresInvolucrados.add(existente.id);
-    // Ya registrado, o un menor según la base: no puede usar el formulario como adulto. Sin
-    // fecha en la base, la que escriba se revisa abajo.
-    if (existente.estado !== "precargado") throw conflicto();
-    if (existente.fecha_nacimiento !== null && !esAdulto(existente)) throw conflicto();
-    this.coincideBase = true;
-    const telefono = this.telefono(existente.telefono, faltan, "telefono");
-    const cambios = await this.completarJugador(existente, d, "", faltan);
-    if (cambios.fecha_nacimiento !== undefined && edad(cambios.fecha_nacimiento) < EDAD_ADULTO) {
-      throw invalido(["fecha_nacimiento"]);
+    if (
+      existente.estado !== "precargado" ||
+      existente.solicitud_id !== null ||
+      !esAdulto(existente) ||
+      (await this.cantidadApoderados(existente.id)) > 0
+    ) {
+      throw conflicto();
     }
+    this.jugadoresInvolucrados.add(existente.id);
+    this.coincideBase = true;
+    const telefonoNuevo = this.telefono(existente.telefono, new Faltantes(), "telefono");
+    const cambios = await this.completarJugador(existente, d, "", new Faltantes());
     await this.tx
       .update(jugadores)
       .set({
         ...cambios,
-        ...(telefono !== undefined && { telefono }),
+        ...(telefonoNuevo !== undefined && { telefono: telefonoNuevo }),
         estado: "pendiente",
-        solicitud_id: existente.solicitud_id ?? this.solicitudId,
+        solicitud_id: this.solicitudId,
       })
       .where(eq(jugadores.id, existente.id));
+  }
+
+  private async cantidadApoderados(jugadorId: string, salvo?: string): Promise<number> {
+    const [{ cantidad = 0 } = {}] = await this.tx
+      .select({ cantidad: sql<number>`count(*)::int` })
+      .from(jugadorApoderado)
+      .where(
+        and(
+          eq(jugadorApoderado.jugador_id, jugadorId),
+          salvo === undefined ? undefined : ne(jugadorApoderado.apoderado_id, salvo),
+        ),
+      );
+    return cantidad;
+  }
+
+  /** La categoría elegida tiene que ser de la rama que se envió; si no, 400. */
+  private async categoriaDeRama(disciplina: Disciplina, elegida: number | undefined, campo: string) {
+    if (elegida === undefined) return null;
+    const [c] = await this.tx
+      .select({ id: categorias.id })
+      .from(categorias)
+      .where(and(eq(categorias.id, elegida), eq(categorias.disciplina, disciplina)));
+    if (!c) throw invalido([campo]);
+    return c.id;
   }
 
   /**
@@ -334,7 +361,7 @@ class Proceso {
     const foto = j.foto_id === null ? faltan.exigir(h.foto, `${prefijo}foto`) : undefined;
     const categoria =
       j.categoria_id === null
-        ? await this.categoria(j.disciplina, j.fecha_nacimiento ?? fecha ?? null, h.categoria_id, `${prefijo}categoria_id`)
+        ? await this.categoria(j.disciplina, j.fecha_nacimiento ?? fecha ?? null, h.categoria_id)
         : null;
     faltan.lanzarSiHay();
     return {
@@ -396,7 +423,10 @@ class Proceso {
 
       // Un hijo nombrado por RUT exige el formulario completo, exista o no en la base: si se
       // pidiera menos cuando existe, la diferencia entre un 400 y un 201 revelaría que el RUT está.
-      if ("rut" in h.ref && !h.ya_no_esta) exigirHijoCompleto(h, p);
+      if ("rut" in h.ref && !h.ya_no_esta) {
+        exigirHijoCompleto(h, p);
+        await this.categoriaDeRama(seguro(h.disciplina), h.categoria_id, `${p}categoria_id`);
+      }
 
       if (h.ya_no_esta) {
         // Solo se puede marcar a un hijo propio. Queda marcado para que Mony lo confirme, sin
@@ -439,10 +469,7 @@ class Proceso {
 
       // Un jugador que ya existía y no es de la lista de quien llena: entra solo por un vínculo
       // pendiente, sin `solicitud_id`, y no aparece en /familia hasta que Mony lo aprueba.
-      const [{ cantidad = 0 } = {}] = await this.tx
-        .select({ cantidad: sql<number>`count(*)::int` })
-        .from(jugadorApoderado)
-        .where(eq(jugadorApoderado.jugador_id, jugador.id));
+      const cantidad = await this.cantidadApoderados(jugador.id, titular.id);
       if (cantidad > 0) this.avisos.add("hijo_con_otro_apoderado");
       if (jugador.estado !== "precargado") {
         this.avisos.add("apoderado_nuevo_para_hijo_registrado");
@@ -472,7 +499,8 @@ class Proceso {
     const numero = faltan.exigir(h.numero_camiseta, `${p}numero_camiseta`);
     const foto = faltan.exigir(h.foto, `${p}foto`);
     faltan.lanzarSiHay();
-    const categoria = await this.categoria(seguro(disciplina), seguro(fecha), h.categoria_id, `${p}categoria_id`);
+    const elegida = await this.categoriaDeRama(seguro(disciplina), h.categoria_id, `${p}categoria_id`);
+    const categoria = (await calcularCategoria(this.tx, seguro(disciplina), seguro(fecha))) ?? elegida;
     const [nuevo] = await this.tx
       .insert(jugadores)
       .values({
@@ -499,18 +527,29 @@ class Proceso {
   // Otro apoderado
   // -------------------------------------------------------------------------
 
+  /**
+   * Otro apoderado. Si es nuevo, queda creado sin foto, con su propia solicitud `segundo_apoderado`
+   * y un link `/completar`. Si ya existía en la base (en cualquier estado), solo se vincula y se
+   * avisa: no se le asigna solicitud, no se emite link y no se devuelve nada suyo, porque quien
+   * llena no es esa persona y podría estar suplantándola.
+   */
   private async otroApoderado(resueltos: (string | null)[]): Promise<SolicitudCreadaResponse["otros_apoderados"]> {
     const otro = this.datos.otro_apoderado;
     if (otro === undefined) return [];
-    const hijos = otro.hijos.map((i) => resueltos[i]);
-    if (hijos.some((j) => j === null || j === undefined)) throw invalido(["otro_apoderado.hijos"]);
+    const hijos: string[] = [];
+    for (const i of otro.hijos) {
+      const j = resueltos[i];
+      if (j === null || j === undefined) throw invalido(["otro_apoderado.hijos"]);
+      hijos.push(j);
+    }
 
-    let apoderado = await apoderadoPorRut(this.tx, otro.rut);
+    const existente = await apoderadoPorRut(this.tx, otro.rut);
     const salida: SolicitudCreadaResponse["otros_apoderados"] = [];
-    if (apoderado) this.avisos.add("otro_apoderado_ya_registrado");
-
-    // Si ya se registró (o ya lo agregó otra solicitud), solo se vincula: no hay link nuevo.
-    if (!apoderado || (apoderado.estado === "precargado" && apoderado.solicitud_id === null)) {
+    let apoderadoId: string;
+    if (existente) {
+      this.avisos.add("otro_apoderado_ya_registrado");
+      apoderadoId = existente.id;
+    } else {
       const completarToken = generarToken();
       const [s2] = await this.tx
         .insert(solicitudesRegistro)
@@ -518,46 +557,42 @@ class Proceso {
           token_acceso_hash: hashToken(completarToken),
           tipo: "segundo_apoderado",
           solicitud_origen_id: this.solicitudId,
-          coincide_base: apoderado !== null,
         })
         .returning({ id: solicitudesRegistro.id });
       if (!s2) throw new Error("no se creó la solicitud del segundo apoderado");
       this.propias.add(s2.id);
-      if (!apoderado) {
-        const [nuevo] = await this.tx
-          .insert(apoderados)
-          .values({
-            nombre: otro.nombre,
-            apellido: otro.apellido,
-            rut: otro.rut,
-            telefono: otro.telefono,
-            estado: "pendiente",
-            origen: "formulario",
-            solicitud_id: s2.id,
-          })
-          .returning();
-        apoderado = nuevo ?? null;
-      } else {
-        // Precargado: no se cambia lo que trae la base; queda precargado hasta que suba su foto.
-        const [actualizado] = await this.tx
-          .update(apoderados)
-          .set({
-            solicitud_id: s2.id,
-            ...(apoderado.nombre === null && { nombre: otro.nombre }),
-            ...(apoderado.apellido === null && { apellido: otro.apellido }),
-            ...(apoderado.telefono === null && { telefono: otro.telefono }),
-          })
-          .where(and(eq(apoderados.id, apoderado.id), isNull(apoderados.solicitud_id)))
-          .returning();
-        apoderado = actualizado ?? null;
-      }
-      if (!apoderado) throw new Error("no se guardó el otro apoderado");
-      salida.push({ nombre_completo: nombreCompleto(apoderado), completar_token: completarToken });
+      const [nuevo] = await this.tx
+        .insert(apoderados)
+        .values({
+          nombre: otro.nombre,
+          apellido: otro.apellido,
+          rut: otro.rut,
+          telefono: otro.telefono,
+          estado: "pendiente",
+          origen: "formulario",
+          solicitud_id: s2.id,
+        })
+        .returning({ id: apoderados.id });
+      if (!nuevo) throw new Error("no se guardó el otro apoderado");
+      apoderadoId = nuevo.id;
+      // Lo que escribió quien llena; nunca un dato leído de la base.
+      salida.push({ nombre_completo: `${otro.nombre} ${otro.apellido}`, completar_token: completarToken });
     }
-    if (!apoderado) throw new Error("no se guardó el otro apoderado");
 
-    this.apoderadosInvolucrados.add(apoderado.id);
-    for (const jugadorId of hijos) if (jugadorId) await this.vincular(jugadorId, apoderado.id, false);
+    this.apoderadosInvolucrados.add(apoderadoId);
+    const registrados = await this.tx
+      .select({ id: jugadores.id })
+      .from(jugadores)
+      .where(
+        and(
+          inArray(jugadores.id, hijos),
+          ne(jugadores.estado, "precargado"),
+          // Los que llegaron en esta misma solicitud no estaban registrados.
+          sql`${jugadores.solicitud_id} is distinct from ${this.solicitudId}`,
+        ),
+      );
+    if (registrados.length > 0) this.avisos.add("apoderado_nuevo_para_hijo_registrado");
+    for (const jugadorId of hijos) await this.vincular(jugadorId, apoderadoId, false);
     return salida;
   }
 

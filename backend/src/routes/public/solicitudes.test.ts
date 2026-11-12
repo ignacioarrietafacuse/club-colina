@@ -76,6 +76,19 @@ const apoderadoNuevo = (rut: string): SolicitudDatos => ({
   paga_mensualidad: true,
 });
 
+const adultoCompleto = (rut: string): SolicitudDatos => ({
+  rut,
+  tipo: "jugador_adulto",
+  consentimiento: true,
+  nombre: "Valentina",
+  apellido: "Prueba",
+  telefono: "977777777",
+  fecha_nacimiento: "2000-02-02",
+  disciplina: "voleibol",
+  numero_camiseta: "12",
+  foto: "t",
+});
+
 describe("POST /api/public/solicitudes", () => {
   it("apoderado e hijo nuevos: quedan pendientes, con su foto y un link que la base guarda como hash", async () => {
     const app = await construirApp({ config: configTest(), db });
@@ -212,6 +225,7 @@ describe("POST /api/public/solicitudes", () => {
 
   it("la categoría elegida tiene que ser de la misma rama; si se puede calcular, manda la calculada", async () => {
     const [u12] = await db.select().from(categorias).where(eq(categorias.nombre, "U12"));
+    const [u16] = await db.select().from(categorias).where(eq(categorias.nombre, "U16"));
     const [u9] = await db.select().from(categorias).where(eq(categorias.nombre, "U9"));
     const app = await construirApp({ config: configTest(), db });
     const malo = await enviar(
@@ -224,7 +238,7 @@ describe("POST /api/public/solicitudes", () => {
     const rutHijo = rutNuevo();
     const r = await enviar(
       app,
-      { ...apoderadoNuevo(rutNuevo()), hijos: [{ ...hijoNuevo(rutHijo), disciplina: "voleibol", fecha_nacimiento: "2015-01-01", categoria_id: u9?.id }] },
+      { ...apoderadoNuevo(rutNuevo()), hijos: [{ ...hijoNuevo(rutHijo), disciplina: "voleibol", fecha_nacimiento: "2015-01-01", categoria_id: u16?.id }] },
       { titular: JPEG_PRUEBA, h0: JPEG_PRUEBA },
     );
     expect(r.statusCode).toBe(201);
@@ -430,35 +444,211 @@ describe("POST /api/public/solicitudes", () => {
     await app.close();
   });
 
-  it("jugador adulto precargado: completa lo que falta; si la base dice menor, 409; si su RUT es apoderado, 409", async () => {
-    const adulto = await crearJugador(db, { fecha_nacimiento: "2001-01-01", telefono: null });
+  it("jugador adulto precargado: completa lo que falta sin pisar la base y avisa del teléfono", async () => {
+    const adulto = await crearJugador(db, { nombre: "Valentina", fecha_nacimiento: "2001-01-01", telefono: "911111111", numero_camiseta: null });
+    const app = await construirApp({ config: configTest(), db });
+    const r = await enviar(app, { ...adultoCompleto(adulto.rut), nombre: "Otra" }, { t: JPEG_PRUEBA });
+    expect(r.statusCode).toBe(201);
+    const [s] = await solicitudes();
+    expect(s).toMatchObject({ coincide_base: true, avisos: ["telefono_distinto_base"] });
+    expect(await jugadorRut(adulto.rut)).toMatchObject({
+      nombre: "Valentina",
+      telefono: "911111111",
+      fecha_nacimiento: "2001-01-01",
+      numero_camiseta: "12",
+      estado: "pendiente",
+      solicitud_id: s?.id,
+    });
+    await app.close();
+  });
+
+  it("jugador adulto: un menor, un precargado sin fecha, uno con apoderado o un RUT de apoderado dan 409 sin tocar nada", async () => {
+    const apoderado = await crearApoderado(db);
     const menor = await crearJugador(db, { fecha_nacimiento: "2013-01-01" });
+    const sinFecha = await crearJugador(db, { fecha_nacimiento: null, telefono: null });
+    const conApoderado = await crearJugador(db, { fecha_nacimiento: "2000-01-01" });
+    await vincular(db, conApoderado.id, apoderado.id);
     const rutDoble = generarRutFicticio(8080);
     await crearApoderado(db, { rut: rutDoble });
     await crearJugador(db, { rut: rutDoble, fecha_nacimiento: "1990-01-01" });
     const app = await construirApp({ config: configTest(), db });
-    const base = { tipo: "jugador_adulto" as const, consentimiento: true as const, telefono: "977777777", numero_camiseta: "12", foto: "t" };
-    const fotos = { t: JPEG_PRUEBA };
-    expect((await enviar(app, { ...base, rut: menor.rut }, fotos)).statusCode).toBe(409);
-    expect((await enviar(app, { ...base, rut: rutDoble }, fotos)).statusCode).toBe(409);
-    const r = await enviar(app, { ...base, rut: adulto.rut }, fotos);
-    expect(r.statusCode).toBe(201);
-    const [s] = await solicitudes();
-    expect(s).toMatchObject({ coincide_base: true, avisos: ["sin_telefono_en_base"] });
-    expect(await jugadorRut(adulto.rut)).toMatchObject({ telefono: "977777777", numero_camiseta: "12", estado: "pendiente", solicitud_id: s?.id });
+    for (const rut of [menor.rut, sinFecha.rut, conApoderado.rut, rutDoble]) {
+      const r = await enviar(app, adultoCompleto(rut), { t: JPEG_PRUEBA });
+      expect(r.statusCode).toBe(409);
+      expect(r.json().error.codigo).toBe("conflicto");
+    }
+    expect(await contar("solicitudes_registro")).toBe(0);
+    expect(await jugadorRut(sinFecha.rut)).toMatchObject({ fecha_nacimiento: null, telefono: null, estado: "precargado", solicitud_id: null });
     await app.close();
   });
 
-  it("un adulto sin fecha en la base que escribe una de menor: 400", async () => {
-    const sinFecha = await crearJugador(db, { fecha_nacimiento: null, telefono: "988888888" });
+  it("jugador adulto con datos incompletos: la misma respuesta exista o no el RUT", async () => {
+    const menor = await crearJugador(db, { fecha_nacimiento: "2013-01-01" });
+    const sinFecha = await crearJugador(db, { fecha_nacimiento: null, numero_camiseta: null });
+    const app = await construirApp({ config: configTest(), db });
+    const cuerpos = [];
+    for (const rut of [menor.rut, sinFecha.rut, rutNuevo()]) {
+      const r = await enviar(app, { rut, tipo: "jugador_adulto", consentimiento: true });
+      cuerpos.push([r.statusCode, r.body]);
+    }
+    expect(cuerpos[0]?.[0]).toBe(400);
+    expect(cuerpos[1]).toEqual(cuerpos[0]);
+    expect(cuerpos[2]).toEqual(cuerpos[0]);
+    await app.close();
+  });
+
+  it("jugador adulto no trae hijos ni otro apoderado", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const conHijos = await enviar(app, { ...adultoCompleto(rutNuevo()), hijos: [hijoNuevo(rutNuevo(), "t")] }, { t: JPEG_PRUEBA });
+    expect(conHijos.statusCode).toBe(400);
+    const conOtro = await enviar(
+      app,
+      { ...adultoCompleto(rutNuevo()), otro_apoderado: { nombre: "A", apellido: "B", rut: rutNuevo(), telefono: "911111111", hijos: [0] } },
+      { t: JPEG_PRUEBA },
+    );
+    expect(conOtro.statusCode).toBe(400);
+    expect(await contar("solicitudes_registro")).toBe(0);
+    await app.close();
+  });
+
+  it("titular rechazado o inactivo cuenta como ya registrado: no se cambian sus datos", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    for (const estado of ["rechazado", "inactivo"] as const) {
+      const titular = await crearApoderado(db, { estado, foto_id: null });
+      const r = await enviar(
+        app,
+        { rut: titular.rut, tipo: "apoderado", consentimiento: true, nombre: "Nueva", foto: "t", hijos: [hijoNuevo(rutNuevo())] },
+        { t: JPEG_PRUEBA, h0: JPEG_PRUEBA },
+      );
+      expect(r.statusCode).toBe(201);
+      expect(await apoderadoRut(titular.rut)).toMatchObject({ estado, nombre: "Rosa", foto_id: null });
+    }
+    const avisos = (await solicitudes()).map((s) => s.avisos);
+    expect(avisos).toEqual([["titular_ya_registrado"], ["titular_ya_registrado"]]);
+    await app.close();
+  });
+
+  it("otro apoderado precargado: solo vínculo y aviso; ni link, ni su nombre de la base, ni solicitud", async () => {
+    const precargado = await crearApoderado(db, { nombre: "Ignacia", apellido: "Real" });
     const app = await construirApp({ config: configTest(), db });
     const r = await enviar(
       app,
-      { rut: sinFecha.rut, tipo: "jugador_adulto", consentimiento: true, fecha_nacimiento: "2015-05-05", numero_camiseta: "3", foto: "t" },
-      { t: JPEG_PRUEBA },
+      {
+        ...apoderadoNuevo(rutNuevo()),
+        hijos: [hijoNuevo(rutNuevo())],
+        otro_apoderado: { nombre: "Otro", apellido: "Nombre", rut: precargado.rut, telefono: "955555555", hijos: [0] },
+      },
+      { titular: JPEG_PRUEBA, h0: JPEG_PRUEBA },
+    );
+    expect(r.statusCode).toBe(201);
+    expect(r.json().otros_apoderados).toEqual([]);
+    expect(r.body).not.toContain("Ignacia");
+    expect(r.body).not.toContain("Real");
+    const lista = await solicitudes();
+    expect(lista).toHaveLength(1);
+    expect(lista[0]?.avisos).toEqual(["otro_apoderado_ya_registrado"]);
+    expect(await apoderadoRut(precargado.rut)).toMatchObject({
+      nombre: "Ignacia",
+      estado: "precargado",
+      solicitud_id: null,
+      telefono: "911111111",
+    });
+    const vinculos = await db.select().from(jugadorApoderado).where(eq(jugadorApoderado.apoderado_id, precargado.id));
+    expect(vinculos).toEqual([expect.objectContaining({ estado: "pendiente", solicitud_id: lista[0]?.id })]);
+    await app.close();
+  });
+
+  it("otro apoderado hacia un hijo ya registrado de la lista: aviso de apoderado nuevo", async () => {
+    const titular = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+    const hijo = await crearJugador(db, {
+      nombre: "Tomás",
+      estado: "activo",
+      numero_camiseta: "7",
+      foto_id: await guardarFoto(db, JPEG_PRUEBA),
+      credencial_token: "b".repeat(43),
+    });
+    await vincular(db, hijo.id, titular.id);
+    const app = await construirApp({ config: configTest(), db });
+    const r = await enviar(app, {
+      rut: titular.rut,
+      tipo: "apoderado",
+      consentimiento: true,
+      hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }],
+      otro_apoderado: { nombre: "Intruso", apellido: "X", rut: rutNuevo(), telefono: "966666666", hijos: [0] },
+    });
+    expect(r.statusCode).toBe(201);
+    const s = (await solicitudes()).find((x) => x.tipo === "formulario");
+    expect(s?.avisos).toContain("apoderado_nuevo_para_hijo_registrado");
+    await app.close();
+  });
+
+  it("el otro apoderado no puede apuntar a un hijo marcado 'ya no está'", async () => {
+    const titular = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+    const hijo = await crearJugador(db, { nombre: "Tomás" });
+    await vincular(db, hijo.id, titular.id);
+    const app = await construirApp({ config: configTest(), db });
+    const r = await enviar(app, {
+      rut: titular.rut,
+      tipo: "apoderado",
+      consentimiento: true,
+      hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
+      otro_apoderado: { nombre: "A", apellido: "B", rut: rutNuevo(), telefono: "966666666", hijos: [0] },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error.mensaje).toContain("otro_apoderado.hijos");
+    expect((await jugadorRut(hijo.rut)).marcado_retiro_en).toBeNull();
+    await app.close();
+  });
+
+  it("el mismo hijo por posición y por RUT: 400", async () => {
+    const titular = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+    const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: "3", foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+    await vincular(db, hijo.id, titular.id);
+    const app = await construirApp({ config: configTest(), db });
+    const r = await enviar(
+      app,
+      { rut: titular.rut, tipo: "apoderado", consentimiento: true, hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }, hijoNuevo(hijo.rut)] },
+      { h0: JPEG_PRUEBA },
     );
     expect(r.statusCode).toBe(400);
-    expect(r.json().error.mensaje).toContain("fecha_nacimiento");
+    expect(r.json().error.mensaje).toContain("hijos.1.ref");
+    await app.close();
+  });
+
+  it("titular ya registrado: paga_mensualidad no cambia sus vínculos existentes", async () => {
+    const titular = await crearApoderado(db, { estado: "pendiente", foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+    const hijo = await crearJugador(db, { nombre: "Tomás", estado: "pendiente" });
+    await vincular(db, hijo.id, titular.id, { paga_mensualidad: false });
+    const app = await construirApp({ config: configTest(), db });
+    const r = await enviar(app, {
+      rut: titular.rut,
+      tipo: "apoderado",
+      consentimiento: true,
+      paga_mensualidad: true,
+      hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }],
+    });
+    expect(r.statusCode).toBe(201);
+    const [v] = await db.select().from(jugadorApoderado).where(eq(jugadorApoderado.jugador_id, hijo.id));
+    expect(v?.paga_mensualidad).toBe(false);
+    await app.close();
+  });
+
+  it("hay_solicitud_posterior: por un hijo de otra solicitud pendiente, sin repetirse y nunca en una revisada", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const rutHijo = rutNuevo();
+    await enviar(app, { ...apoderadoNuevo(rutNuevo()), hijos: [hijoNuevo(rutHijo)] }, { titular: JPEG_PRUEBA, h0: JPEG_PRUEBA });
+    const [primera] = await solicitudes();
+    // Otra familia nombra al mismo hijo por RUT, dos veces.
+    for (let i = 0; i < 2; i++) {
+      const r = await enviar(app, { ...apoderadoNuevo(rutNuevo()), hijos: [hijoNuevo(rutHijo)] }, { titular: JPEG_PRUEBA, h0: JPEG_PRUEBA });
+      expect(r.statusCode).toBe(201);
+    }
+    const marcada = (await solicitudes()).find((s) => s.id === primera?.id);
+    expect(marcada?.avisos).toEqual(["hay_solicitud_posterior"]);
+    // Una solicitud ya revisada no se marca.
+    await db.update(solicitudesRegistro).set({ estado: "revisada", avisos: [] }).where(eq(solicitudesRegistro.id, primera?.id ?? ""));
+    await enviar(app, { ...apoderadoNuevo(rutNuevo()), hijos: [hijoNuevo(rutHijo)] }, { titular: JPEG_PRUEBA, h0: JPEG_PRUEBA });
+    expect((await solicitudes()).find((s) => s.id === primera?.id)?.avisos).toEqual([]);
     await app.close();
   });
 
