@@ -1393,6 +1393,21 @@ describe("solicitudes: dar por revisada", () => {
     await app.close();
   });
 
+  it("un otro apoderado nuevo pendiente (de su solicitud de segundo apoderado) también es 409, en las dos", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo, hijo } = await familia();
+    await db.update(apoderados).set({ estado: "rechazado" }).where(eq(apoderados.id, apo));
+    await db.update(jugadores).set({ estado: "rechazado" }).where(eq(jugadores.id, hijo));
+    await db.update(jugadorApoderado).set({ estado: "activo" }).where(eq(jugadorApoderado.solicitud_id, s.id));
+    const s2 = await nuevaSolicitud({ tipo: "segundo_apoderado", solicitud_origen_id: s.id });
+    await crearApoderado(db, { estado: "pendiente", origen: "formulario", solicitud_id: s2.id });
+    expect((await darPorRevisada(app, cookies, s.id)).statusCode).toBe(409);
+    expect((await darPorRevisada(app, cookies, s2.id)).statusCode).toBe(409);
+    expect(await estadoS(s.id)).toBe("pendiente");
+    expect(await estadoS(s2.id)).toBe("pendiente");
+    await app.close();
+  });
+
   it("una solicitud que no existe es 404", async () => {
     const { app, cookies } = await appConSesion(db);
     expect((await darPorRevisada(app, cookies, "00000000-0000-4000-8000-000000000000")).statusCode).toBe(404);

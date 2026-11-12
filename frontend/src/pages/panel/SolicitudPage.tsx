@@ -178,6 +178,9 @@ function DetalleSolicitud({
   const revisar = useMutation({
     mutationFn: () => api.panel.darPorRevisada(s.id),
     onSuccess: refrescar,
+    // Un 409 quiere decir que la solicitud cambió (algo quedó por decidir): se vuelve a pedir el
+    // detalle para que la pantalla muestre lo que hay, sin rehacer el formulario a medio llenar.
+    onError: () => queryClient.invalidateQueries({ queryKey: ["panel"] }),
   });
   const [confirmarRevisada, setConfirmarRevisada] = useState(false);
 
@@ -206,6 +209,7 @@ function DetalleSolicitud({
     rechazoHecho || [...s.jugadores, ...s.apoderados].some((p) => p.estado === "rechazado");
 
   function enviarAprobacion() {
+    revisar.reset();
     if (desfasado) return;
     setConfirmar(null);
     setConfirmarVinculo(null);
@@ -217,6 +221,7 @@ function DetalleSolicitud({
     aprobar.mutate(r.datos);
   }
   function enviarRechazoVinculo(llave: string) {
+    revisar.reset();
     if (desfasado) return;
     aprobar.reset();
     quitarMarca.reset();
@@ -229,6 +234,7 @@ function DetalleSolicitud({
     rechazar.mutate(r.datos);
   }
   function enviarRechazo(cual: "marcadas" | "todo") {
+    revisar.reset();
     setConfirmarVinculo(null);
     if (desfasado) return;
     aprobar.reset();
@@ -468,7 +474,9 @@ function DetalleSolicitud({
             variant="outline"
             onClick={() => alCambiar()}
             // Mientras corre una acción, su propio final rehace el formulario.
-            disabled={aprobar.isPending || rechazar.isPending || quitarMarca.isPending}
+            disabled={
+              aprobar.isPending || rechazar.isPending || quitarMarca.isPending || revisar.isPending
+            }
           >
             Recargar formulario
           </Button>

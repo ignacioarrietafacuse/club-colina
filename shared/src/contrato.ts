@@ -559,7 +559,8 @@ export const solicitudDetalle = z.object({
    *
    * `en_link_familia`: si el jugador aparece en el link /familia de esta solicitud (solo las
    * personas que entraron por ella; siempre false en una de segundo apoderado). El panel lo usa
-   * para recordarle a Mony que entregue el QR desde la ficha a quien no aparece.
+   * para recordarle a Mony que entregue el QR desde la ficha a quien no aparece. Aparecer no
+   * garantiza el QR: el link lo da solo con un vínculo activo con un titular vigente.
    */
   // Con default: un backend anterior al campo (despliegue a medias) no lo manda; true solo omite el
   // recordatorio, no muestra nada de más.
