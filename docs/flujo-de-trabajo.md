@@ -54,7 +54,7 @@ El nombre de la rama puede venir asignado por la herramienta (las sesiones en la
 
 ## El chequeo (CI)
 
-Un solo trabajo en `.github/workflows/ci.yml` que corre `pnpm check` (lint, tipos, tests y build).
+Un solo trabajo en `.github/workflows/ci.yml` que corre `pnpm check` (lint, tipos, tests y el build de todo, `pnpm build:todo`).
 
 - Corre en cada PR hacia `main` y en cada commit de `main`.
 - En un PR, un empuje nuevo cancela la corrida anterior. En `main` no se cancela nada.
@@ -228,14 +228,13 @@ Además de lo que dice `roadmap-etapa1.md`:
 
 **Configuración en las plataformas.** La hace la sesión de la Ola 0 con las herramientas que tenga; lo que no pueda hacer desde la sesión se lo deja a Ignacio como lista, con el paso exacto:
 - GitHub: borrar ramas automáticamente al fusionar; permitir solo acciones de GitHub y verificadas.
-- Railway: despliegue automático desde `main`, "Wait for CI", healthcheck en `/api/health`, variables `NODE_ENV=production`, `MIGRAR_AL_ARRANCAR=si` y `PROXY_SECRETO` (el mismo valor que en Vercel), y respaldos diario y semanal en el volumen de Postgres. Build y arranque los detecta Railpack desde los scripts `build` y `start` de la raíz. Las migraciones no se configuran en Railway: las corre el backend al arrancar.
+- Railway: despliegue automático desde `main`, "Wait for CI", healthcheck en `/api/health`, variables `NODE_ENV=production`, `MIGRAR_AL_ARRANCAR=si` y `PROXY_SECRETO` (el mismo valor que en Vercel), y respaldos diario y semanal en el volumen de Postgres. Build y arranque los detecta Railpack desde los scripts `build` y `start` de la raíz; `build` compila solo `backend/` y `shared/` (el frontend lo compila Vercel desde `frontend/`). Las migraciones no se configuran en Railway: las corre el backend al arrancar.
 - Vercel: confirmar que solo `main` publica a producción. `PROXY_SECRETO` (sensible) solo en Production, nunca en Preview: las vistas previas corren código no fusionado. Un cambio de variable en Vercel llega al middleware recién con un despliegue nuevo. Para rotarlo: cambiarlo en Railway y en Vercel y redesplegar los dos; mientras no coincidan, todo el tráfico comparte un contador (el log muestra `"proxy":false`). Para volver atrás: quitarlo en Vercel y redesplegar, y el middleware deja de actuar.
 
 **Pendientes no bloqueantes** (al 2026-11-12):
 - Railway, "Wait for CI": la opción no aparece en el panel del servicio. Requiere que `ci.yml` corra en `push` a `main` (ya corre) y que la app de Railway en GitHub tenga permiso para leer los checks. Mientras tanto, Railway despliega al fusionar sin esperar al CI; el CI del PR ya pasó antes de fusionar.
 - El logo del club: hoy hay uno provisorio de solo texto ("Club Colina").
-- El build de Railway compila también el frontend: Railpack corre el `build` de la raíz (`pnpm -r build`). Por eso el servicio `club-colina` necesita variables del frontend (hoy `VITE_PUBLIC_BASE_URL`, sin la cual el build falla). Debería compilar solo `backend/` y `shared/`. No se arregla todavía.
-- `VITE_PUBLIC_BASE_URL` (la dirección que va en los QR) vive en cuatro lugares: Vercel Production, Vercel Preview, Railway (`club-colina`) y `.github/workflows/ci.yml`. En la Ola 3 se cambia en los cuatro a `https://panel.clubcolina.cl`. Ninguna variable secreta lleva el prefijo `VITE_`: Vite la mete en el bundle público.
+- `VITE_PUBLIC_BASE_URL` (la dirección que va en los QR) vive en tres lugares: Vercel Production, Vercel Preview y `.github/workflows/ci.yml`. En la Ola 3 se cambia en los tres a `https://panel.clubcolina.cl`. Railway ya no la necesita (ver la bitácora, 2026-11-12). Ninguna variable secreta lleva el prefijo `VITE_`: Vite la mete en el bundle público.
 
 ## Bitácora de decisiones
 
@@ -270,3 +269,4 @@ Cada decisión sobre cómo se trabaja se anota acá, con fecha y razón, en el m
 | 2026-11-12 | Riesgo aceptado: los tokens de `/familia`, `/completar` y `/c` quedan en los logs de borde de Railway y Vercel, que registran la URL completa | Solo los ve quien ya tiene acceso a la base. Sacarlos de la URL que llega al servidor (por ejemplo, al fragmento `#`) cambiaría el formato del QR ya impreso, y no vale la pena ahora. Nuestro propio logger escribe solo el patrón de la ruta |
 | 2026-11-12 | Dos avisos nuevos: `hijo_precargado_completado_por_rut` y `cambios_bloqueados_por_otra_solicitud`. Migración 0003 aprobada como destructiva (`DROP CONSTRAINT`) | Solo amplía la lista del CHECK de `avisos`: todas las filas actuales la cumplen y el código en producción solo escribía avisos que ya existían. Una vez guardado un aviso nuevo, volver al despliegue anterior deja el listado de solicitudes del panel en 500 (el contrato viejo no lo conoce): la salida es avanzar con un arreglo, no volver atrás |
 | 2026-11-12 | `/familia` acepta al titular apoderado solo si está `pendiente` o `activo` (lista de permitidos, no de excluidos) | Un estado nuevo, o un titular cuya ficha S1 restauró a `precargado` al rechazar, no entrega QR de hijos por descuido |
+| 2026-11-12 | `pnpm build` de la raíz compila solo `backend/` y `shared/`; `pnpm check` compila todo con `pnpm build:todo`. `VITE_PUBLIC_BASE_URL` se quita de Railway | Railpack corría `pnpm -r build` y compilaba también el frontend, por lo que Railway necesitaba una variable del frontend. Vercel compila el frontend desde `frontend/` con su propio `pnpm build` y no cambia |
