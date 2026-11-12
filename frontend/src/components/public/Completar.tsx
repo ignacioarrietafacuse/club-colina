@@ -1,7 +1,9 @@
+import type { CompletarResponse } from "@club-colina/shared";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { mensajeError } from "./api";
+import { CodigoQr } from "./CodigoQr";
 import { Aviso } from "./Marco";
 import { CampoFoto } from "./registro/CampoFoto";
 import { Casilla } from "./registro/campos";
@@ -64,5 +66,31 @@ export function FormularioCompletar({
         {enviando ? "Enviando…" : "Enviar foto"}
       </Button>
     </form>
+  );
+}
+
+/**
+ * El otro apoderado ya subió su foto. Cuando el club lo aprueba, el servidor manda su
+ * `credencial_token` y ve su propio QR; mientras tanto, que está en revisión.
+ */
+export function CompletarListo({ datos }: { datos: CompletarResponse }) {
+  if (datos.credencial_token) {
+    return (
+      <div className="space-y-4">
+        <Aviso tono="ok">
+          {datos.primer_nombre}, tu credencial está activa. Muestra este código QR al entrar al
+          Pucalán y guarda este link para volver a verlo.
+        </Aviso>
+        <div className="rounded-xl border bg-card p-4">
+          <CodigoQr credencialToken={datos.credencial_token} nombreCompleto={datos.primer_nombre} />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <Aviso tono="ok">
+      Listo, {datos.primer_nombre}: ya tenemos tu foto. El club la revisará y, cuando la apruebe, tu
+      código QR aparecerá en este mismo link. Guárdalo para volver.
+    </Aviso>
   );
 }

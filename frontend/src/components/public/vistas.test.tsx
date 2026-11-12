@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { CompletarListo } from "./Completar";
 import { VistaCredencial } from "./Credencial";
 import { VistaFamilia } from "./Familia";
 import { Listo, Registro } from "./registro/Registro";
@@ -126,5 +127,24 @@ describe("registro", () => {
     expect(h).toContain(`https://club-colina.test/familia/${TOKEN}`);
     expect(h).toContain(`https://club-colina.test/completar/${otro}`);
     expect(h).toContain("Es la única vez que lo verás");
+  });
+});
+
+describe("completar", () => {
+  it("activo: muestra su QR", () => {
+    const h = html(
+      <CompletarListo
+        datos={{ primer_nombre: "Eva", foto_subida: true, credencial_token: TOKEN }}
+      />,
+    );
+    expect(h).toContain("tu credencial está activa");
+    // El QR se dibuja en el navegador: en el HTML inicial va su espacio reservado.
+    expect(h).toContain("animate-pulse");
+  });
+
+  it("foto subida y aún sin aprobar: en revisión, sin QR", () => {
+    const h = html(<CompletarListo datos={{ primer_nombre: "Eva", foto_subida: true }} />);
+    expect(h).toContain("ya tenemos tu foto");
+    expect(h).not.toContain("animate-pulse");
   });
 });

@@ -3,7 +3,7 @@ import { useParams } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { mensajeError } from "@/components/public/api";
-import { FormularioCompletar } from "@/components/public/Completar";
+import { CompletarListo, FormularioCompletar } from "@/components/public/Completar";
 import { esNoEncontrado, tokenConForma } from "@/components/public/estados";
 import { Aviso, Cargando, Marco } from "@/components/public/Marco";
 
@@ -25,7 +25,7 @@ export function CompletarPage() {
   });
 
   return (
-    <Marco titulo="Sube tu foto">
+    <Marco titulo={consulta.data?.credencial_token ? "Tu credencial" : "Sube tu foto"}>
       {!conForma ? (
         <Aviso tono="error">{LINK_INVALIDO}</Aviso>
       ) : consulta.isPending ? (
@@ -45,11 +45,8 @@ export function CompletarPage() {
             </Button>
           </div>
         )
-      ) : consulta.data.foto_subida ? (
-        <Aviso tono="ok">
-          Listo, {consulta.data.primer_nombre}: ya tenemos tu foto. El club la revisará antes de
-          activar tu credencial.
-        </Aviso>
+      ) : consulta.data.foto_subida || consulta.data.credencial_token ? (
+        <CompletarListo datos={consulta.data} />
       ) : (
         <FormularioCompletar
           token={token}
