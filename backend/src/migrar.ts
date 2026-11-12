@@ -1,10 +1,10 @@
 /**
- * Aplica las migraciones pendientes de backend/migrations/. En Railway corre como comando
- * previo al despliegue (con --produccion): si falla, la versión nueva no sale.
+ * Aplica a mano las migraciones pendientes (desarrollo local). En producción no hace falta:
+ * el backend las aplica al arrancar (src/server.ts). Contra un host que no sea localhost
+ * exige --produccion.
  */
 import { fileURLToPath } from "node:url";
-import { migrate } from "drizzle-orm/postgres-js/migrator";
-import { crearDb } from "./db/cliente";
+import { aplicarMigraciones } from "./db/migraciones";
 import { verificarHostDestino } from "./lib/guarda-host";
 
 const url = process.env.DATABASE_URL;
@@ -15,11 +15,5 @@ if (!url) {
 verificarHostDestino(url);
 
 // Funciona tanto desde src/ (tsx) como desde dist/ (bundle): ambos están en backend/.
-const carpeta = fileURLToPath(new URL("../migrations", import.meta.url));
-const { db, cerrar } = crearDb(url, { max: 1 });
-try {
-  await migrate(db, { migrationsFolder: carpeta });
-  process.stdout.write("Migraciones al día\n");
-} finally {
-  await cerrar();
-}
+await aplicarMigraciones(url, fileURLToPath(new URL("../migrations", import.meta.url)));
+process.stdout.write("Migraciones al día\n");

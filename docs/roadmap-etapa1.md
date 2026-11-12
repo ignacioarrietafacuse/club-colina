@@ -79,7 +79,7 @@ agregan `GET /api/public/categorias` y `POST /api/panel/:tipo/:id/activar`, y
 8. **Esqueleto de rutas.** En el backend, los plugins `auth`, `panel` y `public` registrados y vacíos. En el frontend, el router con todas las rutas declaradas apuntando a páginas vacías: `/login`, el panel, `/registro`, `/familia/:token`, `/completar/:token` y `/c/:token`.
 9. Todo lo de la sección "Qué instala la Ola 0" de `flujo-de-trabajo.md`: hooks, permisos, agente revisor, CI, plantilla de PR, guarda de host y `CLAUDE.md` con la tabla de propiedad de carpetas de la Ola 1.
 10. Deploy:
-    - Railway: Postgres y el servicio backend, con respaldos diario y semanal en el volumen de Postgres (las fotos van dentro).
+    - Railway: Postgres y el servicio backend (despliegue automático desde `main`, healthcheck en `/api/health`), con respaldos diario y semanal en el volumen de Postgres (las fotos van dentro). El backend aplica las migraciones al arrancar, sin configuración de Railway.
     - Vercel: apuntando a `frontend/`, con la reescritura de `/api`.
     - Prueba rápida: `/api/health` y la subida de una foto de prueba ficticia desde la URL de `vercel.app`, que después se borra.
 

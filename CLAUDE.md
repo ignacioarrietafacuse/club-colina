@@ -61,7 +61,11 @@ Las CLI de Railway y Vercel están como devDependencies de la raíz: se usan sie
 
 Las migraciones se generan desde `backend/src/db/schema.ts` con
 `pnpm --filter @club-colina/backend db:generar`. Una migración aplicada nunca se edita.
-Railway las aplica solas al desplegar: una migración que borra, renombra o cambia tipos
+El backend las aplica solo al arrancar (`backend/src/server.ts`, antes de escuchar el puerto), con
+`NODE_ENV=production` y `MIGRAR_AL_ARRANCAR=si` puestas en Railway. Si una falla, no escucha el
+puerto, y el healthcheck `/api/health` del panel de Railway mantiene la versión anterior. No hay
+`railway.json`. **Nunca levantar el servidor con las variables de producción fuera de Railway**
+(`railway run` sobre el servidor): migraría producción con el código de una rama. Una migración que borra, renombra o cambia tipos
 necesita respaldo manual y el OK de Ignacio, y lleva la línea
 `-- destructiva-aprobada: AAAA-MM-DD`; sin ella el test `migraciones.test.ts` frena el PR.
 
