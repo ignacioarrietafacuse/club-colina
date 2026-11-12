@@ -47,7 +47,10 @@ export function serializarRequest(request: FastifyRequest) {
  *   completa ("Reply was already sent ... in "/api/...?q=..."").
  * - Un mensaje de texto pierde lo que parezca una consulta y los tokens de las rutas públicas.
  */
-/** Modifica `args` en el lugar (pino los pasa tal cual al método). */
+/**
+ * Modifica `args` en el lugar (pino los pasa tal cual al método). Solo mira el primer nivel: un
+ * error se loguea en `err` o en una clave de primer nivel, nunca anidado más adentro.
+ */
 export function limpiarArgumentosDeLog(args: unknown[]): void {
   // `log.error(error)`: se trata igual que `log.error({ err: error })`.
   if (args[0] instanceof Error) args[0] = { err: args[0] };
