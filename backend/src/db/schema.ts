@@ -360,6 +360,10 @@ export const sesiones = pgTable(
  * - apoderado: nombre, apellido, telefono, email, metodo_pago, foto_id, estado, solicitud_id.
  * Nunca el RUT ni `credencial_token`. S1 restaura solo esas llaves.
  *
+ * Dos solicitudes sobre la misma persona: mientras exista la copia de una solicitud, S2 no
+ * modifica la ficha de esa persona desde otra (así ninguna pisa los cambios de la otra). S1
+ * restaura y borra la copia solo al decidir a la persona desde la solicitud de la copia.
+ *
  * Es una copia de datos personales: cada fila se borra en la misma transacción en que se decide
  * a esa persona (aprobada: ya no hace falta; rechazada: después de restaurar), y se borra sola
  * si se borra la persona (CASCADE).
