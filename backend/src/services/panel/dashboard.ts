@@ -6,7 +6,7 @@ import { apoderados, categorias, entrenadores, jugadores, solicitudesRegistro } 
 import { marcadoSinResolver } from "./personas";
 
 /** Números reales del dashboard, en una sola consulta. */
-export async function resumenDashboard(db: Ejecutor): Promise<z.input<typeof dashboardResponse>> {
+export async function resumenDashboard(db: Ejecutor): Promise<z.output<typeof dashboardResponse>> {
   const filas = await db.execute<{
     jugadores_activos: number;
     apoderados_activos: number;
