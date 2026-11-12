@@ -10,6 +10,7 @@ import { exigirSesion } from "../../services/panel/sesiones";
  * de abajo corre después del hook): sin sesión no se puede saber qué rutas hay.
  */
 export async function rutasPanel(app: FastifyInstance) {
+  app.decorateRequest("usuarioPanel", undefined);
   app.addHook("onRequest", exigirSesion);
   app.setNotFoundHandler((_request, reply) =>
     reply.status(404).send({ error: { codigo: "no_encontrado", mensaje: "No encontrado" } }),

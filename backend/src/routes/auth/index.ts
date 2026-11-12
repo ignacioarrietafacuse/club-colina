@@ -9,6 +9,7 @@ import {
   crearSesion,
   exigirSesion,
   ponerCookieSesion,
+  prepararHashFalso,
   verificarCredenciales,
 } from "../../services/panel/sesiones";
 
@@ -23,6 +24,8 @@ export const LIMITE_LOGIN_IP = { max: 20, timeWindow: "15 minutes" } as const;
  * Plugin `auth`, montado en /api/auth: POST /login, POST /logout y GET /me.
  */
 export async function rutasAuth(app: FastifyInstance) {
+  app.decorateRequest("usuarioPanel", undefined);
+  await prepararHashFalso();
   // `@fastify/rate-limit` marca la petición como contada en el primer límite que corre, así que
   // un segundo `config.rateLimit` (o `app.rateLimit()`) en la misma ruta no contaría nunca.
   // `createRateLimit` solo calcula, sin marcar: corre en un preHandler propio y deja que el de

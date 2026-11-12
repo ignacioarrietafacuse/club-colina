@@ -28,11 +28,19 @@ export function hashPassword(password: string): Promise<string> {
 }
 
 // Un hash fijo para comparar cuando el usuario no existe: así el login tarda lo mismo y no
-// revela qué usuarios existen. Se calcula una vez, la primera vez que se necesita.
+// revela qué usuarios existen. Se calcula al registrar las rutas (`prepararHashFalso`), no en el
+// primer login, para que esa primera respuesta no tarde distinto. Si falla, se reintenta.
 let hashFalso: Promise<string> | undefined;
 function hashParaUsuarioInexistente(): Promise<string> {
-  hashFalso ??= hash(generarToken());
+  hashFalso ??= hash(generarToken()).catch((error: unknown) => {
+    hashFalso = undefined;
+    throw error;
+  });
   return hashFalso;
+}
+
+export async function prepararHashFalso(): Promise<void> {
+  await hashParaUsuarioInexistente();
 }
 
 /**

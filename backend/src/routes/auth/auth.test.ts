@@ -8,7 +8,7 @@ import { sesiones, usuarios } from "../../db/schema";
 import { LIMITES } from "../../lib/limite-intentos";
 import { hashToken } from "../../lib/tokens";
 import { configTest, dbTest, urlTest } from "../../test/db";
-import { crearOActualizarUsuario } from "../../services/panel/usuarios";
+import { crearUsuario } from "../../services/panel/usuarios";
 import { LIMITE_LOGIN_IP } from "./index";
 
 const { db, cerrar } = dbTest();
@@ -21,7 +21,7 @@ let contador = 0;
 async function usuarioNuevo(): Promise<string> {
   contador += 1;
   const usuario = `prueba${Date.now()}x${contador}`;
-  await crearOActualizarUsuario(db, { usuario, nombre: "Usuaria Prueba", password: PASSWORD });
+  await crearUsuario(db, { usuario, nombre: "Usuaria Prueba", password: PASSWORD });
   return usuario;
 }
 
