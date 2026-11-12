@@ -135,7 +135,7 @@ function FichaJugador({
         }
       />
 
-      {j.marcado_retiro_en && <MarcaRetiro jugadorId={j.id} />}
+      {j.marcado_retiro_en && <MarcaRetiro jugadorId={j.id} estado={j.estado} />}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="card-surface p-5">
@@ -346,7 +346,13 @@ function FichaJugador({
  * inactivo (en la credencial) o quita la marca si sigue. Quitarla no rehace la ficha: no se pierde
  * lo que esté escribiendo.
  */
-function MarcaRetiro({ jugadorId }: { jugadorId: string }) {
+function MarcaRetiro({
+  jugadorId,
+  estado,
+}: {
+  jugadorId: string;
+  estado: JugadorDetalle["estado"];
+}) {
   const queryClient = useQueryClient();
   const [confirmar, setConfirmar] = useState(false);
   const quitar = useMutation({
@@ -356,8 +362,12 @@ function MarcaRetiro({ jugadorId }: { jugadorId: string }) {
   return (
     <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg bg-warning/15 px-4 py-3 text-sm">
       <span className="flex-1">
-        Un apoderado indicó que ya no está en el club. Para confirmar el retiro, desactívalo en la
-        credencial. Si sigue en el club, quita la marca.
+        Un apoderado indicó que ya no está en el club.{" "}
+        {estado === "inactivo"
+          ? "Ya está inactivo; quita la marca solo si sigue en el club."
+          : estado === "activo" || estado === "precargado"
+            ? "Para confirmar el retiro, desactívalo en la credencial. Si sigue en el club, quita la marca."
+            : "Si sigue en el club, quita la marca; si no, decide su solicitud."}
       </span>
       {quitar.error && (
         <span className="w-full text-destructive">{mensajeDeError(quitar.error)}</span>
