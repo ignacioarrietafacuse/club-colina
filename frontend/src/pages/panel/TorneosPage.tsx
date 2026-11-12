@@ -1,5 +1,5 @@
-import { PaginaVacia } from "@/components/PaginaVacia";
+import { SeccionPendiente } from "@/components/panel/Pendiente";
 
 export function TorneosPage() {
-  return <PaginaVacia titulo="Torneos y campus" />;
+  return <SeccionPendiente titulo="Torneos y campus" />;
 }

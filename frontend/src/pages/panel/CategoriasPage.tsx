@@ -1,5 +1,5 @@
-import { PaginaVacia } from "@/components/PaginaVacia";
+import { SeccionPendiente } from "@/components/panel/Pendiente";
 
 export function CategoriasPage() {
-  return <PaginaVacia titulo="Categorías" />;
+  return <SeccionPendiente titulo="Categorías" />;
 }
