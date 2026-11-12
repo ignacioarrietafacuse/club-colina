@@ -1066,12 +1066,14 @@ describe("solicitudes: la copia de un hijo marcado 'ya no está'", () => {
   const copiasDe = (hijo: string) => db.select().from(fichasPrevias).where(eq(fichasPrevias.jugador_id, hijo));
   const sinTiempos = <T extends { actualizado_en: Date }>(f: T | undefined) => f && { ...f, actualizado_en: null };
 
-  it("«Rechazar todo» deshace la marca y no deja copias", async () => {
+  it("«Rechazar todo» no deja copias; la marca queda para que Mony la decida en la ficha", async () => {
     const { app, cookies } = await appConSesion(db);
     const { s, titular, hijo, antesA, antesJ } = await marcarDesdeElFormulario(app);
     const r = await app.inject({ method: "POST", url: API.panel.rechazar(s.id), cookies, payload: {} });
     expect(r.statusCode).toBe(200);
-    expect(sinTiempos(await estadoJ(hijo))).toEqual(sinTiempos(antesJ));
+    const despues = await estadoJ(hijo);
+    expect(despues?.marcado_retiro_en).not.toBeNull();
+    expect(sinTiempos(despues && { ...despues, marcado_retiro_en: null })).toEqual(sinTiempos(antesJ));
     expect(sinTiempos(await estadoA(titular))).toEqual(sinTiempos(antesA));
     expect(await copiasDe(hijo)).toHaveLength(0);
     await app.close();
