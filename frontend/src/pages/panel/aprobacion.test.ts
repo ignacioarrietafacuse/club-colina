@@ -11,6 +11,10 @@ import {
   formInicial,
   llaveVinculo,
   RECHAZO_TOTAL,
+  esDeEstaSolicitud,
+  fotoPorLinkReenviado,
+  vinculoAprobable,
+  vinculoConocido,
   vinculoVa,
 } from "./aprobacion";
 
@@ -213,20 +217,28 @@ describe("vínculos y personas", () => {
     expect(r.ok && r.datos.vinculos).toEqual([]);
   });
 
-  it("un vínculo hacia alguien que no viene en la solicitud parte desmarcado", () => {
+  it("un vínculo hacia alguien que no viene en la solicitud no se ofrece", () => {
     const s = solicitud({
       jugadores: [],
       vinculos: [{ jugador_id: J1, apoderado_id: A1, paga_mensualidad: true, estado: "pendiente" }],
     });
+    expect(vinculoConocido(s.vinculos[0]!, s)).toBe(false);
+    expect(vinculoAprobable(s.vinculos[0]!, s)).toBe(false);
     const form = formInicial(s);
     expect(form.vinculos[LLAVE]).toBe(false);
-    expect(armarAprobacion(form, nombres).ok).toBe(true);
     const r = armarAprobacion(form, nombres);
     expect(r.ok && r.datos.vinculos).toEqual([]);
-    // Mony puede marcarlo a mano después de revisar la ficha.
-    form.vinculos[LLAVE] = true;
-    const marcado = armarAprobacion(form, nombres);
-    expect(marcado.ok && marcado.datos.vinculos).toEqual([{ jugador_id: J1, apoderado_id: A1 }]);
+  });
+
+  it("un vínculo con una persona precargada no se ofrece (se activa en su ficha)", () => {
+    const s = solicitud({ jugadores: [jugador(J1, { estado: "precargado" })] });
+    expect(vinculoAprobable(s.vinculos[0]!, s)).toBe(false);
+    expect(formInicial(s).vinculos[LLAVE]).toBe(false);
+  });
+
+  it("un vínculo parte desmarcado si una de sus personas pendientes parte desmarcada", () => {
+    const s = solicitud({ jugadores: [jugador(J1, { marcado_retiro_en: AHORA })] });
+    expect(formInicial(s).vinculos[LLAVE]).toBe(false);
   });
 
   it("quien no tiene foto parte desmarcado (no se puede aprobar)", () => {
@@ -282,5 +294,40 @@ describe("casos de la segunda revisión", () => {
         }),
       ),
     ).not.toBe(firmaSolicitud(base));
+  });
+});
+
+describe("quién se decide desde esta solicitud", () => {
+  const OTRA = "55555555-5555-4555-8555-555555555555";
+
+  it("una persona de otra solicitud (o el segundo apoderado) parte desmarcada", () => {
+    const s = solicitud({
+      apoderados: [{ ...solicitud().apoderados[0]!, solicitud_id: OTRA }],
+    });
+    expect(esDeEstaSolicitud(s.apoderados[0]!, s)).toBe(false);
+    const form = formInicial(s);
+    expect(form.apoderados[A1]?.marcado).toBe(false);
+    // Su vínculo tampoco parte marcado: el apoderado no quedaría activo.
+    expect(form.vinculos[llaveVinculo({ jugador_id: J1, apoderado_id: A1 })]).toBe(false);
+  });
+
+  it("sin solicitud asignada (precargado que esta dejó pendiente) es de esta", () => {
+    const s = solicitud({ jugadores: [jugador(J1, { solicitud_id: null })] });
+    expect(formInicial(s).jugadores[J1]?.marcado).toBe(true);
+  });
+
+  it("nota de foto reenviada: el apoderado de una solicitud de segundo apoderado", () => {
+    const base = solicitud().apoderados[0]!;
+    const segunda = solicitud({ tipo: "segundo_apoderado" });
+    expect(fotoPorLinkReenviado(base, segunda)).toBe(true);
+    expect(fotoPorLinkReenviado({ ...base, tiene_foto: false }, segunda)).toBe(false);
+    expect(fotoPorLinkReenviado({ ...base, estado: "activo" }, segunda)).toBe(false);
+  });
+
+  it("nota de foto reenviada: en la solicitud de origen, el apoderado de la segunda", () => {
+    const base = solicitud().apoderados[0]!;
+    const origen = solicitud();
+    expect(fotoPorLinkReenviado(base, origen)).toBe(false);
+    expect(fotoPorLinkReenviado({ ...base, solicitud_id: OTRA }, origen)).toBe(true);
   });
 });
