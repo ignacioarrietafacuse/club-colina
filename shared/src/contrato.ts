@@ -55,6 +55,17 @@ export const AVISOS_SOLICITUD = [
    * solicitudes pendientes anteriores, para que la primera (quizás la falsa) no quede limpia.
    */
   "hay_solicitud_posterior",
+  /**
+   * Un hijo precargado sin apoderado en la base, nombrado por RUT, se completó con los datos de
+   * esta solicitud (solo lo que faltaba). Mony confirma que la familia es la suya.
+   */
+  "hijo_precargado_completado_por_rut",
+  /**
+   * Otra solicitud pendiente ya había modificado a una persona de esta (tiene su ficha previa):
+   * esta no modificó su ficha (ni la completó ni la marcó "ya no está"); a lo más la vinculó. La
+   * otra recibe `hay_solicitud_posterior`.
+   */
+  "cambios_bloqueados_por_otra_solicitud",
 ] as const;
 /** Segmento de URL de `/api/panel/:tipo/:id/...`. */
 export const TIPOS_PERSONA = ["jugadores", "apoderados", "entrenadores"] as const;

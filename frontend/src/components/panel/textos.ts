@@ -28,6 +28,10 @@ export const TEXTO_AVISO: Record<AvisoSolicitud, string> = {
   otro_apoderado_ya_registrado: "El otro apoderado que se agrega ya existía en la base.",
   sin_telefono_en_base: "El RUT estaba en la base sin teléfono: no hubo con qué comparar.",
   hay_solicitud_posterior: "Llegó después otra solicitud con las mismas personas.",
+  hijo_precargado_completado_por_rut:
+    "Un hijo de la base, nombrado por RUT, se completó con los datos de esta solicitud. Confirma que la familia es la suya.",
+  cambios_bloqueados_por_otra_solicitud:
+    "Otra solicitud pendiente ya había modificado a una persona de esta: esta no cambió su ficha, a lo más la vinculó.",
 };
 
 export const TEXTO_ESTADO: Record<EstadoPersona, string> = {
