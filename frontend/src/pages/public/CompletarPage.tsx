@@ -1,5 +1,48 @@
-import { PaginaVacia } from "@/components/PaginaVacia";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useParams } from "@tanstack/react-router";
+import { api } from "@/lib/api";
+import { mensajeError } from "@/components/public/api";
+import { FormularioCompletar } from "@/components/public/Completar";
+import { esNoEncontrado, tokenConForma } from "@/components/public/estados";
+import { Aviso, Cargando, Marco } from "@/components/public/Marco";
 
+const LINK_INVALIDO = "Este link no es válido. Pídele uno nuevo a quien te registró o al club.";
+
+/** `/completar/:token`: link personal del segundo apoderado. */
 export function CompletarPage() {
-  return <PaginaVacia titulo="Sube tu foto" />;
+  const { token } = useParams({ from: "/completar/$token" });
+  const conForma = tokenConForma(token);
+  const queryClient = useQueryClient();
+  const clave = ["public", "completar", token];
+  const consulta = useQuery({
+    queryKey: clave,
+    queryFn: ({ signal }) => api.publico.verCompletar(token, signal),
+    enabled: conForma,
+    retry: false,
+  });
+
+  return (
+    <Marco titulo="Sube tu foto">
+      {!conForma ? (
+        <Aviso tono="error">{LINK_INVALIDO}</Aviso>
+      ) : consulta.isPending ? (
+        <Cargando />
+      ) : consulta.isError ? (
+        <Aviso tono="error">
+          {esNoEncontrado(consulta.error) ? LINK_INVALIDO : mensajeError(consulta.error)}
+        </Aviso>
+      ) : consulta.data.foto_subida ? (
+        <Aviso tono="ok">
+          Listo, {consulta.data.primer_nombre}: ya tenemos tu foto. El club la revisará antes de
+          activar tu credencial.
+        </Aviso>
+      ) : (
+        <FormularioCompletar
+          token={token}
+          primerNombre={consulta.data.primer_nombre}
+          onSubida={() => void queryClient.invalidateQueries({ queryKey: clave })}
+        />
+      )}
+    </Marco>
+  );
 }
