@@ -799,7 +799,9 @@ describe("POST /api/public/solicitudes", () => {
      * Cada camino que copia a fichas_previas: el titular, un hijo por posición, un hijo sin
      * apoderado nombrado por RUT y el jugador adulto. Devuelve la ficha que Mony toca y el envío.
      */
-    async function escenario(quien: "titular" | "hijo" | "hijo por RUT" | "adulto") {
+    async function escenario(
+      quien: "titular" | "hijo" | "hijo por RUT" | "adulto",
+    ): Promise<{ tabla: typeof apoderados | typeof jugadores; id: string; datos: unknown; fotos: Record<string, Buffer> }> {
       if (quien === "adulto") {
         const adulto = await crearJugador(db, { fecha_nacimiento: "2001-01-01", numero_camiseta: null });
         return { tabla: jugadores, id: adulto.id, datos: adultoCompleto(adulto.rut), fotos: { t: JPEG_PRUEBA } };
