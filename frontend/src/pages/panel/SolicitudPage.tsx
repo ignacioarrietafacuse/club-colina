@@ -366,7 +366,14 @@ function DetalleSolicitud({
             La solicitud cambió desde que abriste esta pantalla. Recarga el formulario antes de
             aprobar o rechazar.
           </span>
-          <Button size="sm" variant="outline" onClick={() => alCambiar()}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => alCambiar()}
+            // Mientras corre una acción, su propio final rehace el formulario (y deja sin marcar a
+            // quien se le quitó la marca): recargar antes lo dejaría marcado por un momento.
+            disabled={aprobar.isPending || rechazar.isPending || quitarMarca.isPending}
+          >
             Recargar formulario
           </Button>
         </div>
