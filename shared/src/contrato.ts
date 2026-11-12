@@ -155,6 +155,7 @@ export const CODIGOS_ERROR = [
   "requisitos_incompletos",
   "conflicto",
   "archivo_invalido",
+  "debe_cambiar_clave",
   "error_interno",
 ] as const;
 export type CodigoError = (typeof CODIGOS_ERROR)[number];
@@ -343,7 +344,13 @@ export const credencialResponse = z.object({ nombre_completo: z.string(), rol })
 // Auth
 // ---------------------------------------------------------------------------
 
-export const usuario = z.object({ id, nombre: z.string() });
+/**
+ * `debe_cambiar_clave`: el usuario entró con una clave temporal; el panel solo le muestra la
+ * pantalla de cambiar clave, y /api/panel responde 403 `debe_cambiar_clave` hasta que la cambie.
+ */
+// Con default: un backend anterior a la columna (despliegue a medias o vuelta atrás) no la manda,
+// y tampoco aplica el 403, así que leerla como false no abre nada.
+export const usuario = z.object({ id, nombre: z.string(), debe_cambiar_clave: z.boolean().default(false) });
 /** POST /api/auth/login — deja la cookie `__Host-sesion`. */
 export const loginRequest = z.object({
   usuario: z.string().trim().min(1).max(100),
@@ -352,6 +359,22 @@ export const loginRequest = z.object({
 export const loginResponse = z.object({ usuario });
 /** GET /api/auth/me */
 export const meResponse = z.object({ usuario });
+
+/** Largo mínimo de una clave del panel (el mismo que exige el script `crear-usuario`). */
+export const CLAVE_MIN = 12;
+/**
+ * POST /api/auth/cambiar-clave — con sesión. La nueva tiene al menos `CLAVE_MIN` caracteres y es
+ * distinta de la actual. Si la actual no coincide: 400 `credenciales_invalidas`. Al cambiarla se
+ * cierran todas las sesiones del usuario, se abre una nueva para quien la cambió (cookie nueva: la
+ * anterior deja de servir, por si alguien la había copiado) y se apaga `debe_cambiar_clave`.
+ * Responde 204. Con límite de intentos por sesión (5 cada 15 minutos; ver `LIMITES.cambiarClave`).
+ */
+export const cambiarClaveRequest = z
+  .object({
+    clave_actual: z.string().min(1).max(200),
+    clave_nueva: z.string().min(CLAVE_MIN).max(200),
+  })
+  .refine((d) => d.clave_nueva !== d.clave_actual, { path: ["clave_nueva"], message: "Debe ser distinta de la actual" });
 /**
  * Prefijo `__Host-`: el navegador la acepta solo con `Secure`, `Path=/` y sin `Domain`, así que
  * nadie puede pisarla desde un subdominio ni desde http.
@@ -664,6 +687,7 @@ export const API = {
     login: "/api/auth/login",
     logout: "/api/auth/logout",
     me: "/api/auth/me",
+    cambiarClave: "/api/auth/cambiar-clave",
   },
   panel: {
     dashboard: "/api/panel/dashboard",
@@ -715,6 +739,7 @@ export type CompletarResponse = z.infer<typeof completarResponse>;
 export type CredencialResponse = z.infer<typeof credencialResponse>;
 export type Usuario = z.infer<typeof usuario>;
 export type LoginRequest = z.input<typeof loginRequest>;
+export type CambiarClaveRequest = z.input<typeof cambiarClaveRequest>;
 export type DashboardResponse = z.infer<typeof dashboardResponse>;
 export type JugadorResumen = z.infer<typeof jugadorResumen>;
 export type JugadorDetalle = z.infer<typeof jugadorDetalle>;

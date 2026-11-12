@@ -116,7 +116,7 @@ describe("errores", () => {
 
 describe("cuerpos y URLs", () => {
   it("manda JSON con su Content-Type", async () => {
-    responder(json({ usuario: { id: ID, nombre: "Mony" } }));
+    responder(json({ usuario: { id: ID, nombre: "Mony", debe_cambiar_clave: false } }));
     await api.auth.login({ usuario: "mony", password: "secreta" });
     const { url, init } = llamadas[0]!;
     expect(url).toBe("/api/auth/login");
@@ -186,8 +186,12 @@ describe("cuerpos y URLs", () => {
 
 describe("sesión", () => {
   it("con sesión devuelve el usuario", async () => {
-    responder(json({ usuario: { id: ID, nombre: "Mony" } }));
-    expect(await api.auth.sesionActual()).toEqual({ id: ID, nombre: "Mony" });
+    responder(json({ usuario: { id: ID, nombre: "Mony", debe_cambiar_clave: false } }));
+    expect(await api.auth.sesionActual()).toEqual({
+      id: ID,
+      nombre: "Mony",
+      debe_cambiar_clave: false,
+    });
   });
 
   it("un 401 es 'sin sesión'", async () => {

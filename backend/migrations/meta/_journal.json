@@ -29,6 +29,13 @@
       "when": 1794489220459,
       "tag": "0003_avisos_nuevos",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794516878138,
+      "tag": "0004_debe_cambiar_clave",
+      "breakpoints": true
     }
   ]
 }

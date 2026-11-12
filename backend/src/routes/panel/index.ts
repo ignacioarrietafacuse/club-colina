@@ -1,12 +1,12 @@
 import type { FastifyInstance } from "fastify";
-import { exigirSesion } from "../../services/panel/sesiones";
+import { exigirClaveAlDia, exigirSesion } from "../../services/panel/sesiones";
 import { rutasPersonas } from "./personas";
 import { rutasSolicitudes } from "./solicitudes";
 
 /**
  * Plugin `panel`, montado en /api/panel. Toda ruta de este plugin exige sesión: sin sesión, con
- * una sesión vencida o de un usuario inactivo, 401; si la verificación falla, 500. En ningún
- * caso la petición llega al handler.
+ * una sesión vencida o de un usuario inactivo, 401; si la verificación falla, 500; con un usuario
+ * que debe cambiar su clave, 403 `debe_cambiar_clave`. En ningún caso la petición llega al handler.
  *
  * El hook va en el plugin entero, así cubre también las rutas que no existen (el 404 propio
  * de abajo corre después del hook): sin sesión no se puede saber qué rutas hay.
@@ -14,6 +14,8 @@ import { rutasSolicitudes } from "./solicitudes";
 export async function rutasPanel(app: FastifyInstance) {
   app.decorateRequest("usuarioPanel", undefined);
   app.addHook("onRequest", exigirSesion);
+  // Con clave temporal, 403 a todo el panel hasta cambiarla (en /api/auth/cambiar-clave).
+  app.addHook("onRequest", exigirClaveAlDia);
   // Todo lo del panel lleva datos personales (RUT, teléfonos, credenciales): que ningún caché lo
   // guarde. Una ruta que ya fijó su propio Cache-Control (la foto) lo conserva.
   app.addHook("onSend", async (_request, reply) => {

@@ -58,6 +58,7 @@ export async function verificarCredenciales(
       nombre: usuarios.nombre,
       password_hash: usuarios.password_hash,
       activo: usuarios.activo,
+      debe_cambiar_clave: usuarios.debe_cambiar_clave,
     })
     .from(usuarios)
     .where(eq(usuarios.usuario, normalizarUsuario(usuario)));
@@ -70,7 +71,7 @@ export async function verificarCredenciales(
     coincide = false;
   }
   if (!fila || !fila.activo || !coincide) return null;
-  return { id: fila.id, nombre: fila.nombre };
+  return { id: fila.id, nombre: fila.nombre, debe_cambiar_clave: fila.debe_cambiar_clave };
 }
 
 /** Crea una sesión y devuelve el token para la cookie. La base guarda solo su hash. */
@@ -87,7 +88,7 @@ export async function crearSesion(db: Ejecutor, usuarioId: string): Promise<{ to
 export async function usuarioDeSesion(db: Ejecutor, token: string | undefined): Promise<Usuario | null> {
   if (typeof token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
   const [fila] = await db
-    .select({ id: usuarios.id, nombre: usuarios.nombre })
+    .select({ id: usuarios.id, nombre: usuarios.nombre, debe_cambiar_clave: usuarios.debe_cambiar_clave })
     .from(sesiones)
     .innerJoin(usuarios, eq(usuarios.id, sesiones.usuario_id))
     .where(and(eq(sesiones.id, hashToken(token)), gt(sesiones.expira_en, new Date()), eq(usuarios.activo, true)));
@@ -126,4 +127,15 @@ export async function exigirSesion(request: FastifyRequest) {
   const usuario = await usuarioDeSesion(request.server.db, request.cookies[COOKIE_SESION]);
   if (!usuario) throw new ErrorApi(401, "no_autenticado", "Sesión requerida");
   request.usuarioPanel = usuario;
+}
+
+/**
+ * Hook `onRequest` de /api/panel, después de `exigirSesion`: un usuario con clave temporal no
+ * pasa de aquí hasta cambiarla (403 `debe_cambiar_clave`). Cambiar la clave, salir y /me están
+ * en /api/auth, fuera de este hook.
+ */
+export async function exigirClaveAlDia(request: FastifyRequest) {
+  if (!request.usuarioPanel || request.usuarioPanel.debe_cambiar_clave) {
+    throw new ErrorApi(403, "debe_cambiar_clave", "Antes de seguir, cambia tu clave.");
+  }
 }

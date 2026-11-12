@@ -1,4 +1,4 @@
-import { COOKIE_SESION, loginRequest, loginResponse, meResponse } from "@club-colina/shared";
+import { cambiarClaveRequest, COOKIE_SESION, loginRequest, loginResponse, meResponse } from "@club-colina/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { ErrorApi } from "../../lib/errores";
 import { ipCliente, LIMITES } from "../../lib/limite-intentos";
@@ -12,6 +12,7 @@ import {
   prepararHashFalso,
   verificarCredenciales,
 } from "../../services/panel/sesiones";
+import { cambiarClavePropia } from "../../services/panel/usuarios";
 
 /**
  * Tope de intentos de login solo por IP, además del de usuario + IP (`LIMITES.login`): quien
@@ -21,7 +22,8 @@ import {
 export const LIMITE_LOGIN_IP = { max: 20, timeWindow: "15 minutes" } as const;
 
 /**
- * Plugin `auth`, montado en /api/auth: POST /login, POST /logout y GET /me.
+ * Plugin `auth`, montado en /api/auth: POST /login, POST /logout, GET /me y POST /cambiar-clave.
+ * Ninguna pasa por `exigirClaveAlDia`: son las que un usuario con clave temporal sí puede usar.
  */
 export async function rutasAuth(app: FastifyInstance) {
   app.decorateRequest("usuarioPanel", undefined);
@@ -74,4 +76,21 @@ export async function rutasAuth(app: FastifyInstance) {
     if (!request.usuarioPanel) throw new ErrorApi(401, "no_autenticado", "Sesión requerida");
     return respuesta(meResponse, { usuario: request.usuarioPanel });
   });
+
+  app.post(
+    "/cambiar-clave",
+    { onRequest: exigirSesion, config: { rateLimit: LIMITES.cambiarClave } },
+    async (request, reply) => {
+      const usuario = request.usuarioPanel;
+      if (!usuario) throw new ErrorApi(401, "no_autenticado", "Sesión requerida");
+      const { clave_actual, clave_nueva } = validarEntrada(cambiarClaveRequest, request.body);
+      const { token, expira } = await cambiarClavePropia(app.db, {
+        usuarioId: usuario.id,
+        claveActual: clave_actual,
+        claveNueva: clave_nueva,
+      });
+      ponerCookieSesion(reply, token, expira);
+      return reply.status(204).send();
+    },
+  );
 }
