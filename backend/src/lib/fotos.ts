@@ -30,7 +30,11 @@ export function detectarMime(bytes: Buffer): MimeFoto | null {
 // EXIF se pierde la orientación; la compresión del navegador ya la aplica a los píxeles.
 // ---------------------------------------------------------------------------
 
-/** JPEG: se conservan APP0 (JFIF) y APP14 (Adobe, color); se borran APP1–APP13, APP15 y comentarios. */
+/**
+ * JPEG: se conservan APP0 (JFIF) y APP14 (Adobe, color); se borran APP1–APP13, APP15 y
+ * comentarios. Se corta en el fin de imagen (FFD9): lo que algunos celulares pegan después
+ * (imágenes MPF con su propio EXIF, el video de las "Motion Photos") se descarta.
+ */
 function limpiarJpeg(bytes: Buffer): Buffer | null {
   const partes: Buffer[] = [bytes.subarray(0, 2)];
   let i = 2;
@@ -42,9 +46,8 @@ function limpiarJpeg(bytes: Buffer): Buffer | null {
       i += 1; // relleno
       continue;
     }
-    if (marcador === 0xda) {
-      // Inicio de los datos de imagen: de acá en adelante no hay más metadatos.
-      partes.push(bytes.subarray(i));
+    if (marcador === 0xd9) {
+      partes.push(bytes.subarray(i, i + 2));
       return Buffer.concat(partes);
     }
     if (marcador === 0x01 || (marcador >= 0xd0 && marcador <= 0xd7)) {
@@ -56,9 +59,33 @@ function limpiarJpeg(bytes: Buffer): Buffer | null {
     const largo = bytes.readUInt16BE(i + 2);
     const fin = i + 2 + largo;
     if (largo < 2 || fin > bytes.length) return null;
-    const esMetadato = (marcador >= 0xe1 && marcador <= 0xef && marcador !== 0xee) || marcador === 0xfe;
+    const esMetadato =
+      (marcador >= 0xe1 && marcador <= 0xef && marcador !== 0xee) || marcador === 0xfe;
     if (!esMetadato) partes.push(bytes.subarray(i, fin));
     i = fin;
+    if (marcador === 0xda) {
+      // Datos comprimidos del scan: siguen hasta el próximo marcador que no sea un byte
+      // escapado (FF00), un reinicio (FFD0–FFD7) ni relleno. En JPEG progresivos, después
+      // vienen más segmentos y scans, que el ciclo sigue procesando.
+      let j = i;
+      while (j + 1 < bytes.length) {
+        if (bytes[j] === 0xff) {
+          const siguiente = bytes[j + 1] ?? 0;
+          if (siguiente === 0x00 || (siguiente >= 0xd0 && siguiente <= 0xd7)) {
+            j += 2;
+            continue;
+          }
+          if (siguiente === 0xff) {
+            j += 1;
+            continue;
+          }
+          break;
+        }
+        j += 1;
+      }
+      partes.push(bytes.subarray(i, j));
+      i = j;
+    }
   }
   return null;
 }
@@ -81,20 +108,23 @@ function limpiarPng(bytes: Buffer): Buffer | null {
 }
 
 function limpiarWebp(bytes: Buffer): Buffer | null {
+  // Solo lo que declara el contenedor RIFF; lo que venga pegado después se descarta.
+  const finRiff = 8 + bytes.readUInt32LE(4);
+  if (finRiff > bytes.length) return null;
   const partes: Buffer[] = [];
   let i = 12;
-  while (i + 8 <= bytes.length) {
+  while (i + 8 <= finRiff) {
     const tipo = bytes.toString("latin1", i, i + 4);
     const largo = bytes.readUInt32LE(i + 4);
     const fin = i + 8 + largo + (largo % 2);
-    if (i + 8 + largo > bytes.length) return null;
+    if (i + 8 + largo > finRiff) return null;
     if (tipo === "VP8X") {
-      const chunk = Buffer.from(bytes.subarray(i, Math.min(fin, bytes.length)));
+      const chunk = Buffer.from(bytes.subarray(i, Math.min(fin, finRiff)));
       // Apaga las marcas de EXIF (0x08) y XMP (0x04) porque esos chunks se borran.
       chunk[8] = (chunk[8] ?? 0) & ~0x0c;
       partes.push(chunk);
     } else if (tipo !== "EXIF" && tipo !== "XMP ") {
-      partes.push(bytes.subarray(i, Math.min(fin, bytes.length)));
+      partes.push(bytes.subarray(i, Math.min(fin, finRiff)));
     }
     i = fin;
   }

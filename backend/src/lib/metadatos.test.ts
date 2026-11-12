@@ -66,6 +66,28 @@ describe("quitar metadatos", () => {
     expect(quitarMetadatos(WEBP_PRUEBA, "image/webp")?.equals(WEBP_PRUEBA)).toBe(true);
   });
 
+  it("JPEG: descarta lo pegado después del fin de imagen (MPF, Motion Photo)", () => {
+    const exif = segmentoJpeg(0xe1, Buffer.concat([Buffer.from("Exif\0\0"), GPS]));
+    const segunda = Buffer.concat([JPEG_PRUEBA.subarray(0, 2), exif, JPEG_PRUEBA.subarray(2)]);
+    const video = Buffer.from("....ftypmp42 video de la casa");
+    const limpia = quitarMetadatos(Buffer.concat([JPEG_PRUEBA, segunda, video]), "image/jpeg");
+    expect(limpia?.equals(JPEG_PRUEBA)).toBe(true);
+  });
+
+  it("JPEG: respeta bytes escapados y reinicios dentro de los datos del scan", () => {
+    const sos = JPEG_PRUEBA.lastIndexOf(Buffer.from([0xff, 0xda]));
+    const largoSos = JPEG_PRUEBA.readUInt16BE(sos + 2);
+    const inicioDatos = sos + 2 + largoSos;
+    const datos = Buffer.from([0x12, 0xff, 0x00, 0x34, 0xff, 0xd3, 0x56]);
+    const jpeg = Buffer.concat([JPEG_PRUEBA.subarray(0, inicioDatos), datos, Buffer.from([0xff, 0xd9])]);
+    expect(quitarMetadatos(Buffer.concat([jpeg, GPS]), "image/jpeg")?.equals(jpeg)).toBe(true);
+  });
+
+  it("WebP: descarta lo pegado después del contenedor", () => {
+    const limpia = quitarMetadatos(Buffer.concat([WEBP_PRUEBA, GPS]), "image/webp");
+    expect(limpia?.equals(WEBP_PRUEBA)).toBe(true);
+  });
+
   it("rechaza estructuras dañadas", () => {
     expect(quitarMetadatos(Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0xff, 0xff]), "image/jpeg")).toBeNull();
     expect(quitarMetadatos(PNG_PRUEBA.subarray(0, 20), "image/png")).toBeNull();
