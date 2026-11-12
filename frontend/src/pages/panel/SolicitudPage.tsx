@@ -27,6 +27,7 @@ import {
   armarAprobacion,
   armarRechazo,
   armarRechazoVinculo,
+  contactoPosible,
   contarMarcadas,
   firmaSolicitud,
   formInicial,
@@ -282,11 +283,13 @@ function DetalleSolicitud({
             key={j.id}
             j={j}
             deOtra={j.estado === "pendiente" && !esDeEstaSolicitud(j, s)}
+            sinContactoPosible={!contactoPosible(j.id, s)}
             quitarMarca={{
               enviar: () => {
                 aprobar.reset();
                 rechazar.reset();
                 setConfirmar(null);
+                setConfirmarVinculo(null);
                 quitarMarca.mutate(j.id);
               },
               ocupado,
@@ -432,7 +435,7 @@ function DetalleSolicitud({
         </div>
       )}
 
-      {conPosterior && (confirmar !== null || huboRechazo) && (
+      {conPosterior && (confirmar !== null || confirmarVinculo !== null || huboRechazo) && (
         <div role="status" className="mb-4 rounded-lg bg-warning/15 px-4 py-3 text-sm">
           Llegó después otra solicitud con las mismas personas.{" "}
           {huboRechazo ? "Como rechazaste" : "Si rechazas"} a alguien de esta, pide a la familia de
@@ -709,6 +712,7 @@ function CampoNumero({
 function TarjetaJugador({
   j,
   deOtra,
+  sinContactoPosible,
   quitarMarca,
   categorias,
   form,
@@ -716,6 +720,8 @@ function TarjetaJugador({
 }: {
   j: JugadorDetalle;
   deOtra: boolean;
+  /** Adulto sin teléfono sin un vínculo aprobable desde acá (ver `contactoPosible`). */
+  sinContactoPosible: boolean;
   quitarMarca: { enviar: () => void; ocupado: boolean };
   categorias: CategoriaPanel[] | undefined;
   form: FormJugador | undefined;
@@ -741,12 +747,19 @@ function TarjetaJugador({
           )}
           {deOtra && <NotaDeOtra />}
           {j.apoderados.length === 0 && <Badge tone="neutral">Adulto sin apoderado</Badge>}
-          {j.estado === "pendiente" && j.faltantes.includes("telefono") && (
-            <span className="w-full text-xs text-muted-foreground">
-              No tiene teléfono: se aprueba en el mismo envío que su apoderado y el vínculo entre
-              ellos.
-            </span>
-          )}
+          {j.estado === "pendiente" &&
+            j.faltantes.includes("telefono") &&
+            (sinContactoPosible ? (
+              <span className="w-full text-xs text-destructive">
+                No tiene teléfono ni un apoderado que se pueda aprobar desde acá: agrégale teléfono
+                en su ficha antes de aprobarlo.
+              </span>
+            ) : (
+              <span className="w-full text-xs text-muted-foreground">
+                No tiene teléfono: se aprueba en el mismo envío que su apoderado y el vínculo entre
+                ellos.
+              </span>
+            ))}
         </div>
         <Dato etiqueta="RUT">{j.rut}</Dato>
         <Dato etiqueta="Nacimiento">

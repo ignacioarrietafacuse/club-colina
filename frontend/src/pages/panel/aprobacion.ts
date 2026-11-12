@@ -126,6 +126,25 @@ export function vinculoConocido(
 }
 
 /**
+ * Un adulto sin teléfono puede tener contacto desde esta solicitud: hay un vínculo pendiente que
+ * se puede aprobar acá hacia un apoderado ya activo, o pendiente de esta solicitud y con foto.
+ * Si no, la única salida es agregarle teléfono en su ficha.
+ */
+export function contactoPosible(jugadorId: string, s: SolicitudDetalle): boolean {
+  return s.vinculos.some((v) => {
+    if (v.jugador_id !== jugadorId || v.estado !== "pendiente" || !vinculoAprobable(v, s)) {
+      return false;
+    }
+    const a = s.apoderados.find((x) => x.id === v.apoderado_id);
+    if (!a) return false;
+    return (
+      a.estado === "activo" ||
+      (a.estado === "pendiente" && esDeEstaSolicitud(a, s) && !bloquea(a.faltantes))
+    );
+  });
+}
+
+/**
  * Solo lo pendiente se aprueba o rechaza; parte marcado con los valores que ya trae, salvo quien
  * no tiene foto (no se puede aprobar), un hijo marcado «ya no está», quien puede no ser de esta
  * solicitud, y los vínculos que no se pueden aprobar o cuyas personas no parten listas
@@ -145,7 +164,9 @@ export function formInicial(
         !bloquea(j.faltantes) &&
         j.marcado_retiro_en === null &&
         esDeEstaSolicitud(j, s) &&
-        !desmarcar.has(j.id),
+        !desmarcar.has(j.id) &&
+        // Un adulto sin teléfono que no puede tener contacto desde acá no se puede aprobar.
+        (!j.faltantes.includes("telefono") || contactoPosible(j.id, s)),
       categoria_id: j.categoria_id === null ? "" : String(j.categoria_id),
       numero_camiseta: j.numero_camiseta ?? "",
       beca_mensualidad_pct: String(j.beca_mensualidad_pct),
@@ -270,10 +291,9 @@ export function armarAprobacion(
       );
     }
   }
-  if (errores.length > 0) return { ok: false, errores };
   const leido = aprobarRequest.safeParse(datos);
-  if (!leido.success) {
-    for (const issue of leido.error.issues) {
+  if (!leido.success || errores.length > 0) {
+    for (const issue of leido.error?.issues ?? []) {
       const [seccion, indice, campo] = issue.path;
       if (seccion === "jugadores" && typeof indice === "number") {
         const id = datos.jugadores[indice]?.id ?? "";
