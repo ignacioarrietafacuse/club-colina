@@ -234,6 +234,7 @@ Además de lo que dice `roadmap-etapa1.md`:
 **Pendientes no bloqueantes** (al 2026-11-12):
 - Railway, "Wait for CI": la opción no aparece en el panel del servicio. Requiere que `ci.yml` corra en `push` a `main` (ya corre) y que la app de Railway en GitHub tenga permiso para leer los checks. Mientras tanto, Railway despliega al fusionar sin esperar al CI; el CI del PR ya pasó antes de fusionar.
 - El logo del club: hoy hay uno provisorio de solo texto ("Club Colina").
+- El build de Railway compila también el frontend: Railpack corre el `build` de la raíz (`pnpm -r build`). Por eso el servicio `club-colina` necesita variables del frontend (hoy `VITE_PUBLIC_BASE_URL`, sin la cual el build falla). Debería compilar solo `backend/` y `shared/`. No se arregla todavía.
 
 ## Bitácora de decisiones
 
