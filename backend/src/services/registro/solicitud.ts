@@ -113,6 +113,9 @@ class Proceso {
   private readonly propias = new Set<string>();
   private solicitudId = "";
   private coincideBase = false;
+  /** Quién llenó el formulario: con esto /familia sabe de quién son los hijos que muestra. */
+  private titularApoderadoId: string | null = null;
+  private titularJugadorId: string | null = null;
 
   constructor(
     private readonly tx: Ejecutor,
@@ -135,6 +138,7 @@ class Proceso {
       await this.jugadorAdulto();
     } else {
       const titular = await this.apoderadoTitular();
+      this.titularApoderadoId = titular.id;
       const resueltos = await this.hijos(titular);
       otros = await this.otroApoderado(resueltos);
     }
@@ -142,7 +146,12 @@ class Proceso {
     await this.marcarSolicitudesAnteriores();
     await this.tx
       .update(solicitudesRegistro)
-      .set({ avisos: [...this.avisos], coincide_base: this.coincideBase })
+      .set({
+        avisos: [...this.avisos],
+        coincide_base: this.coincideBase,
+        titular_apoderado_id: this.titularApoderadoId,
+        titular_jugador_id: this.titularJugadorId,
+      })
       .where(eq(solicitudesRegistro.id, this.solicitudId));
     return { token_acceso: tokenAcceso, otros_apoderados: otros };
   }
@@ -292,6 +301,7 @@ class Proceso {
         .returning({ id: jugadores.id });
       if (!nuevo) throw new Error("no se creó el jugador");
       this.jugadoresInvolucrados.add(nuevo.id);
+      this.titularJugadorId = nuevo.id;
       return;
     }
 
@@ -304,6 +314,7 @@ class Proceso {
       throw conflicto();
     }
     this.jugadoresInvolucrados.add(existente.id);
+    this.titularJugadorId = existente.id;
     this.coincideBase = true;
     const telefonoNuevo = this.telefono(existente.telefono, new Faltantes(), "telefono");
     const cambios = await this.completarJugador(existente, d, "", new Faltantes());
