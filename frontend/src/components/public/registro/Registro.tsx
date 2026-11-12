@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { mensajeError, statusDe } from "../api";
 import { Aviso } from "../Marco";
+import { urlPublica } from "../qr";
 import { Campo, CamposPersona, Casilla } from "./campos";
 import {
   armarSolicitud,
@@ -46,7 +47,7 @@ type Pantalla =
   | { tipo: "listo"; resultado: SolicitudCreadaResponse };
 
 /** Formulario de registro por pasos, según el diseño (`docs/diseno-credenciales-qr.md`). */
-export function Registro({ baseUrl }: { baseUrl: string }) {
+export function Registro() {
   const [pantalla, setPantalla] = useState<Pantalla>({ tipo: "rut" });
   const reiniciar = () => setPantalla({ tipo: "rut" });
 
@@ -117,7 +118,7 @@ export function Registro({ baseUrl }: { baseUrl: string }) {
         />
       );
     case "listo":
-      return <Listo resultado={pantalla.resultado} baseUrl={baseUrl} />;
+      return <Listo resultado={pantalla.resultado} />;
   }
 }
 
@@ -786,13 +787,7 @@ export function LinkParaGuardar({ url, etiqueta }: { url: string; etiqueta: stri
   );
 }
 
-export function Listo({
-  resultado,
-  baseUrl,
-}: {
-  resultado: SolicitudCreadaResponse;
-  baseUrl: string;
-}) {
+export function Listo({ resultado }: { resultado: SolicitudCreadaResponse }) {
   // El link es la única vez que se entrega: avisar antes de cerrar la pestaña.
   useEffect(() => {
     const avisar = (e: BeforeUnloadEvent) => {
@@ -804,7 +799,6 @@ export function Listo({
     return () => window.removeEventListener("beforeunload", avisar);
   }, []);
 
-  const base = baseUrl.replace(/\/+$/, "");
   return (
     <div className="space-y-5">
       <Aviso tono="ok">¡Listo! Recibimos tu registro. El club lo revisará pronto.</Aviso>
@@ -814,7 +808,7 @@ export function Listo({
       </Aviso>
       <LinkParaGuardar
         etiqueta="Tu link privado"
-        url={`${base}/familia/${encodeURIComponent(resultado.token_acceso)}`}
+        url={urlPublica(`/familia/${encodeURIComponent(resultado.token_acceso)}`)}
       />
       {resultado.otros_apoderados.length > 0 && (
         <section className="space-y-3">
@@ -826,7 +820,7 @@ export function Listo({
             <LinkParaGuardar
               key={o.completar_token}
               etiqueta={o.nombre_completo}
-              url={`${base}/completar/${encodeURIComponent(o.completar_token)}`}
+              url={urlPublica(`/completar/${encodeURIComponent(o.completar_token)}`)}
             />
           ))}
         </section>

@@ -56,7 +56,7 @@ describe("familia", () => {
   };
 
   it("muestra a cada persona con su estado y el QR solo de las activas", () => {
-    const h = html(<VistaFamilia datos={datos} baseUrl="https://club.example" />);
+    const h = html(<VistaFamilia datos={datos} />);
     expect(h).toContain("Ana Pérez");
     expect(h).toContain("Pendiente de aprobación");
     expect(h).toContain("No aprobada");
@@ -71,7 +71,6 @@ describe("familia", () => {
     const h = html(
       <VistaFamilia
         datos={{ estado_solicitud: "pendiente", personas: [], otros_apoderados: [] }}
-        baseUrl="https://club.example"
       />,
     );
     expect(h).toContain("El club está revisando tu registro");
@@ -86,7 +85,6 @@ describe("familia", () => {
           personas: [{ nombre_completo: "Beto Pérez", rol: "jugador", estado: "rechazado" }],
           otros_apoderados: [],
         }}
-        baseUrl="https://club.example"
       />,
     );
     expect(h).toContain("No hay credenciales activas");
@@ -101,7 +99,6 @@ describe("familia", () => {
           personas: datos.personas.slice(0, 1),
           otros_apoderados: [],
         }}
-        baseUrl="https://club.example"
       />,
     );
     expect(h).toContain("Muestra el código QR");
@@ -111,7 +108,7 @@ describe("familia", () => {
 
 describe("registro", () => {
   it("parte pidiendo el RUT de quien llena", () => {
-    const h = html(<Registro baseUrl="https://club.example" />);
+    const h = html(<Registro />);
     expect(h).toContain("Tu RUT");
     expect(h).toContain("no el de tu hijo");
   });
@@ -120,15 +117,14 @@ describe("registro", () => {
     const otro = "O".repeat(43);
     const h = html(
       <Listo
-        baseUrl="https://club.example/"
         resultado={{
           token_acceso: TOKEN,
           otros_apoderados: [{ nombre_completo: "Eva Soto", completar_token: otro }],
         }}
       />,
     );
-    expect(h).toContain(`https://club.example/familia/${TOKEN}`);
-    expect(h).toContain(`https://club.example/completar/${otro}`);
+    expect(h).toContain(`https://club-colina.test/familia/${TOKEN}`);
+    expect(h).toContain(`https://club-colina.test/completar/${otro}`);
     expect(h).toContain("Es la única vez que lo verás");
   });
 });

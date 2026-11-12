@@ -14,7 +14,7 @@ const ESTADO: Record<Persona["estado"], { texto: string; clase: string }> = {
 const ROL = { jugador: "Jugador", apoderado: "Apoderado" } as const;
 
 /** Link privado de la familia: estado de la solicitud y los QR de quienes ya están activos. */
-export function VistaFamilia({ datos, baseUrl }: { datos: FamiliaResponse; baseUrl: string }) {
+export function VistaFamilia({ datos }: { datos: FamiliaResponse }) {
   const enRevision =
     datos.estado_solicitud === "pendiente" || datos.personas.some((p) => p.estado === "pendiente");
   const hayActivas = datos.personas.some((p) => p.estado === "activo" && p.credencial_token);
@@ -51,11 +51,7 @@ export function VistaFamilia({ datos, baseUrl }: { datos: FamiliaResponse; baseU
             </div>
             {p.estado === "activo" && p.credencial_token && (
               <div className="mt-4">
-                <CodigoQr
-                  baseUrl={baseUrl}
-                  credencialToken={p.credencial_token}
-                  nombreCompleto={p.nombre_completo}
-                />
+                <CodigoQr credencialToken={p.credencial_token} nombreCompleto={p.nombre_completo} />
               </div>
             )}
           </li>
