@@ -164,6 +164,64 @@ describe("GET /api/public/familia/:token", () => {
     await app.close();
   });
 
+  it("titular ya registrado que completa a un hijo precargado: el QR sale con él y se va si Mony lo da de baja", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const titular = await crearApoderado(db, { estado: "pendiente", foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+    const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: "3", foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+    await vincular(db, hijo.id, titular.id);
+    const { token_acceso } = await crearSolicitud(
+      app,
+      { rut: titular.rut, tipo: "apoderado", consentimiento: true, hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }] },
+      {},
+    );
+    const credencial = await activar(jugadores, hijo.rut);
+    const qr = async () =>
+      (await app.inject({ method: "GET", url: API.public.familia(token_acceso) })).json().personas.find(
+        (p: { rol: string }) => p.rol === "jugador",
+      )?.credencial_token;
+    expect(await qr()).toBe(credencial);
+    await db.update(apoderados).set({ estado: "inactivo" }).where(eq(apoderados.id, titular.id));
+    expect(await qr()).toBeUndefined();
+    await app.close();
+  });
+
+  it("titular ya registrado que además agrega un otro apoderado nuevo: el QR del hijo aparece al aprobarlo", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const titular = await crearApoderado(db, { estado: "pendiente", foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+    const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: "3", foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+    await vincular(db, hijo.id, titular.id);
+    const { token_acceso } = await crearSolicitud(
+      app,
+      {
+        rut: titular.rut,
+        tipo: "apoderado",
+        consentimiento: true,
+        hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }],
+        otro_apoderado: { nombre: "Diego", apellido: "Prueba", rut: rutNuevo(), telefono: "944444444", hijos: [0] },
+      },
+      {},
+    );
+    const credencial = await activar(jugadores, hijo.rut);
+    const r = await app.inject({ method: "GET", url: API.public.familia(token_acceso) });
+    expect(r.json().personas).toEqual([
+      { nombre_completo: "Tomás Inventado", rol: "jugador", estado: "activo", credencial_token: credencial },
+    ]);
+    await app.close();
+  });
+
+  it("una solicitud sin titular guardado (anterior a la columna) no entrega ningún QR", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const rutHijo = rutNuevo();
+    const { token_acceso } = await crearSolicitud(app, familiaCompleta(rutNuevo(), rutHijo, rutNuevo()), { t: JPEG_PRUEBA, h: JPEG_PRUEBA });
+    await activar(jugadores, rutHijo);
+    await db.update(jugadorApoderado).set({ estado: "activo" });
+    await db.update(solicitudesRegistro).set({ titular_apoderado_id: null, titular_jugador_id: null });
+    const r = await app.inject({ method: "GET", url: API.public.familia(token_acceso) });
+    expect(r.body).not.toContain("credencial_token");
+    expect(r.json().personas.map((p: { rol: string }) => p.rol)).toEqual(["apoderado", "jugador"]);
+    await app.close();
+  });
+
   it("un hijo ajeno no aparece si Mony aprueba solo el vínculo del otro apoderado y no el del titular", async () => {
     const app = await construirApp({ config: configTest(), db });
     const madre = await crearApoderado(db);

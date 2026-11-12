@@ -47,14 +47,13 @@ function nombreVisible(p: Persona): string {
  * lo aprobó. Nunca el resto de la familia de la base, ni un hijo marcado "ya no está". El token se
  * busca solo entre solicitudes de tipo `formulario`.
  *
- * "Titular" = los apoderados de la solicitud (su `solicitud_id`) y los de los vínculos que creó,
- * salvo los otros apoderados nuevos (que tienen su propia solicitud). Un apoderado titular inactivo
- * o rechazado no cuenta. El QR de un jugador se entrega solo si está activo y mantiene un vínculo
- * activo con un titular que cuenta; así, si Mony corta el vínculo o da de baja al apoderado, el
- * link deja de mostrarlo. La excepción es el jugador adulto titular, que no tiene apoderado.
+ * El titular es quien llenó el formulario (`titular_apoderado_id` o `titular_jugador_id`). El QR
+ * de un hijo se entrega solo si está activo y tiene un vínculo activo con ese titular, y el titular
+ * no está inactivo ni rechazado: si Mony corta el vínculo o lo da de baja, el link deja de
+ * mostrarlo. El jugador adulto titular ve su propio QR.
  *
- * Límite conocido: un otro apoderado que ya existía no tiene solicitud propia, y sus vínculos con
- * esta solicitud no se distinguen de los del titular (la solicitud no guarda quién la llenó).
+ * Una solicitud sin titular guardado (anterior a la columna) no entrega ningún QR ni hijos por
+ * vínculo: ante la duda, no mostrar. Mony puede generarle un link nuevo, pero el titular queda nulo.
  */
 export async function verFamilia(db: Db, token: string): Promise<FamiliaResponse> {
   const s = await solicitudPorToken(db, token, "formulario");
@@ -73,51 +72,56 @@ export async function verFamilia(db: Db, token: string): Promise<FamiliaResponse
           .from(apoderados)
           .where(inArray(apoderados.solicitud_id, segundas.map((x) => x.id)))
           .orderBy(asc(apoderados.creado_en), asc(apoderados.id));
-  const idsOtros = new Set(otros.map((o) => o.id));
 
   const aps = await db
     .select()
     .from(apoderados)
     .where(eq(apoderados.solicitud_id, s.id))
     .orderBy(asc(apoderados.creado_en), asc(apoderados.id));
-  const vinculosSolicitud = await db
-    .select({ vinculo: jugadorApoderado, estadoApoderado: apoderados.estado })
-    .from(jugadorApoderado)
-    .innerJoin(apoderados, eq(apoderados.id, jugadorApoderado.apoderado_id))
-    .where(eq(jugadorApoderado.solicitud_id, s.id));
 
-  const titulares = new Set<string>();
-  for (const a of aps) if (!APODERADO_DADO_DE_BAJA.has(a.estado)) titulares.add(a.id);
-  for (const { vinculo, estadoApoderado } of vinculosSolicitud) {
-    if (!idsOtros.has(vinculo.apoderado_id) && !APODERADO_DADO_DE_BAJA.has(estadoApoderado)) {
-      titulares.add(vinculo.apoderado_id);
-    }
+  // El titular apoderado cuenta mientras no esté dado de baja.
+  let titularApoderado: string | null = null;
+  if (s.titular_apoderado_id !== null) {
+    const [t] = await db
+      .select({ id: apoderados.id, estado: apoderados.estado })
+      .from(apoderados)
+      .where(eq(apoderados.id, s.titular_apoderado_id));
+    if (t && !APODERADO_DADO_DE_BAJA.has(t.estado)) titularApoderado = t.id;
   }
-  const hayApoderados = aps.length > 0 || vinculosSolicitud.length > 0;
 
-  // Hijos que llegaron por un vínculo de la solicitud con un titular, ya aprobado por Mony.
-  const porVinculo = new Set(
-    vinculosSolicitud
-      .filter(({ vinculo }) => vinculo.estado === "activo" && titulares.has(vinculo.apoderado_id))
-      .map(({ vinculo }) => vinculo.jugador_id),
-  );
+  // Hijos que llegaron por un vínculo de esta solicitud con el titular, ya aprobado por Mony.
+  const porVinculo =
+    titularApoderado === null
+      ? []
+      : (
+          await db
+            .select({ jugador_id: jugadorApoderado.jugador_id })
+            .from(jugadorApoderado)
+            .where(
+              and(
+                eq(jugadorApoderado.solicitud_id, s.id),
+                eq(jugadorApoderado.apoderado_id, titularApoderado),
+                eq(jugadorApoderado.estado, "activo"),
+              ),
+            )
+        ).map((f) => f.jugador_id);
   const jugadoresSolicitud = await db
     .select()
     .from(jugadores)
     .where(
       and(
         isNull(jugadores.marcado_retiro_en),
-        porVinculo.size > 0
-          ? or(eq(jugadores.solicitud_id, s.id), inArray(jugadores.id, [...porVinculo]))
+        porVinculo.length > 0
+          ? or(eq(jugadores.solicitud_id, s.id), inArray(jugadores.id, porVinculo))
           : eq(jugadores.solicitud_id, s.id),
       ),
     )
     .orderBy(asc(jugadores.creado_en), asc(jugadores.id));
 
-  // Vínculos activos de esos jugadores con un titular (de esta solicitud o de la base).
+  // Jugadores con un vínculo activo con el titular (de esta solicitud o de la base).
   const ids = jugadoresSolicitud.map((j) => j.id);
   const conTitular = new Set(
-    ids.length === 0 || titulares.size === 0
+    titularApoderado === null || ids.length === 0
       ? []
       : (
           await db
@@ -126,7 +130,7 @@ export async function verFamilia(db: Db, token: string): Promise<FamiliaResponse
             .where(
               and(
                 inArray(jugadorApoderado.jugador_id, ids),
-                inArray(jugadorApoderado.apoderado_id, [...titulares]),
+                eq(jugadorApoderado.apoderado_id, titularApoderado),
                 eq(jugadorApoderado.estado, "activo"),
               ),
             )
@@ -146,9 +150,10 @@ export async function verFamilia(db: Db, token: string): Promise<FamiliaResponse
   return {
     estado_solicitud: s.estado,
     personas: [
-      ...aps.map((a) => persona(a, "apoderado", true)),
+      // El propio QR del apoderado titular, si es él quien está en la solicitud.
+      ...aps.map((a) => persona(a, "apoderado", a.id === s.titular_apoderado_id)),
       ...jugadoresSolicitud.map((j) =>
-        persona(j, "jugador", hayApoderados ? conTitular.has(j.id) : j.solicitud_id === s.id),
+        persona(j, "jugador", j.id === s.titular_jugador_id || conTitular.has(j.id)),
       ),
     ],
     otros_apoderados: otros.map((o) => ({ nombre_completo: nombreVisible(o), foto_subida: o.foto_id !== null })),
