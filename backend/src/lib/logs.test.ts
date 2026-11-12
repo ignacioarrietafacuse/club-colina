@@ -112,4 +112,35 @@ describe("logs sin la consulta de la URL", () => {
     limpiarArgumentosDeLog(objeto);
     expect(objeto).toEqual([{ accion: "activar" }, "panel: credencial"]);
   });
+
+  it("un Error como primer argumento, o bajo otra clave, tampoco deja su mensaje ni sus parámetros", async () => {
+    const solo: unknown[] = [Object.assign(new Error("Failed query params: 12345678-5"), { code: "23505" })];
+    limpiarArgumentosDeLog(solo);
+    expect(solo[1]).toBe("error 23505");
+    expect(JSON.stringify(solo[0])).not.toContain("12345678");
+
+    const errorDrizzle = Object.assign(new Error("Failed query"), { params: ["12345678-5"], query: "select" });
+    const original = { error: errorDrizzle, accion: "x" };
+    const otraClave: unknown[] = [original, "falló algo"];
+    limpiarArgumentosDeLog(otraClave);
+    expect(JSON.stringify(otraClave[0])).not.toContain("12345678");
+    expect(original.error).toBe(errorDrizzle); // no toca el objeto del llamador
+
+    const lineas: string[] = [];
+    const salida = new PassThrough();
+    salida.on("data", (c: Buffer) => lineas.push(c.toString()));
+    const app = await construirApp({ config: configTest({ LOG_LEVEL: "info" }), db, logStream: salida });
+    const rut = generarRutFicticio();
+    app.get("/api/prueba-log-error", async (request) => {
+      const e = Object.assign(new Error(`Failed query params: ${rut}`), { params: [rut] });
+      request.log.error(e);
+      request.log.error({ error: e }, "con otra clave");
+      return { ok: true };
+    });
+    await app.inject({ method: "GET", url: "/api/prueba-log-error" });
+    await app.close();
+    const log = lineas.join("");
+    expect(log).toContain("con otra clave");
+    expect(log).not.toContain(rut);
+  });
 });

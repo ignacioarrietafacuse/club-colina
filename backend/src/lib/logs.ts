@@ -1,4 +1,5 @@
 import type { FastifyRequest } from "fastify";
+import { resumirError } from "./errores";
 import { vieneDelProxy } from "./limite-intentos";
 
 /**
@@ -48,11 +49,23 @@ export function serializarRequest(request: FastifyRequest) {
  */
 /** Modifica `args` en el lugar (pino los pasa tal cual al método). */
 export function limpiarArgumentosDeLog(args: unknown[]): void {
-  const [primero, segundo] = args;
-  if (typeof primero === "object" && primero !== null && "err" in primero && typeof segundo !== "string") {
-    const err: unknown = Reflect.get(primero, "err");
-    const codigo = typeof err === "object" && err !== null ? Reflect.get(err, "code") : undefined;
-    args.splice(1, 0, `error${typeof codigo === "string" ? ` ${codigo}` : ""}`);
+  // `log.error(error)`: se trata igual que `log.error({ err: error })`.
+  if (args[0] instanceof Error) args[0] = { err: args[0] };
+  const primero = args[0];
+  if (typeof primero === "object" && primero !== null && !Array.isArray(primero)) {
+    // Un error bajo otra clave (`{ error: e }`) no pasa por el serializador de `err` y pino
+    // escribiría sus propiedades (drizzle expone `query` y `params`): se resume igual. Se copia
+    // el objeto para no tocar el del llamador.
+    const copia: Record<string, unknown> = { ...primero };
+    for (const [clave, valor] of Object.entries(copia)) {
+      if (clave !== "err" && valor instanceof Error) copia[clave] = resumirError(valor);
+    }
+    args[0] = copia;
+    if ("err" in copia && typeof args[1] !== "string") {
+      const err = copia.err;
+      const codigo = typeof err === "object" && err !== null ? Reflect.get(err, "code") : undefined;
+      args.splice(1, 0, `error${typeof codigo === "string" ? ` ${codigo}` : ""}`);
+    }
   }
   args.forEach((a, i) => {
     if (typeof a === "string") args[i] = censurarUrl(a.replace(/\?[^\s"'`]*/g, ""));
