@@ -4,7 +4,7 @@ import { generarRutFicticio } from "@club-colina/shared";
 import { dbTest, JPEG_PRUEBA } from "../test/db";
 import { borrarFoto, guardarFoto } from "../lib/fotos";
 import { generarToken, hashToken } from "../lib/tokens";
-import { apoderados, categorias, entrenadores, jugadores, solicitudesRegistro } from "./schema";
+import { apoderados, categorias, entrenadores, fichasPrevias, jugadores, solicitudesRegistro } from "./schema";
 
 const { db, cerrar } = dbTest();
 afterAll(cerrar);
@@ -108,5 +108,54 @@ describe("esquema y migraciones", () => {
     await expect(borrarFoto(db, foto_id)).rejects.toThrow();
     await db.delete(entrenadores).where(eq(entrenadores.foto_id, foto_id));
     expect(await borrarFoto(db, foto_id)).toBe(true);
+  });
+
+  it("la solicitud tiene a lo más un titular, que tiene que existir", async () => {
+    const base = { consentimiento_en: new Date() };
+    const [apo] = await db
+      .insert(apoderados)
+      .values({ rut: generarRutFicticio(), origen: "formulario" })
+      .returning({ id: apoderados.id });
+    const [jug] = await db
+      .insert(jugadores)
+      .values({ rut: generarRutFicticio(), disciplina: "voleibol", origen: "formulario" })
+      .returning({ id: jugadores.id });
+    const [s] = await db
+      .insert(solicitudesRegistro)
+      .values({ ...base, token_acceso_hash: hashToken(generarToken()), titular_apoderado_id: apo?.id })
+      .returning();
+    expect(s?.titular_apoderado_id).toBe(apo?.id);
+    await expect(
+      db.insert(solicitudesRegistro).values({
+        ...base,
+        token_acceso_hash: hashToken(generarToken()),
+        titular_apoderado_id: apo?.id,
+        titular_jugador_id: jug?.id,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      db.insert(solicitudesRegistro).values({
+        ...base,
+        token_acceso_hash: hashToken(generarToken()),
+        titular_jugador_id: "00000000-0000-4000-8000-000000000000",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("fichas_previas: una por solicitud y persona, de una solicitud que existe", async () => {
+    const [s] = await db
+      .insert(solicitudesRegistro)
+      .values({ consentimiento_en: new Date(), token_acceso_hash: hashToken(generarToken()) })
+      .returning({ id: solicitudesRegistro.id });
+    if (!s) throw new Error("sin solicitud");
+    const fila = { solicitud_id: s.id, tipo: "jugador" as const, persona_id: s.id, datos: { telefono: null } };
+    await db.insert(fichasPrevias).values(fila);
+    await expect(db.insert(fichasPrevias).values(fila)).rejects.toThrow();
+    await expect(
+      db.insert(fichasPrevias).values({ ...fila, solicitud_id: "00000000-0000-4000-8000-000000000000" }),
+    ).rejects.toThrow();
+    await expect(db.execute(sql`insert into fichas_previas (solicitud_id, tipo, persona_id, datos) values (${s.id}, 'otro', ${s.id}, '{}')`)).rejects.toThrow();
+    const [leida] = await db.select().from(fichasPrevias).where(eq(fichasPrevias.solicitud_id, s.id));
+    expect(leida?.datos).toEqual({ telefono: null });
   });
 });

@@ -1,0 +1,1361 @@
+{
+  "id": "ffaa42ea-7225-4248-92f4-f63d52c756f6",
+  "prevId": "9616da3f-633f-4141-8a81-5501b45cf374",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.apoderados": {
+      "name": "apoderados",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "nombre": {
+          "name": "nombre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "apellido": {
+          "name": "apellido",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rut": {
+          "name": "rut",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "telefono": {
+          "name": "telefono",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metodo_pago": {
+          "name": "metodo_pago",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "foto_id": {
+          "name": "foto_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "credencial_token": {
+          "name": "credencial_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "estado": {
+          "name": "estado",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'precargado'"
+        },
+        "origen": {
+          "name": "origen",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "solicitud_id": {
+          "name": "solicitud_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "creado_en": {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "actualizado_en": {
+          "name": "actualizado_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "apoderados_estado_idx": {
+          "name": "apoderados_estado_idx",
+          "columns": [
+            {
+              "expression": "estado",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "apoderados_solicitud_idx": {
+          "name": "apoderados_solicitud_idx",
+          "columns": [
+            {
+              "expression": "solicitud_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "apoderados_foto_id_fotos_id_fk": {
+          "name": "apoderados_foto_id_fotos_id_fk",
+          "tableFrom": "apoderados",
+          "tableTo": "fotos",
+          "columnsFrom": [
+            "foto_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "apoderados_solicitud_id_solicitudes_registro_id_fk": {
+          "name": "apoderados_solicitud_id_solicitudes_registro_id_fk",
+          "tableFrom": "apoderados",
+          "tableTo": "solicitudes_registro",
+          "columnsFrom": [
+            "solicitud_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "apoderados_rut_unique": {
+          "name": "apoderados_rut_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "rut"
+          ]
+        },
+        "apoderados_credencial_token_unique": {
+          "name": "apoderados_credencial_token_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "credencial_token"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "apoderados_rut_check": {
+          "name": "apoderados_rut_check",
+          "value": "\"rut\" ~ '^[0-9]{7,8}-[0-9K]$'"
+        },
+        "apoderados_telefono_check": {
+          "name": "apoderados_telefono_check",
+          "value": "\"telefono\" ~ '^[0-9]{9}$'"
+        },
+        "apoderados_email_check": {
+          "name": "apoderados_email_check",
+          "value": "\"email\" = lower(\"email\")"
+        },
+        "apoderados_metodo_pago_check": {
+          "name": "apoderados_metodo_pago_check",
+          "value": "\"metodo_pago\" IN ('forpay_mensual', 'transferencia_anual', 'tarjeta_credito_anual')"
+        },
+        "apoderados_estado_check": {
+          "name": "apoderados_estado_check",
+          "value": "\"estado\" IN ('precargado', 'pendiente', 'activo', 'rechazado', 'inactivo')"
+        },
+        "apoderados_origen_check": {
+          "name": "apoderados_origen_check",
+          "value": "\"origen\" IN ('base_2026', 'formulario')"
+        },
+        "apoderados_activo_completo_check": {
+          "name": "apoderados_activo_completo_check",
+          "value": "\"estado\" <> 'activo' OR (\"nombre\" IS NOT NULL AND \"apellido\" IS NOT NULL AND \"telefono\" IS NOT NULL AND \"foto_id\" IS NOT NULL AND \"credencial_token\" IS NOT NULL)"
+        },
+        "apoderados_token_solo_activo_check": {
+          "name": "apoderados_token_solo_activo_check",
+          "value": "\"estado\" = 'activo' OR \"credencial_token\" IS NULL"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.categorias": {
+      "name": "categorias",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "smallint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "categorias_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "32767",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "nombre": {
+          "name": "nombre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "disciplina": {
+          "name": "disciplina",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "anio_desde": {
+          "name": "anio_desde",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "anio_hasta": {
+          "name": "anio_hasta",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "se_calcula": {
+          "name": "se_calcula",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "categorias_disciplina_nombre_key": {
+          "name": "categorias_disciplina_nombre_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "disciplina",
+            "nombre"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "categorias_disciplina_check": {
+          "name": "categorias_disciplina_check",
+          "value": "\"disciplina\" IN ('basketball', 'voleibol')"
+        },
+        "categorias_anios_check": {
+          "name": "categorias_anios_check",
+          "value": "\"anio_desde\" <= \"anio_hasta\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.entrenadores": {
+      "name": "entrenadores",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "nombre": {
+          "name": "nombre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "apellido": {
+          "name": "apellido",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rut": {
+          "name": "rut",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "telefono": {
+          "name": "telefono",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "disciplina": {
+          "name": "disciplina",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "foto_id": {
+          "name": "foto_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "credencial_token": {
+          "name": "credencial_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "estado": {
+          "name": "estado",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'activo'"
+        },
+        "creado_en": {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "actualizado_en": {
+          "name": "actualizado_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "entrenadores_foto_id_fotos_id_fk": {
+          "name": "entrenadores_foto_id_fotos_id_fk",
+          "tableFrom": "entrenadores",
+          "tableTo": "fotos",
+          "columnsFrom": [
+            "foto_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "entrenadores_rut_unique": {
+          "name": "entrenadores_rut_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "rut"
+          ]
+        },
+        "entrenadores_credencial_token_unique": {
+          "name": "entrenadores_credencial_token_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "credencial_token"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "entrenadores_rut_check": {
+          "name": "entrenadores_rut_check",
+          "value": "\"rut\" ~ '^[0-9]{7,8}-[0-9K]$'"
+        },
+        "entrenadores_telefono_check": {
+          "name": "entrenadores_telefono_check",
+          "value": "\"telefono\" ~ '^[0-9]{9}$'"
+        },
+        "entrenadores_disciplina_check": {
+          "name": "entrenadores_disciplina_check",
+          "value": "\"disciplina\" IN ('basketball', 'voleibol')"
+        },
+        "entrenadores_estado_check": {
+          "name": "entrenadores_estado_check",
+          "value": "\"estado\" IN ('activo', 'inactivo')"
+        },
+        "entrenadores_activo_token_check": {
+          "name": "entrenadores_activo_token_check",
+          "value": "\"estado\" <> 'activo' OR \"credencial_token\" IS NOT NULL"
+        },
+        "entrenadores_token_solo_activo_check": {
+          "name": "entrenadores_token_solo_activo_check",
+          "value": "\"estado\" = 'activo' OR \"credencial_token\" IS NULL"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.fichas_previas": {
+      "name": "fichas_previas",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "solicitud_id": {
+          "name": "solicitud_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "persona_id": {
+          "name": "persona_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "datos": {
+          "name": "datos",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "creado_en": {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "fichas_previas_persona_idx": {
+          "name": "fichas_previas_persona_idx",
+          "columns": [
+            {
+              "expression": "persona_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "fichas_previas_solicitud_id_solicitudes_registro_id_fk": {
+          "name": "fichas_previas_solicitud_id_solicitudes_registro_id_fk",
+          "tableFrom": "fichas_previas",
+          "tableTo": "solicitudes_registro",
+          "columnsFrom": [
+            "solicitud_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "fichas_previas_solicitud_persona_key": {
+          "name": "fichas_previas_solicitud_persona_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "solicitud_id",
+            "tipo",
+            "persona_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "fichas_previas_tipo_check": {
+          "name": "fichas_previas_tipo_check",
+          "value": "\"tipo\" IN ('jugador', 'apoderado')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.fotos": {
+      "name": "fotos",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "mime": {
+          "name": "mime",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bytes": {
+          "name": "bytes",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "creado_en": {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "fotos_mime_check": {
+          "name": "fotos_mime_check",
+          "value": "\"mime\" IN ('image/jpeg', 'image/png', 'image/webp')"
+        },
+        "fotos_tamano_check": {
+          "name": "fotos_tamano_check",
+          "value": "octet_length(\"bytes\") BETWEEN 1 AND 2097152"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.jugador_apoderado": {
+      "name": "jugador_apoderado",
+      "schema": "",
+      "columns": {
+        "jugador_id": {
+          "name": "jugador_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "apoderado_id": {
+          "name": "apoderado_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "paga_mensualidad": {
+          "name": "paga_mensualidad",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "estado": {
+          "name": "estado",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pendiente'"
+        },
+        "solicitud_id": {
+          "name": "solicitud_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "creado_en": {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "jugador_apoderado_apoderado_idx": {
+          "name": "jugador_apoderado_apoderado_idx",
+          "columns": [
+            {
+              "expression": "apoderado_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "jugador_apoderado_jugador_id_jugadores_id_fk": {
+          "name": "jugador_apoderado_jugador_id_jugadores_id_fk",
+          "tableFrom": "jugador_apoderado",
+          "tableTo": "jugadores",
+          "columnsFrom": [
+            "jugador_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "jugador_apoderado_apoderado_id_apoderados_id_fk": {
+          "name": "jugador_apoderado_apoderado_id_apoderados_id_fk",
+          "tableFrom": "jugador_apoderado",
+          "tableTo": "apoderados",
+          "columnsFrom": [
+            "apoderado_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "jugador_apoderado_solicitud_id_solicitudes_registro_id_fk": {
+          "name": "jugador_apoderado_solicitud_id_solicitudes_registro_id_fk",
+          "tableFrom": "jugador_apoderado",
+          "tableTo": "solicitudes_registro",
+          "columnsFrom": [
+            "solicitud_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "jugador_apoderado_jugador_id_apoderado_id_pk": {
+          "name": "jugador_apoderado_jugador_id_apoderado_id_pk",
+          "columns": [
+            "jugador_id",
+            "apoderado_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "jugador_apoderado_estado_check": {
+          "name": "jugador_apoderado_estado_check",
+          "value": "\"estado\" IN ('pendiente', 'activo')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.jugadores": {
+      "name": "jugadores",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "nombre": {
+          "name": "nombre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "apellido": {
+          "name": "apellido",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rut": {
+          "name": "rut",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fecha_nacimiento": {
+          "name": "fecha_nacimiento",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "disciplina": {
+          "name": "disciplina",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "categoria_id": {
+          "name": "categoria_id",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "numero_camiseta": {
+          "name": "numero_camiseta",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "postula_beca": {
+          "name": "postula_beca",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "beca_mensualidad_pct": {
+          "name": "beca_mensualidad_pct",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "beca_torneos_pct": {
+          "name": "beca_torneos_pct",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "beca_campus_pct": {
+          "name": "beca_campus_pct",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "telefono": {
+          "name": "telefono",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metodo_pago": {
+          "name": "metodo_pago",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "marcado_retiro_en": {
+          "name": "marcado_retiro_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "foto_id": {
+          "name": "foto_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "credencial_token": {
+          "name": "credencial_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "estado": {
+          "name": "estado",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'precargado'"
+        },
+        "origen": {
+          "name": "origen",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "solicitud_id": {
+          "name": "solicitud_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "creado_en": {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "actualizado_en": {
+          "name": "actualizado_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "jugadores_estado_idx": {
+          "name": "jugadores_estado_idx",
+          "columns": [
+            {
+              "expression": "estado",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "jugadores_categoria_idx": {
+          "name": "jugadores_categoria_idx",
+          "columns": [
+            {
+              "expression": "categoria_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "jugadores_solicitud_idx": {
+          "name": "jugadores_solicitud_idx",
+          "columns": [
+            {
+              "expression": "solicitud_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "jugadores_categoria_id_categorias_id_fk": {
+          "name": "jugadores_categoria_id_categorias_id_fk",
+          "tableFrom": "jugadores",
+          "tableTo": "categorias",
+          "columnsFrom": [
+            "categoria_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "jugadores_foto_id_fotos_id_fk": {
+          "name": "jugadores_foto_id_fotos_id_fk",
+          "tableFrom": "jugadores",
+          "tableTo": "fotos",
+          "columnsFrom": [
+            "foto_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "jugadores_solicitud_id_solicitudes_registro_id_fk": {
+          "name": "jugadores_solicitud_id_solicitudes_registro_id_fk",
+          "tableFrom": "jugadores",
+          "tableTo": "solicitudes_registro",
+          "columnsFrom": [
+            "solicitud_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "jugadores_rut_unique": {
+          "name": "jugadores_rut_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "rut"
+          ]
+        },
+        "jugadores_credencial_token_unique": {
+          "name": "jugadores_credencial_token_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "credencial_token"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "jugadores_rut_check": {
+          "name": "jugadores_rut_check",
+          "value": "\"rut\" ~ '^[0-9]{7,8}-[0-9K]$'"
+        },
+        "jugadores_telefono_check": {
+          "name": "jugadores_telefono_check",
+          "value": "\"telefono\" ~ '^[0-9]{9}$'"
+        },
+        "jugadores_email_check": {
+          "name": "jugadores_email_check",
+          "value": "\"email\" = lower(\"email\")"
+        },
+        "jugadores_disciplina_check": {
+          "name": "jugadores_disciplina_check",
+          "value": "\"disciplina\" IN ('basketball', 'voleibol')"
+        },
+        "jugadores_numero_check": {
+          "name": "jugadores_numero_check",
+          "value": "\"numero_camiseta\" ~ '^[0-9]{1,2}$'"
+        },
+        "jugadores_becas_check": {
+          "name": "jugadores_becas_check",
+          "value": "\"beca_mensualidad_pct\" BETWEEN 0 AND 100 AND \"beca_torneos_pct\" BETWEEN 0 AND 100 AND \"beca_campus_pct\" BETWEEN 0 AND 100"
+        },
+        "jugadores_metodo_pago_check": {
+          "name": "jugadores_metodo_pago_check",
+          "value": "\"metodo_pago\" IN ('forpay_mensual', 'transferencia_anual', 'tarjeta_credito_anual')"
+        },
+        "jugadores_estado_check": {
+          "name": "jugadores_estado_check",
+          "value": "\"estado\" IN ('precargado', 'pendiente', 'activo', 'rechazado', 'inactivo')"
+        },
+        "jugadores_origen_check": {
+          "name": "jugadores_origen_check",
+          "value": "\"origen\" IN ('base_2026', 'formulario')"
+        },
+        "jugadores_activo_completo_check": {
+          "name": "jugadores_activo_completo_check",
+          "value": "\"estado\" <> 'activo' OR (\"nombre\" IS NOT NULL AND \"apellido\" IS NOT NULL AND \"fecha_nacimiento\" IS NOT NULL AND \"numero_camiseta\" IS NOT NULL AND \"foto_id\" IS NOT NULL AND \"credencial_token\" IS NOT NULL)"
+        },
+        "jugadores_token_solo_activo_check": {
+          "name": "jugadores_token_solo_activo_check",
+          "value": "\"estado\" = 'activo' OR \"credencial_token\" IS NULL"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.sesiones": {
+      "name": "sesiones",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "usuario_id": {
+          "name": "usuario_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "creada_en": {
+          "name": "creada_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expira_en": {
+          "name": "expira_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "sesiones_usuario_idx": {
+          "name": "sesiones_usuario_idx",
+          "columns": [
+            {
+              "expression": "usuario_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sesiones_expira_idx": {
+          "name": "sesiones_expira_idx",
+          "columns": [
+            {
+              "expression": "expira_en",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "sesiones_usuario_id_usuarios_id_fk": {
+          "name": "sesiones_usuario_id_usuarios_id_fk",
+          "tableFrom": "sesiones",
+          "tableTo": "usuarios",
+          "columnsFrom": [
+            "usuario_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.solicitudes_registro": {
+      "name": "solicitudes_registro",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "creada_en": {
+          "name": "creada_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "token_acceso_hash": {
+          "name": "token_acceso_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "solicitud_origen_id": {
+          "name": "solicitud_origen_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "consentimiento_en": {
+          "name": "consentimiento_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "estado": {
+          "name": "estado",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pendiente'"
+        },
+        "revisada_en": {
+          "name": "revisada_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'formulario'"
+        },
+        "coincide_base": {
+          "name": "coincide_base",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "titular_apoderado_id": {
+          "name": "titular_apoderado_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "titular_jugador_id": {
+          "name": "titular_jugador_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "avisos": {
+          "name": "avisos",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::text[]"
+        }
+      },
+      "indexes": {
+        "solicitudes_origen_idx": {
+          "name": "solicitudes_origen_idx",
+          "columns": [
+            {
+              "expression": "solicitud_origen_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "solicitudes_estado_idx": {
+          "name": "solicitudes_estado_idx",
+          "columns": [
+            {
+              "expression": "estado",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "solicitudes_registro_solicitud_origen_id_solicitudes_registro_id_fk": {
+          "name": "solicitudes_registro_solicitud_origen_id_solicitudes_registro_id_fk",
+          "tableFrom": "solicitudes_registro",
+          "tableTo": "solicitudes_registro",
+          "columnsFrom": [
+            "solicitud_origen_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "solicitudes_registro_titular_apoderado_id_apoderados_id_fk": {
+          "name": "solicitudes_registro_titular_apoderado_id_apoderados_id_fk",
+          "tableFrom": "solicitudes_registro",
+          "tableTo": "apoderados",
+          "columnsFrom": [
+            "titular_apoderado_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "solicitudes_registro_titular_jugador_id_jugadores_id_fk": {
+          "name": "solicitudes_registro_titular_jugador_id_jugadores_id_fk",
+          "tableFrom": "solicitudes_registro",
+          "tableTo": "jugadores",
+          "columnsFrom": [
+            "titular_jugador_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "solicitudes_registro_token_acceso_hash_unique": {
+          "name": "solicitudes_registro_token_acceso_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "token_acceso_hash"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "solicitudes_estado_check": {
+          "name": "solicitudes_estado_check",
+          "value": "\"estado\" IN ('pendiente', 'revisada')"
+        },
+        "solicitudes_tipo_check": {
+          "name": "solicitudes_tipo_check",
+          "value": "\"tipo\" IN ('formulario', 'segundo_apoderado')"
+        },
+        "solicitudes_origen_check": {
+          "name": "solicitudes_origen_check",
+          "value": "(\"tipo\" = 'segundo_apoderado') = (\"solicitud_origen_id\" IS NOT NULL)"
+        },
+        "solicitudes_token_hash_check": {
+          "name": "solicitudes_token_hash_check",
+          "value": "\"token_acceso_hash\" ~ '^[0-9a-f]{64}$'"
+        },
+        "solicitudes_avisos_check": {
+          "name": "solicitudes_avisos_check",
+          "value": "\"avisos\" <@ ARRAY['titular_ya_registrado', 'telefono_distinto_base', 'hijo_con_otro_apoderado', 'apoderado_nuevo_para_hijo_registrado', 'hijo_marcado_ya_no_esta', 'otro_apoderado_ya_registrado', 'sin_telefono_en_base', 'hay_solicitud_posterior']::text[]"
+        },
+        "solicitudes_consentimiento_check": {
+          "name": "solicitudes_consentimiento_check",
+          "value": "\"tipo\" = 'segundo_apoderado' OR \"consentimiento_en\" IS NOT NULL"
+        },
+        "solicitudes_un_titular_check": {
+          "name": "solicitudes_un_titular_check",
+          "value": "num_nonnulls(\"titular_apoderado_id\", \"titular_jugador_id\") <= 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.usuarios": {
+      "name": "usuarios",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "usuario": {
+          "name": "usuario",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nombre": {
+          "name": "nombre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "password_hash": {
+          "name": "password_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "activo": {
+          "name": "activo",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "creado_en": {
+          "name": "creado_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "actualizado_en": {
+          "name": "actualizado_en",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "usuarios_usuario_unique": {
+          "name": "usuarios_usuario_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "usuario"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
