@@ -1,10 +1,16 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { generarRutFicticio } from "@club-colina/shared";
 import { dbTest, JPEG_PRUEBA } from "../test/db";
 import { borrarFoto, guardarFoto } from "../lib/fotos";
-import { generarToken } from "../lib/tokens";
-import { apoderados, categorias, entrenadores, jugadores } from "./schema";
+import { generarToken, hashToken } from "../lib/tokens";
+import {
+  apoderados,
+  categorias,
+  entrenadores,
+  jugadores,
+  solicitudesRegistro,
+} from "./schema";
 
 const { db, cerrar } = dbTest();
 afterAll(cerrar);
@@ -15,13 +21,44 @@ describe("esquema y migraciones", () => {
     expect(filas).toHaveLength(11);
     expect(filas.filter((c) => c.disciplina === "basketball")).toHaveLength(7);
     expect(filas.find((c) => c.nombre === "U11 F")?.se_calcula).toBe(false);
-    expect(filas.find((c) => c.nombre === "U21")).toMatchObject({ anio_desde: 2005, anio_hasta: 2008 });
+    expect(filas.find((c) => c.nombre === "U21")).toMatchObject({
+      anio_desde: 2005,
+      anio_hasta: 2008,
+    });
+  });
+
+  it("la solicitud guarda solo el hash del link y avisos conocidos", async () => {
+    const base = { consentimiento_en: new Date() };
+    await expect(
+      db
+        .insert(solicitudesRegistro)
+        .values({ ...base, token_acceso_hash: generarToken() }),
+    ).rejects.toThrow();
+    const [s] = await db
+      .insert(solicitudesRegistro)
+      .values({
+        ...base,
+        token_acceso_hash: hashToken(generarToken()),
+        avisos: ["titular_ya_registrado"],
+      })
+      .returning();
+    expect(s?.avisos).toEqual(["titular_ya_registrado"]);
+    await expect(
+      db.execute(
+        sql`insert into solicitudes_registro (token_acceso_hash, consentimiento_en, avisos)
+            values (${hashToken(generarToken())}, now(), array['inventado'])`,
+      ),
+    ).rejects.toThrow();
   });
 
   it("un jugador precargado puede venir incompleto", async () => {
     const [j] = await db
       .insert(jugadores)
-      .values({ rut: generarRutFicticio(101), disciplina: "voleibol", origen: "base_2026" })
+      .values({
+        rut: generarRutFicticio(101),
+        disciplina: "voleibol",
+        origen: "base_2026",
+      })
       .returning();
     expect(j?.estado).toBe("precargado");
     expect(j?.numero_camiseta).toBeNull();
@@ -43,17 +80,46 @@ describe("esquema y migraciones", () => {
   it("valida RUT, número, becas y duplicados", async () => {
     const rut = generarRutFicticio(103);
     await expect(
-      db.insert(jugadores).values({ rut: "12.345.678-5", disciplina: "basketball", origen: "formulario" }),
+      db
+        .insert(jugadores)
+        .values({
+          rut: "12.345.678-5",
+          disciplina: "basketball",
+          origen: "formulario",
+        }),
     ).rejects.toThrow();
     await expect(
-      db.insert(jugadores).values({ rut, disciplina: "basketball", origen: "formulario", numero_camiseta: "100" }),
+      db
+        .insert(jugadores)
+        .values({
+          rut,
+          disciplina: "basketball",
+          origen: "formulario",
+          numero_camiseta: "100",
+        }),
     ).rejects.toThrow();
     await expect(
-      db.insert(jugadores).values({ rut, disciplina: "basketball", origen: "formulario", beca_torneos_pct: 101 }),
+      db
+        .insert(jugadores)
+        .values({
+          rut,
+          disciplina: "basketball",
+          origen: "formulario",
+          beca_torneos_pct: 101,
+        }),
     ).rejects.toThrow();
-    await db.insert(jugadores).values({ rut, disciplina: "basketball", origen: "formulario", numero_camiseta: "00" });
+    await db
+      .insert(jugadores)
+      .values({
+        rut,
+        disciplina: "basketball",
+        origen: "formulario",
+        numero_camiseta: "00",
+      });
     await expect(
-      db.insert(jugadores).values({ rut, disciplina: "basketball", origen: "formulario" }),
+      db
+        .insert(jugadores)
+        .values({ rut, disciplina: "basketball", origen: "formulario" }),
     ).rejects.toThrow();
   });
 

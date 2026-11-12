@@ -25,7 +25,32 @@
       "Read(./**/.env)",
       "Read(./**/.env.local)",
       "Read(./**/.env.production)",
-      "Read(./**/.env.*.local)"
+      "Read(./**/.env.*.local)",
+      "Bash(git -c *)",
+      "Bash(git config * core.hooksPath*)",
+      "Bash(git config --unset core.hooksPath*)",
+      "Bash(git config --unset-all core.hooksPath*)",
+      "Bash(git push --all*)",
+      "Bash(git push * --all*)",
+      "Bash(git push --mirror*)",
+      "Bash(git push * --mirror*)",
+      "Bash(git push --force-with-lease*)",
+      "Bash(git push * --force-with-lease*)",
+      "Bash(git push --force-if-includes*)",
+      "Bash(git push * --force-if-includes*)",
+      "Bash(git push * +*)",
+      "Bash(cat .env)",
+      "Bash(cat ./.env)",
+      "Bash(cat */.env)",
+      "Bash(cat .env.local)",
+      "Bash(cat .env.production)",
+      "Bash(pnpm exec railway variables --kv*)",
+      "Bash(pnpm exec railway variables * --kv*)",
+      "Bash(pnpm exec railway variable list --kv*)",
+      "Bash(pnpm exec railway variable list * --kv*)",
+      "Bash(pnpm exec railway run env*)",
+      "Bash(pnpm exec railway run printenv*)",
+      "Bash(pnpm exec vercel env pull*)"
     ]
   }
 }

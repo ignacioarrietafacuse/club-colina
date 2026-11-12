@@ -102,7 +102,7 @@ La base es la exportación del formulario de inscripción 2026: 177 jugadores de
 
 **Mismo hijo inscrito por dos apoderados:** el RUT del jugador es único. Al segundo se le avisa que el jugador ya está inscrito y que quedará vinculado como apoderado (sin mostrarle datos). Mony aprueba el vínculo.
 
-**Suplantación:** alguien que conozca el RUT de un apoderado podría enviar fotos en su nombre. No ve ningún dato, y la credencial no se activa sin que Mony revise la foto y apruebe. La consulta de RUT tiene un límite de intentos.
+**Suplantación:** alguien que conozca el RUT de un apoderado podría enviar fotos en su nombre. No ve ningún dato, y la credencial no se activa sin que Mony revise la foto y apruebe. La consulta de RUT tiene un límite de intentos y nunca devuelve ids: los hijos precargados se identifican por su posición en la lista, que el servidor recalcula a partir del RUT al recibir la solicitud. El link privado (`/familia`) muestra solo a las personas que llegaron en esa solicitud, nunca al resto de la familia de la base. El panel marca con un aviso las solicitudes sospechosas: un RUT que ya se había registrado, un teléfono distinto al de la base, un hijo que ya tiene otro apoderado, un apoderado nuevo para un hijo ya registrado o un hijo marcado como "ya no está" (decisión de Ignacio, 2026-11-12).
 
 ## Formulario
 **Paso 1 — RUT:** la persona escribe su RUT. El sistema valida el dígito verificador y busca si está precargada.
@@ -151,7 +151,7 @@ Tablas definitivas del sistema (no temporales). Postgres en Railway.
 | telefono | 9 dígitos; sirve después para identificarlo en WhatsApp |
 | email | nulo; viene de la base, no se pide en el formulario |
 | metodo_pago | nulo; viene de la base o lo completa Mony |
-| foto_path | nulo hasta que la suba |
+| foto_id | referencia a la tabla `fotos`; nulo hasta que la suba |
 | credencial_token | aleatorio, único; es lo que va en el QR |
 | estado | precargado / pendiente / activo / rechazado / inactivo |
 | origen | base_2026 / formulario |
@@ -173,7 +173,7 @@ Tablas definitivas del sistema (no temporales). Postgres en Railway.
 | telefono | obligatorio solo para el jugador adulto |
 | email | nulo; no se pide |
 | metodo_pago | solo para el jugador adulto sin apoderado |
-| foto_path, credencial_token, estado, origen, solicitud_id | igual que en apoderados |
+| foto_id, credencial_token, estado, origen, solicitud_id | igual que en apoderados |
 
 **Estados:** precargado (viene de la base, sin completar) → pendiente (envió el formulario) → activo (Mony aprobó). Rechazado e inactivo como antes.
 
@@ -190,7 +190,7 @@ Tablas definitivas del sistema (no temporales). Postgres en Railway.
 | rut | único |
 | telefono | |
 | disciplina | basketball / voleibol |
-| foto_path | la sube Mony al crearlo |
+| foto_id | la sube Mony al crearlo |
 | credencial_token | igual que en apoderados |
 | estado | activo / inactivo (no pasa por aprobación) |
 
@@ -235,11 +235,12 @@ Horarios, lugar y entrenador se agregan en la Etapa 2.
 | Campo | Nota |
 |---|---|
 | id, creada_en | |
-| token_acceso | link privado de quien se registró, distinto del token del QR |
+| token_acceso_hash | sha256 del link privado de quien se registró (distinto del token del QR); la base nunca guarda el link |
+| avisos | casos que Mony debe mirar antes de aprobar (ver Suplantación) |
 | consentimiento_en | fecha y hora en que aceptó el uso de datos y fotos |
 | estado, revisada_en | |
 
-**Dos tokens distintos:** `credencial_token` va en el QR y es público (solo muestra foto, nombre y rol). `token_acceso` es el link privado (muestra los QR propios o de la familia). Si se pierde, Mony lo reenvía desde el panel.
+**Dos tokens distintos:** `credencial_token` va en el QR y es público (solo muestra foto, nombre y rol). `token_acceso` es el link privado (muestra los QR de las personas de esa solicitud). La base guarda solo su hash, igual que el del link personal de un segundo apoderado (`/completar`). Si se pierde, Mony genera uno nuevo desde el panel y el anterior deja de funcionar (decisión de Ignacio, 2026-11-12). `credencial_token` queda en claro porque hay que dibujar el QR.
 
 ## Diseño técnico
 - **Verificación:** página pública `panel.clubcolina.cl/c/{token}`. Muestra foto + nombre + rol (Jugador / Apoderado / Entrenador) solo si la persona está en estado activo.
@@ -260,7 +261,7 @@ Horarios, lugar y entrenador se agregan en la Etapa 2.
 - **Número 99:** el sistema lo trata como "sin número asignado": el panel lo muestra así, permite filtrar a esos jugadores y queda excluido de la validación de números repetidos. Mony lo reemplaza cuando se asigna el número real.
 - **Validación de números repetidos** (mismo año de nacimiento ± 1): queda para la Etapa 2 (uniformes). Por ahora el número solo se registra.
 - **Revocación:** al dar de baja a alguien se invalida su token. Se puede regenerar si se filtra un QR.
-- **Fotos:** en el almacenamiento del backend en Railway, nunca en una URL pública fija; se sirven solo a través de la página de verificación y del panel.
+- **Fotos:** en Postgres, en la tabla `fotos` (id, mime, bytes, creado_en); las fichas apuntan con `foto_id`. Se guardan sin metadatos (EXIF, GPS, XMP, comentarios): el backend los borra antes de guardar. Nunca en una URL pública fija; se sirven solo a través de la página de verificación y del panel, con `Cache-Control: private, no-store`. Entran en los respaldos de la base (decisión de Ignacio, 2026-11-11).
 - **Costo/servicios externos:** ninguno nuevo.
 
 ## Torneos y campus (Etapa 2)

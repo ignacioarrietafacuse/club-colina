@@ -131,20 +131,33 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 function BrandMark({ compact = false }: { compact?: boolean }) {
+  // Logo provisorio de solo texto, sin imágenes externas. Pendiente: el logo real del club.
   return (
-    <Link to="/" className="flex items-center gap-3 group">
-      <div className="size-10 rounded-xl bg-white/10 border border-white/10 grid place-items-center overflow-hidden transition-transform group-hover:scale-105">
-        {/* Pendiente: el logo real. El de Lovable se servía desde su CDN. */}
-        <span className="text-sm font-bold text-white">CC</span>
-      </div>
-      {!compact && (
-        <div className="leading-tight">
-          <div className="text-white font-semibold text-[15px]">Club Colina</div>
+    <Link to="/" className="flex items-center gap-3 group" aria-label="Club Colina">
+      <div className="leading-tight">
+        <div
+          className={
+            compact
+              ? "text-white font-bold text-[11px] leading-[1.05] text-center"
+              : "text-white font-bold text-lg tracking-tight"
+          }
+        >
+          {compact ? (
+            <>
+              Club
+              <br />
+              Colina
+            </>
+          ) : (
+            "Club Colina"
+          )}
+        </div>
+        {!compact && (
           <div className="text-[10px] uppercase tracking-widest text-white/50">
             Plataforma Deportiva
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </Link>
   );
 }

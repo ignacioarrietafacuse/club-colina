@@ -127,15 +127,18 @@ CREATE TABLE "sesiones" (
 CREATE TABLE "solicitudes_registro" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"creada_en" timestamp with time zone DEFAULT now() NOT NULL,
-	"token_acceso" text NOT NULL,
+	"token_acceso_hash" text NOT NULL,
 	"consentimiento_en" timestamp with time zone,
 	"estado" text DEFAULT 'pendiente' NOT NULL,
 	"revisada_en" timestamp with time zone,
 	"tipo" text DEFAULT 'formulario' NOT NULL,
 	"coincide_base" boolean DEFAULT false NOT NULL,
-	CONSTRAINT "solicitudes_registro_token_acceso_unique" UNIQUE("token_acceso"),
+	"avisos" text[] DEFAULT '{}'::text[] NOT NULL,
+	CONSTRAINT "solicitudes_registro_token_acceso_hash_unique" UNIQUE("token_acceso_hash"),
 	CONSTRAINT "solicitudes_estado_check" CHECK ("estado" IN ('pendiente', 'revisada')),
 	CONSTRAINT "solicitudes_tipo_check" CHECK ("tipo" IN ('formulario', 'segundo_apoderado')),
+	CONSTRAINT "solicitudes_token_hash_check" CHECK ("token_acceso_hash" ~ '^[0-9a-f]{64}$'),
+	CONSTRAINT "solicitudes_avisos_check" CHECK ("avisos" <@ ARRAY['titular_ya_registrado', 'telefono_distinto_base', 'hijo_con_otro_apoderado', 'apoderado_nuevo_para_hijo_registrado', 'hijo_marcado_ya_no_esta']::text[]),
 	CONSTRAINT "solicitudes_consentimiento_check" CHECK ("tipo" = 'segundo_apoderado' OR "consentimiento_en" IS NOT NULL)
 );
 --> statement-breakpoint

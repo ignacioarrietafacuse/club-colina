@@ -101,7 +101,7 @@ GitHub no ofrece protección de ramas en repos privados del plan Free, así que 
 | Ambiente | Qué corre | Cómo se llega |
 |---|---|---|
 | **Local** | Front y back en la máquina o en la sesión, Postgres en Docker, datos ficticios | Siempre. Es donde se prueba todo lo que escribe |
-| **Vista previa** | El frontend de cada PR (Vercel la crea sola) | Automático. **Habla con el backend de producción:** se usa para mirar, no para crear ni editar datos |
+| **Vista previa** | El frontend de cada PR (Vercel la crea sola) | Automático. **Habla con el backend de producción:** se usa para mirar, no para crear ni editar datos. Sin login: el panel se prueba en local |
 | **Producción** | `main` | Automático al fusionar: Vercel publica el frontend y Railway el backend |
 
 Reglas:
@@ -247,3 +247,6 @@ Cada decisión sobre cómo se trabaja se anota acá, con fecha y razón, en el m
 | 2026-11-11 | Los scripts que escriben exigen `--produccion` fuera de `localhost` | Un comando contra producción es una decisión, nunca un descuido |
 | 2026-11-11 | Respaldos diario (6 días) y semanal (1 mes) en Railway, más uno manual antes de lo riesgoso; sin mensual | Cubre los accidentes no planificados; al ser incrementales y borrarse solos, el costo es de centavos |
 | 2026-11-11 | Las fotos van en Postgres (tabla `fotos`), sin volumen aparte | Un solo volumen que respaldar y restaurar; la foto y su ficha se guardan en la misma transacción |
+| 2026-11-12 | Sin login ni escrituras desde las vistas previas de Vercel; el panel se prueba en local | Las vistas previas corren código no fusionado contra producción. El backend rechaza toda escritura cuyo `Origin` no sea la URL de producción |
+| 2026-11-12 | Los links privados (`token_acceso` y `/completar`) se guardan como hash; reenviar genera uno nuevo y anula el anterior | Una copia de la base no abre ningún link. `credencial_token` queda en claro porque hay que dibujar el QR |
+| 2026-11-12 | `rut-lookup` no devuelve ids, `/familia` muestra solo a las personas de esa solicitud y el panel marca los casos sospechosos | Quien conoce un RUT ajeno no puede llegar a datos ni personas que no envió |

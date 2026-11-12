@@ -21,6 +21,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import {
+  AVISOS_SOLICITUD,
   DISCIPLINAS,
   ESTADOS_ENTRENADOR,
   ESTADOS_PERSONA,
@@ -46,7 +47,9 @@ function enLista(columna: string, valores: readonly string[]) {
 }
 
 const tiempos = {
-  creado_en: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+  creado_en: timestamp("creado_en", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
   actualizado_en: timestamp("actualizado_en", { withTimezone: true })
     .notNull()
     .defaultNow()
@@ -64,11 +67,16 @@ export const fotos = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     mime: text("mime").notNull(),
     bytes: bytea("bytes").notNull(),
-    creado_en: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+    creado_en: timestamp("creado_en", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   () => [
     check("fotos_mime_check", enLista("mime", FOTO_MIMES)),
-    check("fotos_tamano_check", sql.raw(`octet_length("bytes") BETWEEN 1 AND ${FOTO_MAX_BYTES}`)),
+    check(
+      "fotos_tamano_check",
+      sql.raw(`octet_length("bytes") BETWEEN 1 AND ${FOTO_MAX_BYTES}`),
+    ),
   ],
 );
 
@@ -76,22 +84,48 @@ export const solicitudesRegistro = pgTable(
   "solicitudes_registro",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    creada_en: timestamp("creada_en", { withTimezone: true }).notNull().defaultNow(),
-    /** Link privado (`/familia/:token`, o `/completar/:token` si es de un segundo apoderado). */
-    token_acceso: text("token_acceso").notNull().unique(),
+    creada_en: timestamp("creada_en", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /**
+     * sha256 (hex) del link privado (`/familia/:token`, o `/completar/:token` si es de un segundo
+     * apoderado). La base nunca guarda el link: se entrega una sola vez y reenviar genera otro.
+     */
+    token_acceso_hash: text("token_acceso_hash").notNull().unique(),
     /** Nulo solo en la solicitud de un segundo apoderado mientras no sube su foto. */
     consentimiento_en: timestamp("consentimiento_en", { withTimezone: true }),
-    estado: text("estado", { enum: ESTADOS_SOLICITUD }).notNull().default("pendiente"),
+    estado: text("estado", { enum: ESTADOS_SOLICITUD })
+      .notNull()
+      .default("pendiente"),
     revisada_en: timestamp("revisada_en", { withTimezone: true }),
-    tipo: text("tipo", { enum: TIPOS_SOLICITUD }).notNull().default("formulario"),
+    tipo: text("tipo", { enum: TIPOS_SOLICITUD })
+      .notNull()
+      .default("formulario"),
     coincide_base: boolean("coincide_base").notNull().default(false),
+    /** Casos que Mony debe mirar antes de aprobar (`AVISOS_SOLICITUD`). */
+    avisos: text("avisos", { enum: AVISOS_SOLICITUD })
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
   },
   (t) => [
     check("solicitudes_estado_check", enLista("estado", ESTADOS_SOLICITUD)),
     check("solicitudes_tipo_check", enLista("tipo", TIPOS_SOLICITUD)),
     check(
+      "solicitudes_token_hash_check",
+      sql.raw(`"token_acceso_hash" ~ '^[0-9a-f]{64}$'`),
+    ),
+    check(
+      "solicitudes_avisos_check",
+      sql.raw(
+        `"avisos" <@ ARRAY[${AVISOS_SOLICITUD.map((v) => `'${v}'`).join(", ")}]::text[]`,
+      ),
+    ),
+    check(
       "solicitudes_consentimiento_check",
-      sql.raw(`"tipo" = 'segundo_apoderado' OR "consentimiento_en" IS NOT NULL`),
+      sql.raw(
+        `"tipo" = 'segundo_apoderado' OR "consentimiento_en" IS NOT NULL`,
+      ),
     ),
     index("solicitudes_estado_idx").on(t.estado),
   ],
@@ -125,13 +159,20 @@ export const apoderados = pgTable(
     telefono: text("telefono"),
     email: text("email"),
     metodo_pago: text("metodo_pago", { enum: METODOS_PAGO }),
-    foto_id: uuid("foto_id").references(() => fotos.id, { onDelete: "restrict" }),
-    credencial_token: text("credencial_token").unique(),
-    estado: text("estado", { enum: ESTADOS_PERSONA }).notNull().default("precargado"),
-    origen: text("origen", { enum: ORIGENES }).notNull(),
-    solicitud_id: uuid("solicitud_id").references(() => solicitudesRegistro.id, {
+    foto_id: uuid("foto_id").references(() => fotos.id, {
       onDelete: "restrict",
     }),
+    credencial_token: text("credencial_token").unique(),
+    estado: text("estado", { enum: ESTADOS_PERSONA })
+      .notNull()
+      .default("precargado"),
+    origen: text("origen", { enum: ORIGENES }).notNull(),
+    solicitud_id: uuid("solicitud_id").references(
+      () => solicitudesRegistro.id,
+      {
+        onDelete: "restrict",
+      },
+    ),
     ...tiempos,
   },
   (t) => [
@@ -148,7 +189,10 @@ export const apoderados = pgTable(
       ),
     ),
     // Revocación garantizada por la base: solo una persona activa tiene credencial vigente.
-    check("apoderados_token_solo_activo_check", sql.raw(`"estado" = 'activo' OR "credencial_token" IS NULL`)),
+    check(
+      "apoderados_token_solo_activo_check",
+      sql.raw(`"estado" = 'activo' OR "credencial_token" IS NULL`),
+    ),
     index("apoderados_estado_idx").on(t.estado),
     index("apoderados_solicitud_idx").on(t.solicitud_id),
   ],
@@ -177,13 +221,20 @@ export const jugadores = pgTable(
     metodo_pago: text("metodo_pago", { enum: METODOS_PAGO }),
     /** Casilla "Ya no está en el club" del formulario; Mony lo confirma. */
     marcado_retiro_en: timestamp("marcado_retiro_en", { withTimezone: true }),
-    foto_id: uuid("foto_id").references(() => fotos.id, { onDelete: "restrict" }),
-    credencial_token: text("credencial_token").unique(),
-    estado: text("estado", { enum: ESTADOS_PERSONA }).notNull().default("precargado"),
-    origen: text("origen", { enum: ORIGENES }).notNull(),
-    solicitud_id: uuid("solicitud_id").references(() => solicitudesRegistro.id, {
+    foto_id: uuid("foto_id").references(() => fotos.id, {
       onDelete: "restrict",
     }),
+    credencial_token: text("credencial_token").unique(),
+    estado: text("estado", { enum: ESTADOS_PERSONA })
+      .notNull()
+      .default("precargado"),
+    origen: text("origen", { enum: ORIGENES }).notNull(),
+    solicitud_id: uuid("solicitud_id").references(
+      () => solicitudesRegistro.id,
+      {
+        onDelete: "restrict",
+      },
+    ),
     ...tiempos,
   },
   (t) => [
@@ -191,7 +242,10 @@ export const jugadores = pgTable(
     check("jugadores_telefono_check", sql.raw(TELEFONO_CHECK)),
     check("jugadores_email_check", sql.raw(EMAIL_CHECK)),
     check("jugadores_disciplina_check", enLista("disciplina", DISCIPLINAS)),
-    check("jugadores_numero_check", sql.raw(`"numero_camiseta" ~ '^[0-9]{1,2}$'`)),
+    check(
+      "jugadores_numero_check",
+      sql.raw(`"numero_camiseta" ~ '^[0-9]{1,2}$'`),
+    ),
     check(
       "jugadores_becas_check",
       sql.raw(
@@ -208,7 +262,10 @@ export const jugadores = pgTable(
       ),
     ),
     // Revocación garantizada por la base: solo una persona activa tiene credencial vigente.
-    check("jugadores_token_solo_activo_check", sql.raw(`"estado" = 'activo' OR "credencial_token" IS NULL`)),
+    check(
+      "jugadores_token_solo_activo_check",
+      sql.raw(`"estado" = 'activo' OR "credencial_token" IS NULL`),
+    ),
     index("jugadores_estado_idx").on(t.estado),
     index("jugadores_categoria_idx").on(t.categoria_id),
     index("jugadores_solicitud_idx").on(t.solicitud_id),
@@ -225,8 +282,12 @@ export const jugadorApoderado = pgTable(
       .notNull()
       .references(() => apoderados.id, { onDelete: "cascade" }),
     paga_mensualidad: boolean("paga_mensualidad").notNull().default(false),
-    estado: text("estado", { enum: ESTADOS_VINCULO }).notNull().default("pendiente"),
-    creado_en: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+    estado: text("estado", { enum: ESTADOS_VINCULO })
+      .notNull()
+      .default("pendiente"),
+    creado_en: timestamp("creado_en", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (t) => [
     primaryKey({ columns: [t.jugador_id, t.apoderado_id] }),
@@ -249,7 +310,9 @@ export const entrenadores = pgTable(
       .references(() => fotos.id, { onDelete: "restrict" }),
     /** Nulo cuando está inactivo. */
     credencial_token: text("credencial_token").unique(),
-    estado: text("estado", { enum: ESTADOS_ENTRENADOR }).notNull().default("activo"),
+    estado: text("estado", { enum: ESTADOS_ENTRENADOR })
+      .notNull()
+      .default("activo"),
     ...tiempos,
   },
   () => [
@@ -286,7 +349,9 @@ export const sesiones = pgTable(
     usuario_id: uuid("usuario_id")
       .notNull()
       .references(() => usuarios.id, { onDelete: "cascade" }),
-    creada_en: timestamp("creada_en", { withTimezone: true }).notNull().defaultNow(),
+    creada_en: timestamp("creada_en", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     expira_en: timestamp("expira_en", { withTimezone: true }).notNull(),
   },
   (t) => [

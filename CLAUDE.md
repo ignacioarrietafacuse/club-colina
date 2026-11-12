@@ -94,7 +94,10 @@ lo pide.
 - **Fotos en Postgres**, tabla `fotos` aparte; las fichas apuntan con `foto_id`. Usar
   `backend/src/lib/fotos.ts` (`guardarFoto`, `leerFoto`, `borrarFoto`). No hay volumen de fotos.
 - **`numero_camiseta` es texto** (`^[0-9]{1,2}$`): "0" y "00" son distintos. "99" = sin número asignado.
-- **Consulta de RUT (S2):** ignora la tabla `entrenadores`. Si un RUT es apoderado y
+- **Consulta de RUT (S2):** nunca devuelve ids. Los hijos precargados van con `posicion` (orden
+  estable que el servidor define, por ejemplo por `creado_en` e `id`) y la solicitud los nombra con
+  `ref.precargado`; al recibirla, el servidor recalcula la lista desde el RUT de quien llena y
+  rechaza una posición que no exista. Ignora la tabla `entrenadores`. Si un RUT es apoderado y
   jugador adulto a la vez, el formulario lo trata como apoderado; Mony completa la parte
   de jugador en el panel.
 - **Apoderado ya registrado (S2):** puede volver a usar el formulario para agregar hijos
@@ -110,7 +113,8 @@ lo pide.
 - **Límite de intentos:** `LIMITES` en `backend/src/lib/limite-intentos.ts`; cada ruta lo
   activa con `config: { rateLimit: LIMITES.x }`.
 - **Escrituras:** el backend rechaza POST/PUT/PATCH/DELETE con un `Origin` que no sea
-  `PUBLIC_BASE_URL` u `ORIGENES_PERMITIDOS` (las vistas previas de Vercel quedan en solo lectura).
+  `PUBLIC_BASE_URL` u `ORIGENES_PERMITIDOS`. Las vistas previas de Vercel quedan en solo lectura y
+  sin login a propósito (decisión de Ignacio, 2026-11-12): el panel se prueba en local.
 - **Entrada:** se valida con `validarEntrada(esquema, datos)` (`backend/src/lib/validar.ts`),
   que responde 400 `validacion` con los nombres de los campos. Un `ZodError` suelto es un
   error del servidor (500).
@@ -126,4 +130,12 @@ lo pide.
   Al servirlas: `Cache-Control: private, no-store` (el backend ya agrega `nosniff`).
 - **Scripts que escriben:** llaman a `verificarHostDestino()` (`backend/src/lib/guarda-host.ts`)
   antes de conectarse.
+- **Links privados (S1, S2):** `solicitudes_registro.token_acceso_hash` guarda `hashToken()` del
+  link de `/familia` (o de `/completar` en una solicitud de segundo apoderado); el link se compara
+  buscando por su hash. Se entrega una sola vez, en `solicitudCreadaResponse`; `POST
+  .../solicitudes/:id/link` genera uno nuevo y anula el anterior. `credencial_token` va en claro.
+- **`/familia` (S2):** solo las personas que llegaron en esa solicitud (`solicitud_id`), nunca el
+  resto de la familia de la base.
+- **Avisos de suplantación (S2 calcula, S1 y S4 muestran):** `solicitudes_registro.avisos` con los
+  valores de `AVISOS_SOLICITUD`; S2 los calcula al recibir la solicitud.
 - **Datos de prueba:** siempre ficticios, con `generarRutFicticio()` de `shared/`.

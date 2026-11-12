@@ -4,6 +4,7 @@ import {
   familiaResponse,
   numeroCamiseta,
   rutEntrada,
+  hijoSolicitud,
   rutLookupResponse,
   solicitudDatos,
   telefonoEntrada,
@@ -37,7 +38,12 @@ describe("contrato", () => {
   // Las respuestas públicas no tienen campos para RUT, teléfono, correo ni fechas:
   // si alguien los agrega por error, z.object los descarta y este test lo detecta.
   it("las respuestas públicas descartan datos personales", () => {
-    const sensibles = { rut: "x", telefono: "x", email: "x", fecha_nacimiento: "x" };
+    const sensibles = {
+      rut: "x",
+      telefono: "x",
+      email: "x",
+      fecha_nacimiento: "x",
+    };
     const credencial = credencialResponse.parse({
       nombre_completo: "Ana Pérez",
       rol: "jugador",
@@ -50,7 +56,14 @@ describe("contrato", () => {
 
     const familia = familiaResponse.parse({
       estado_solicitud: "pendiente",
-      personas: [{ nombre_completo: "Ana Pérez", rol: "jugador", estado: "pendiente", ...sensibles }],
+      personas: [
+        {
+          nombre_completo: "Ana Pérez",
+          rol: "jugador",
+          estado: "pendiente",
+          ...sensibles,
+        },
+      ],
       otros_apoderados: [],
     });
     expect(Object.keys(familia.personas[0] ?? {}).sort()).toEqual([
@@ -58,6 +71,68 @@ describe("contrato", () => {
       "nombre_completo",
       "rol",
     ]);
+  });
+
+  it("rut-lookup nunca devuelve ids ni links ya entregados", () => {
+    const id = "00000000-0000-4000-8000-000000000000";
+    const apoderado = rutLookupResponse.parse({
+      encontrado: true,
+      tipo: "apoderado",
+      id,
+      ya_registrado: false,
+      faltantes: [],
+      hijos: [
+        {
+          id,
+          posicion: 0,
+          primer_nombre: "Ana",
+          ya_registrado: false,
+          faltantes: [],
+        },
+      ],
+    });
+    expect(JSON.stringify(apoderado)).not.toContain(id);
+
+    const jugador = rutLookupResponse.parse({
+      encontrado: true,
+      tipo: "jugador",
+      id,
+      primer_nombre: "Ana",
+      adulto: true,
+      ya_registrado: false,
+      faltantes: [],
+    });
+    expect(JSON.stringify(jugador)).not.toContain(id);
+
+    const familia = familiaResponse.parse({
+      estado_solicitud: "pendiente",
+      personas: [],
+      otros_apoderados: [
+        {
+          nombre_completo: "Luis Soto",
+          completar_token: "x",
+          foto_subida: false,
+        },
+      ],
+    });
+    expect(Object.keys(familia.otros_apoderados[0] ?? {}).sort()).toEqual([
+      "foto_subida",
+      "nombre_completo",
+    ]);
+  });
+
+  it("los hijos precargados se nombran por posición, no por id", () => {
+    expect(hijoSolicitud.safeParse({ ref: { precargado: 0 } }).success).toBe(
+      true,
+    );
+    expect(hijoSolicitud.safeParse({ ref: { precargado: -1 } }).success).toBe(
+      false,
+    );
+    expect(
+      hijoSolicitud.safeParse({
+        ref: { jugador_id: "00000000-0000-4000-8000-000000000000" },
+      }).success,
+    ).toBe(false);
   });
 
   it("arma la URL del QR", () => {

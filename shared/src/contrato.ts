@@ -31,8 +31,28 @@ export const METODOS_PAGO = [
 export const ESTADOS_VINCULO = ["pendiente", "activo"] as const;
 export const ESTADOS_SOLICITUD = ["pendiente", "revisada"] as const;
 export const TIPOS_SOLICITUD = ["formulario", "segundo_apoderado"] as const;
+/**
+ * Casos que el panel marca para que Mony los mire antes de aprobar (posible suplantación).
+ * Los calcula el backend al recibir la solicitud y quedan guardados en ella.
+ */
+export const AVISOS_SOLICITUD = [
+  /** El RUT de quien llena ya había enviado el formulario antes. */
+  "titular_ya_registrado",
+  /** El teléfono ingresado no coincide con el que está en la base. */
+  "telefono_distinto_base",
+  /** Un hijo agregado por RUT ya tiene otro apoderado vinculado. */
+  "hijo_con_otro_apoderado",
+  /** Se agrega un apoderado nuevo a un hijo que ya estaba registrado. */
+  "apoderado_nuevo_para_hijo_registrado",
+  /** Se marcó un hijo como "ya no está en el club". */
+  "hijo_marcado_ya_no_esta",
+] as const;
 /** Segmento de URL de `/api/panel/:tipo/:id/...`. */
-export const TIPOS_PERSONA = ["jugadores", "apoderados", "entrenadores"] as const;
+export const TIPOS_PERSONA = [
+  "jugadores",
+  "apoderados",
+  "entrenadores",
+] as const;
 
 /** "99" = sin número asignado. Queda fuera de la validación de números repetidos (Etapa 2). */
 export const NUMERO_SIN_ASIGNAR = "99";
@@ -55,6 +75,7 @@ export const metodoPago = z.enum(METODOS_PAGO);
 export const estadoVinculo = z.enum(ESTADOS_VINCULO);
 export const estadoSolicitud = z.enum(ESTADOS_SOLICITUD);
 export const tipoSolicitud = z.enum(TIPOS_SOLICITUD);
+export const avisoSolicitud = z.enum(AVISOS_SOLICITUD);
 export const tipoPersona = z.enum(TIPOS_PERSONA);
 
 export const id = z.uuid();
@@ -75,9 +96,13 @@ export const rut = z.string().regex(RUT_NORMALIZADO);
 /** Teléfono de entrada: acepta +56, espacios y guiones; lo deja en 9 dígitos. */
 export const telefonoEntrada = z.string().transform((valor, ctx) => {
   let digitos = valor.replace(/\D/g, "");
-  if (digitos.length === 11 && digitos.startsWith("56")) digitos = digitos.slice(2);
+  if (digitos.length === 11 && digitos.startsWith("56"))
+    digitos = digitos.slice(2);
   if (!/^[0-9]{9}$/.test(digitos)) {
-    ctx.addIssue({ code: "custom", message: "Teléfono inválido: deben ser 9 dígitos" });
+    ctx.addIssue({
+      code: "custom",
+      message: "Teléfono inválido: deben ser 9 dígitos",
+    });
     return z.NEVER;
   }
   return digitos;
@@ -88,11 +113,7 @@ export const telefono = z.string().regex(/^[0-9]{9}$/);
 export const numeroCamiseta = z.string().regex(/^[0-9]{1,2}$/);
 export const porcentajeBeca = z.int().min(0).max(100);
 export const nombrePropio = z.string().trim().min(1).max(80);
-export const email = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .pipe(z.email().max(200));
+export const email = z.string().trim().toLowerCase().pipe(z.email().max(200));
 /** Fecha `AAAA-MM-DD`. */
 export const fecha = z.iso.date();
 /** Fecha y hora ISO 8601 con zona. */
@@ -129,7 +150,12 @@ export const healthResponse = z.object({ estado: z.enum(["ok", "error"]) });
 // Público (sin login)
 // ---------------------------------------------------------------------------
 
-export const faltanteApoderado = z.enum(["nombre", "apellido", "telefono", "foto"]);
+export const faltanteApoderado = z.enum([
+  "nombre",
+  "apellido",
+  "telefono",
+  "foto",
+]);
 export const faltanteJugador = z.enum([
   "nombre",
   "apellido",
@@ -150,9 +176,14 @@ export const rutLookupResponse = z.union([
     /** Ya envió el formulario: solo puede agregar hijos nuevos y otro apoderado. */
     ya_registrado: z.boolean(),
     faltantes: z.array(faltanteApoderado),
+    /**
+     * Hijos precargados, en el orden en que el servidor los lista para ese RUT. Nunca se
+     * devuelven ids: la solicitud los nombra por su posición (`ref.precargado`) y el servidor
+     * vuelve a calcular la lista desde el RUT al recibirla.
+     */
     hijos: z.array(
       z.object({
-        id,
+        posicion: z.int().min(0),
         primer_nombre: z.string(),
         ya_registrado: z.boolean(),
         faltantes: z.array(faltanteJugador),
@@ -162,7 +193,6 @@ export const rutLookupResponse = z.union([
   z.object({
     encontrado: z.literal(true),
     tipo: z.literal("jugador"),
-    id,
     primer_nombre: z.string(),
     adulto: z.boolean(),
     ya_registrado: z.boolean(),
@@ -171,12 +201,23 @@ export const rutLookupResponse = z.union([
 ]);
 
 /** GET /api/public/categorias */
-export const categoriaPublica = z.object({ id: categoriaId, nombre: z.string(), disciplina });
+export const categoriaPublica = z.object({
+  id: categoriaId,
+  nombre: z.string(),
+  disciplina,
+});
 export const categoriasPublicasResponse = z.array(categoriaPublica);
 
-/** Un hijo dentro de la solicitud. `jugador_id` solo vale para hijos precargados del RUT que llena. */
+/**
+ * Un hijo dentro de la solicitud. `precargado` es la `posicion` que devolvió `rut-lookup` para
+ * el RUT de quien llena; el servidor recalcula la lista desde ese RUT y rechaza una posición
+ * que no exista. Un hijo nuevo (o de otra familia) se nombra por su RUT.
+ */
 export const hijoSolicitud = z.object({
-  ref: z.union([z.object({ jugador_id: id }), z.object({ rut: rutEntrada })]),
+  ref: z.union([
+    z.object({ precargado: z.int().min(0) }),
+    z.object({ rut: rutEntrada }),
+  ]),
   /** Casilla "Ya no está en el club": lo saca del registro y lo deja marcado para que Mony lo confirme. */
   ya_no_esta: z.literal(true).optional(),
   nombre: nombrePropio.optional(),
@@ -221,9 +262,22 @@ export const solicitudDatos = z.object({
     })
     .optional(),
 });
-export const solicitudCreadaResponse = z.object({ token_acceso: token });
+/**
+ * La base guarda solo el hash de `token_acceso` y de cada `completar_token`: esta respuesta es la
+ * única vez que se entregan. Si se pierden, Mony genera un link nuevo desde el panel.
+ */
+export const solicitudCreadaResponse = z.object({
+  token_acceso: token,
+  /** Links personales para que el primer apoderado se los reenvíe a los otros. */
+  otros_apoderados: z.array(
+    z.object({ nombre_completo: z.string(), completar_token: token }),
+  ),
+});
 
-/** GET /api/public/familia/:token_acceso */
+/**
+ * GET /api/public/familia/:token_acceso — solo las personas que llegaron en esa solicitud,
+ * nunca el resto de la familia que esté en la base.
+ */
 export const familiaResponse = z.object({
   estado_solicitud: estadoSolicitud,
   personas: z.array(
@@ -235,19 +289,25 @@ export const familiaResponse = z.object({
       credencial_token: token.optional(),
     }),
   ),
-  /** Links personales para que el primer apoderado se los reenvíe a los otros. */
+  /** Otros apoderados de esta solicitud y si ya subieron su foto (sin su link: ver `solicitudCreadaResponse`). */
   otros_apoderados: z.array(
-    z.object({ nombre_completo: z.string(), completar_token: token, foto_subida: z.boolean() }),
+    z.object({ nombre_completo: z.string(), foto_subida: z.boolean() }),
   ),
 });
 
 /** GET /api/public/completar/:token */
-export const completarResponse = z.object({ primer_nombre: z.string(), foto_subida: z.boolean() });
+export const completarResponse = z.object({
+  primer_nombre: z.string(),
+  foto_subida: z.boolean(),
+});
 /** POST /api/public/completar/:token — multipart: archivo `foto` + campo `consentimiento=true`. Responde 204. */
 export const completarCampos = z.object({ consentimiento: z.literal("true") });
 
 /** GET /api/public/credencial/:credencial_token — 404 genérico si no está activa. */
-export const credencialResponse = z.object({ nombre_completo: z.string(), rol });
+export const credencialResponse = z.object({
+  nombre_completo: z.string(),
+  rol,
+});
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -428,14 +488,20 @@ export const entrenadorCrear = z.object({
 export const entrenadorPatch = entrenadorCrear.partial();
 
 /** GET /api/panel/solicitudes */
-export const solicitudesQuery = z.object({ estado: estadoSolicitud.optional() });
+export const solicitudesQuery = z.object({
+  estado: estadoSolicitud.optional(),
+});
 export const solicitudResumen = z.object({
   id,
   creada_en: fechaHora,
   estado: estadoSolicitud,
   tipo: tipoSolicitud,
   coincide_base: z.boolean(),
-  titular: z.object({ nombre_completo: z.string(), rol: z.enum(["jugador", "apoderado"]) }),
+  avisos: z.array(avisoSolicitud),
+  titular: z.object({
+    nombre_completo: z.string(),
+    rol: z.enum(["jugador", "apoderado"]),
+  }),
   personas_pendientes: z.int().min(0),
 });
 export const solicitudesResponse = z.array(solicitudResumen);
@@ -449,6 +515,7 @@ export const solicitudDetalle = z.object({
   consentimiento_en: fechaHora.nullable(),
   revisada_en: fechaHora.nullable(),
   coincide_base: z.boolean(),
+  avisos: z.array(avisoSolicitud),
   jugadores: z.array(jugadorDetalle),
   apoderados: z.array(apoderadoDetalle),
   vinculos: z.array(
@@ -477,16 +544,23 @@ export const aprobarRequest = z.object({
       }),
     )
     .default([]),
-  apoderados: z.array(z.object({ id, metodo_pago: metodoPago.optional() })).default([]),
+  apoderados: z
+    .array(z.object({ id, metodo_pago: metodoPago.optional() }))
+    .default([]),
   vinculos: z.array(z.object({ jugador_id: id, apoderado_id: id })).default([]),
 });
 
 /** POST /api/panel/solicitudes/:id/rechazar — sin `personas` se rechaza todo lo pendiente. */
 export const rechazarRequest = z.object({
-  personas: z.array(z.object({ rol: z.enum(["jugador", "apoderado"]), id })).optional(),
+  personas: z
+    .array(z.object({ rol: z.enum(["jugador", "apoderado"]), id }))
+    .optional(),
 });
 
-/** POST /api/panel/solicitudes/:id/link */
+/**
+ * POST /api/panel/solicitudes/:id/link — genera un `token_acceso` nuevo (en una solicitud de
+ * segundo apoderado, su link de `/completar`) y anula el anterior: la base guarda solo el hash.
+ */
 export const linkResponse = z.object({ url: z.url() });
 
 /** POST /api/panel/:tipo/:id/foto — multipart: archivo `foto`. GET devuelve la imagen. */
@@ -552,15 +626,20 @@ export const API = {
     entrenadores: "/api/panel/entrenadores",
     entrenador: (i: string) => `/api/panel/entrenadores/${seg(i)}`,
     foto: (t: TipoPersona, i: string) => `/api/panel/${t}/${seg(i)}/foto`,
-    regenerarToken: (t: TipoPersona, i: string) => `/api/panel/${t}/${seg(i)}/regenerar-token`,
+    regenerarToken: (t: TipoPersona, i: string) =>
+      `/api/panel/${t}/${seg(i)}/regenerar-token`,
     activar: (t: TipoPersona, i: string) => `/api/panel/${t}/${seg(i)}/activar`,
-    desactivar: (t: TipoPersona, i: string) => `/api/panel/${t}/${seg(i)}/desactivar`,
+    desactivar: (t: TipoPersona, i: string) =>
+      `/api/panel/${t}/${seg(i)}/desactivar`,
     categorias: "/api/panel/categorias",
   },
 } as const;
 
 /** URL que va dentro del QR. `baseUrl` es PUBLIC_BASE_URL (sin barra final). */
-export function urlCredencial(baseUrl: string, credencialToken: string): string {
+export function urlCredencial(
+  baseUrl: string,
+  credencialToken: string,
+): string {
   return `${baseUrl.replace(/\/+$/, "")}/c/${encodeURIComponent(credencialToken)}`;
 }
 
@@ -594,6 +673,7 @@ export type EntrenadorCrear = z.input<typeof entrenadorCrear>;
 export type EntrenadorPatch = z.input<typeof entrenadorPatch>;
 export type SolicitudResumen = z.infer<typeof solicitudResumen>;
 export type SolicitudDetalle = z.infer<typeof solicitudDetalle>;
+export type AvisoSolicitud = z.infer<typeof avisoSolicitud>;
 export type AprobarRequest = z.input<typeof aprobarRequest>;
 export type RechazarRequest = z.input<typeof rechazarRequest>;
 export type CambioEstadoResponse = z.infer<typeof cambioEstadoResponse>;
