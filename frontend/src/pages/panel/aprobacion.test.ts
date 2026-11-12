@@ -280,14 +280,15 @@ describe("casos de la segunda revisión", () => {
       ),
     ).not.toBe(firmaSolicitud(base));
     expect(firmaSolicitud(solicitud({ coincide_base: true }))).toBe(firmaSolicitud(base));
-    // Un hijo que queda marcado «ya no está», un aviso nuevo o un faltante cambian la firma.
+    // Una marca «ya no está» nueva no cambia la firma (es solo una señal, no cambia el formulario);
+    // un aviso nuevo o un faltante sí.
     expect(
       firmaSolicitud(
         solicitud({
-          jugadores: [jugador(J1, { marcado_retiro_en: AHORA }), jugador(J2, { estado: "activo" })],
+          jugadores: [jugador(J1, { marcado_retiro_en: AHORA }), ...base.jugadores.slice(1)],
         }),
       ),
-    ).not.toBe(firmaSolicitud(base));
+    ).toBe(firmaSolicitud(base));
     expect(firmaSolicitud(solicitud({ avisos: ["hay_solicitud_posterior"] }))).not.toBe(
       firmaSolicitud(base),
     );

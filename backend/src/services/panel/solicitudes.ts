@@ -42,7 +42,7 @@ import { borrarFoto } from "../../lib/fotos";
 import { generarToken, hashToken } from "../../lib/tokens";
 import { incompleto } from "./acciones";
 import { conRestricciones } from "./errores-db";
-import { cargarCategorias, detalleApoderado, detalleJugador, tieneApoderadoVigente, verificarCategoria } from "./personas";
+import { cargarCategorias, detalleApoderado, detalleJugador, marcadoSinResolver, tieneApoderadoVigente, verificarCategoria } from "./personas";
 import { faltantesApoderado, faltantesJugador, nombreCompleto, requisitosJugador } from "./reglas";
 
 type SolicitudResumen = z.input<typeof solicitudResumen>;
@@ -195,8 +195,7 @@ async function marcadosYaNoEsta(db: Ejecutor, titularApoderadoId: string | null,
     .where(
       and(
         eq(jugadorApoderado.apoderado_id, titularApoderadoId),
-        sql`${jugadores.marcado_retiro_en} is not null`,
-        inArray(jugadores.estado, ["precargado", "activo"]),
+        marcadoSinResolver,
       ),
     );
   return filas.map((f) => f.id).filter((j) => !excluir.includes(j));

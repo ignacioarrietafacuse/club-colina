@@ -357,7 +357,8 @@ export const sesiones = pgTable(
  *
  * `datos` guarda solo lo que el formulario puede cambiar, con los nombres de la base:
  * - jugador: nombre, apellido, fecha_nacimiento, disciplina, categoria_id, numero_camiseta,
- *   telefono, email, metodo_pago, foto_id, estado, solicitud_id, marcado_retiro_en;
+ *   telefono, email, metodo_pago, foto_id, estado, solicitud_id, marcado_retiro_en (este último
+ *   se guarda pero no se restaura: la marca "ya no está" es solo una señal y la quita Mony);
  * - apoderado: nombre, apellido, telefono, email, metodo_pago, foto_id, estado, solicitud_id.
  * Nunca el RUT ni `credencial_token`. S1 restaura solo esas llaves.
  *

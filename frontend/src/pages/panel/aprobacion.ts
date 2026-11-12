@@ -200,9 +200,7 @@ export function firmaSolicitud(s: SolicitudDetalle): string {
   const lista = (x: readonly string[]) => [...x].sort().join(",");
   return [
     `s:${s.estado}:${lista(s.avisos)}`,
-    ...s.jugadores.map(
-      (j) => `j:${j.id}:${j.estado}:${j.propia}:${j.marcado_retiro_en ?? ""}:${lista(j.faltantes)}`,
-    ),
+    ...s.jugadores.map((j) => `j:${j.id}:${j.estado}:${j.propia}:${lista(j.faltantes)}`),
     ...s.apoderados.map((a) => `a:${a.id}:${a.estado}:${a.propia}:${lista(a.faltantes)}`),
     ...s.vinculos.map((v) => `v:${llaveVinculo(v)}:${v.estado}`),
   ]

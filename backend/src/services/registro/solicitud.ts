@@ -110,8 +110,6 @@ class Proceso {
   private readonly conCopiaAjena = new Set<string>();
   private solicitudId = "";
   private coincideBase = false;
-  /** Si la solicitud traía alguna casilla "ya no está". */
-  private traeMarcas = false;
   /** El titular precargado que esta solicitud modificó (tiene su copia en `fichas_previas`). */
   private titularConCopia: string | null = null;
   /** Quién llenó el formulario: con esto /familia sabe de quién son los hijos que muestra. */
@@ -154,10 +152,12 @@ class Proceso {
         titular_jugador_id: this.titularJugadorId,
       })
       .where(eq(solicitudesRegistro.id, this.solicitudId));
-    // Una solicitud que solo trajo casillas "ya no está" no deja nada que aprobar ni rechazar: queda
-    // revisada al crearse (la marca la resuelve Mony en la ficha). El criterio de "nada pendiente"
-    // es el mismo con que el panel cierra una solicitud.
-    if (this.traeMarcas) await cerrarSiCorresponde(this.tx, this.solicitudId);
+    // Una solicitud que no deja nada que aprobar ni rechazar (por ejemplo, la que solo marca hijos
+    // "ya no está", o la que no pudo aplicar nada porque otra pendiente ya tenía a esas personas)
+    // queda revisada al crearse: ninguna queda abierta sin nada que decidir. El criterio es el mismo
+    // con que el panel cierra una solicitud; los avisos siguen en ella y en la otra
+    // (`hay_solicitud_posterior`).
+    await cerrarSiCorresponde(this.tx, this.solicitudId);
     return { token_acceso: tokenAcceso, otros_apoderados: otros };
   }
 
@@ -519,6 +519,10 @@ class Proceso {
 
     for (const [i, h] of d.hijos.entries()) {
       const p = `hijos.${i}.`;
+      // "Ya no está" solo vale para un hijo de la lista (por posición). Nombrado por RUT, siempre el
+      // mismo 400, antes de buscar nada: si no, la diferencia entre un 400 y un 201 diría si ese
+      // RUT es hijo de este apoderado.
+      if ("rut" in h.ref && h.ya_no_esta) throw invalido([`${p}ya_no_esta`]);
       let jugador: Jugador | null;
       if ("precargado" in h.ref) {
         const item = lista[h.ref.precargado];
@@ -543,10 +547,9 @@ class Proceso {
       }
 
       if (h.ya_no_esta) {
-        // Solo se puede marcar a un hijo propio. Queda marcado para que Mony lo confirme, sin
-        // `solicitud_id`: no aparece en /familia.
+        // Solo se puede marcar a un hijo propio. No se le asigna `solicitud_id`: aparece en un
+        // /familia solo si ya aparecía antes (la marca no lo agrega ni lo saca).
         if (!jugador || !enLista) throw invalido([`${p}ya_no_esta`]);
-        this.traeMarcas = true;
         // La marca es solo una señal para Mony (decisión de Ignacio, 2026-11-12): no saca al hijo de
         // /familia, no toca su credencial ni su estado, y no guarda copia en `fichas_previas`. Por
         // eso se aplica siempre, aunque otra solicitud tenga copia de este hijo: no le hace daño a

@@ -369,7 +369,9 @@ export const dashboardResponse = z.object({
   entrenadores_activos: z.int().min(0),
   solicitudes_pendientes: z.int().min(0),
   /** Jugadores marcados "ya no está en el club" que Mony no ha resuelto (ni inactivo ni sin marca). */
-  jugadores_marcados_ya_no_esta: z.int().min(0),
+  // Con valor por defecto: un frontend nuevo con un backend anterior (despliegue a medias o vuelta
+  // atrás) no deja el dashboard entero en error.
+  jugadores_marcados_ya_no_esta: z.int().min(0).default(0),
   precargados_sin_registrar: z.object({
     jugadores: z.int().min(0),
     apoderados: z.int().min(0),

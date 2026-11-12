@@ -434,8 +434,7 @@ function DetalleSolicitud({
             size="sm"
             variant="outline"
             onClick={() => alCambiar()}
-            // Mientras corre una acción, su propio final rehace el formulario (y deja sin marcar a
-            // quien se le quitó la marca): recargar antes lo dejaría marcado por un momento.
+            // Mientras corre una acción, su propio final rehace el formulario.
             disabled={aprobar.isPending || rechazar.isPending || quitarMarca.isPending}
           >
             Recargar formulario
@@ -524,7 +523,8 @@ function QuitarMarcaRetiro({ enviar, ocupado }: { enviar: () => void; ocupado: b
   const [confirmar, setConfirmar] = useState(false);
   return (
     <span className="flex w-full flex-wrap items-center gap-2 text-xs text-muted-foreground">
-      Para confirmar el retiro, abre su ficha y déjalo inactivo. Si sigue en el club:
+      Es solo un aviso: confirma con la familia. Si se fue, dalo de baja en su ficha. Si sigue en el
+      club:
       {confirmar ? (
         <>
           <Button size="sm" variant="outline" disabled={ocupado} onClick={enviar}>

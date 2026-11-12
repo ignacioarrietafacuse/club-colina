@@ -170,7 +170,16 @@ export async function activar(db: Ejecutor, tipo: TipoPersona, id: string): Prom
       const [contacto] = await tx.select({ si: tieneApoderadoVigente }).from(jugadores).where(eq(jugadores.id, id));
       const faltan = requisitosJugador(faltantesJugador(j, contacto?.si ?? false, await cargarCategorias(tx)));
       if (faltan.length > 0) throw incompleto(faltan);
-      await tx.update(jugadores).set({ estado: "activo", credencial_token: token }).where(eq(jugadores.id, id));
+      await tx
+        .update(jugadores)
+        .set({
+          estado: "activo",
+          credencial_token: token,
+          // Reactivar a un inactivo es Mony diciendo que volvió al club: la marca "ya no está" que
+          // llevó a darlo de baja deja de aplicar.
+          ...(j.estado === "inactivo" ? { marcado_retiro_en: null } : {}),
+        })
+        .where(eq(jugadores.id, id));
     } else if (tipo === "apoderados") {
       const [a] = await tx
         .select({

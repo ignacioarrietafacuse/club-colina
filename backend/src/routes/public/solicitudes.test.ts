@@ -973,6 +973,55 @@ describe("POST /api/public/solicitudes", () => {
       await app.close();
     });
 
+    it("'ya no está' sobre un hijo nombrado por RUT: siempre el mismo 400, sea o no hijo suyo", async () => {
+      const titular = await apoderadoRegistrado();
+      const hijo = await crearJugador(db, { nombre: "Tomás" });
+      const ajeno = await crearJugador(db, { nombre: "Ana" });
+      await vincular(db, hijo.id, titular.id);
+      const app = await construirApp({ config: configTest(), db });
+      const respuestas = [];
+      for (const rut of [hijo.rut, ajeno.rut, rutNuevo()]) {
+        const r = await enviar(app, { rut: titular.rut, tipo: "apoderado", consentimiento: true, hijos: [{ ref: { rut }, ya_no_esta: true }] });
+        respuestas.push({ status: r.statusCode, cuerpo: r.json() });
+      }
+      expect(respuestas[0]?.status).toBe(400);
+      expect(respuestas[1]).toEqual(respuestas[0]);
+      expect(respuestas[2]).toEqual(respuestas[0]);
+      expect((await jugadorRut(hijo.rut)).marcado_retiro_en).toBeNull();
+      expect(await solicitudes()).toHaveLength(0);
+      await app.close();
+    });
+
+    it("una marca junto con un otro apoderado nuevo deja la solicitud pendiente", async () => {
+      const titular = await apoderadoRegistrado();
+      const hijo = await crearJugador(db, { nombre: "Tomás" });
+      // La hermana ya está registrada: no se le pide nada, solo se la vincula al otro apoderado.
+      const hermana = await crearJugador(db, {
+        nombre: "Ana",
+        estado: "activo",
+        numero_camiseta: "8",
+        foto_id: await guardarFoto(db, JPEG_PRUEBA),
+        credencial_token: generarToken(),
+      });
+      await vincular(db, hijo.id, titular.id);
+      await vincular(db, hermana.id, titular.id);
+      const app = await construirApp({ config: configTest(), db });
+      const r = await enviar(app, {
+        rut: titular.rut,
+        tipo: "apoderado",
+        consentimiento: true,
+        hijos: [
+          { ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true },
+          { ref: { precargado: 1, primer_nombre: "Ana" } },
+        ],
+        otro_apoderado: { rut: rutNuevo(), nombre: "Pablo", apellido: "Ficticio", telefono: "933333333", hijos: [1] },
+      });
+      expect(r.statusCode).toBe(201);
+      const formulario = (await solicitudes()).find((s) => s.tipo === "formulario");
+      expect(formulario?.estado).toBe("pendiente");
+      await app.close();
+    });
+
     it("una marca junto con algo que decidir deja la solicitud pendiente, sin copia del hijo marcado", async () => {
       const titular = await apoderadoRegistrado();
       const hijo = await crearJugador(db, { nombre: "Tomás" });
