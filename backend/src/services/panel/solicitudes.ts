@@ -41,6 +41,7 @@ import { ErrorApi, noEncontrado } from "../../lib/errores";
 import { borrarFoto } from "../../lib/fotos";
 import { generarToken, hashToken } from "../../lib/tokens";
 import { incompleto } from "./acciones";
+import { entraPorSolicitud } from "../registro/links";
 import { conRestricciones } from "./errores-db";
 import { cargarCategorias, detalleApoderado, detalleJugador, marcadoSinResolver, tieneApoderadoVigente, verificarCategoria } from "./personas";
 import { faltantesApoderado, faltantesJugador, nombreCompleto, requisitosJugador } from "./reglas";
@@ -282,6 +283,19 @@ export async function listarSolicitudes(
 export async function detalleSolicitud(db: Ejecutor, id: string): Promise<SolicitudDetalle> {
   const s = await filaSolicitud(db, id);
   const m = await miembros(db, s);
+  // Quién aparece en el /familia de esta solicitud: la misma regla que el link (S2).
+  const enLink = new Set(
+    s.tipo !== "formulario" || m.visiblesJ.length === 0
+      ? []
+      : (
+          await db
+            .select({ id: jugadores.id, solicitud_id: jugadores.solicitud_id, origen: jugadores.origen })
+            .from(jugadores)
+            .where(inArray(jugadores.id, m.visiblesJ))
+        )
+          .filter((j) => entraPorSolicitud(s, j))
+          .map((j) => j.id),
+  );
   return {
     id: s.id,
     creada_en: s.creada_en.toISOString(),
@@ -292,7 +306,11 @@ export async function detalleSolicitud(db: Ejecutor, id: string): Promise<Solici
     coincide_base: s.coincide_base,
     avisos: s.avisos,
     jugadores: await Promise.all(
-      m.visiblesJ.map(async (j) => ({ ...(await detalleJugador(db, j)), propia: m.propiosJ.includes(j) })),
+      m.visiblesJ.map(async (j) => ({
+        ...(await detalleJugador(db, j)),
+        propia: m.propiosJ.includes(j),
+        en_link_familia: enLink.has(j),
+      })),
     ),
     apoderados: await Promise.all(
       m.visiblesA.map(async (a) => ({ ...(await detalleApoderado(db, a)), propia: m.propiosA.includes(a) })),

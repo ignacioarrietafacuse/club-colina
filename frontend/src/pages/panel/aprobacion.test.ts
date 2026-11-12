@@ -29,6 +29,7 @@ type JugadorDeSolicitud = SolicitudDetalle["jugadores"][number];
 function jugador(id: string, cambios: Partial<JugadorDeSolicitud> = {}): JugadorDeSolicitud {
   return {
     propia: true,
+    en_link_familia: true,
     id,
     nombre: "Ana",
     apellido: "Pérez",

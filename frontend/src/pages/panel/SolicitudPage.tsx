@@ -334,6 +334,12 @@ function DetalleSolicitud({
               const pendiente = llave in form.vinculos;
               const aprobable = vinculoAprobable(v, s);
               const conocido = vinculoConocido(v, s);
+              // Un niño que ya existía no aparece en el link de esta familia (solo quienes
+              // entraron por la solicitud): al aprobar el vínculo, Mony entrega el QR a mano.
+              const fueraDelLink =
+                s.tipo === "formulario" &&
+                s.jugadores.some((j) => j.id === v.jugador_id && !j.en_link_familia) &&
+                (v.estado === "activo" || (pendiente && vinculoVa(form, llave)));
               return (
                 <div key={llave} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
                   <label className="flex min-w-0 flex-1 items-center gap-3">
@@ -378,6 +384,12 @@ function DetalleSolicitud({
                             Se aprueba junto con la persona desmarcada, no antes.
                           </span>
                         )}
+                      {fueraDelLink && (
+                        <span className="block text-xs text-warning-foreground">
+                          Esta familia no verá el QR de {nombres[v.jugador_id] ?? "este jugador"} en
+                          su link: descárgalo desde su ficha y envíaselo si corresponde.
+                        </span>
+                      )}
                       {confirmarVinculo === llave && (
                         <span role="alert" className="block text-xs text-destructive">
                           Se borra este vínculo y sus personas siguen pendientes (un precargado que

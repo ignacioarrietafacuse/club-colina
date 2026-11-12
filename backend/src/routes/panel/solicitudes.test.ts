@@ -1342,14 +1342,20 @@ describe("solicitudes: dar por revisada", () => {
   it("con una persona o un vínculo por decidir es 409 y no cambia nada", async () => {
     const { app, cookies } = await appConSesion(db);
     const { s, apo, hijo } = await familia();
+    const otro = await crearJugador(db, { estado: "precargado" });
+    await db
+      .insert(fichasPrevias)
+      .values({ solicitud_id: s.id, jugador_id: otro, datos: { estado: "precargado", solicitud_id: null } });
     expect((await darPorRevisada(app, cookies, s.id)).statusCode).toBe(409);
     expect(await estadoS(s.id)).toBe("pendiente");
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.solicitud_id, s.id))).toHaveLength(1);
 
     // Las personas ya decididas, pero el vínculo sigue pendiente: tampoco.
     await db.update(apoderados).set({ estado: "rechazado" }).where(eq(apoderados.id, apo));
     await db.update(jugadores).set({ estado: "rechazado" }).where(eq(jugadores.id, hijo));
     expect((await darPorRevisada(app, cookies, s.id)).statusCode).toBe(409);
     expect(await estadoS(s.id)).toBe("pendiente");
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.solicitud_id, s.id))).toHaveLength(1);
     await app.close();
   });
 
@@ -1390,6 +1396,37 @@ describe("solicitudes: dar por revisada", () => {
   it("una solicitud que no existe es 404", async () => {
     const { app, cookies } = await appConSesion(db);
     expect((await darPorRevisada(app, cookies, "00000000-0000-4000-8000-000000000000")).statusCode).toBe(404);
+    await app.close();
+  });
+});
+
+describe("solicitudes: quién aparece en el link de la familia", () => {
+  it("el hijo que creó la solicitud sí; un niño que ya existía, nombrado por su vínculo, no", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo, hijo } = await familia();
+    const existente = await crearJugadorActivo(db);
+    await db
+      .insert(jugadorApoderado)
+      .values({ jugador_id: existente, apoderado_id: apo, solicitud_id: s.id, paga_mensualidad: false });
+    const r = await app.inject({ method: "GET", url: API.panel.solicitud(s.id), cookies });
+    expect(r.statusCode).toBe(200);
+    const enLink = Object.fromEntries(
+      r.json().jugadores.map((j: { id: string; en_link_familia: boolean }) => [j.id, j.en_link_familia]),
+    );
+    expect(enLink).toEqual({ [hijo]: true, [existente]: false });
+    await app.close();
+  });
+
+  it("con titular ya registrado, ni el precargado de su lista que la solicitud completó", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, hijo } = await familia({ avisos: ["titular_ya_registrado"] });
+    const precargado = await crearJugador(db, { estado: "pendiente", solicitud_id: s.id });
+    const r = await app.inject({ method: "GET", url: API.panel.solicitud(s.id), cookies });
+    const enLink = Object.fromEntries(
+      r.json().jugadores.map((j: { id: string; en_link_familia: boolean }) => [j.id, j.en_link_familia]),
+    );
+    expect(enLink[hijo]).toBe(true);
+    expect(enLink[precargado]).toBe(false);
     await app.close();
   });
 });
