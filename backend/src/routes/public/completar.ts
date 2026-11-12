@@ -1,9 +1,9 @@
 import { completarCampos, completarResponse } from "@club-colina/shared";
 import type { FastifyInstance } from "fastify";
-import { ErrorApi } from "../../lib/errores";
+import { ErrorApi, noEncontrado } from "../../lib/errores";
 import { LIMITES } from "../../lib/limite-intentos";
 import { respuesta, validarEntrada } from "../../lib/validar";
-import { subirFotoCompletar, tokenValido, verCompletar } from "../../services/registro/links";
+import { existeCompletar, subirFotoCompletar, verCompletar } from "../../services/registro/links";
 
 const invalida = () => new ErrorApi(400, "validacion", "Solicitud inválida");
 
@@ -24,8 +24,8 @@ export async function rutasCompletar(app: FastifyInstance) {
     { config: { rateLimit: LIMITES.completar } },
     async (request, reply) => {
       reply.header("cache-control", "no-store");
-      // Un token con forma inválida no lee el cuerpo: 404 genérico.
-      if (!tokenValido(request.params.token)) throw new ErrorApi(404, "no_encontrado", "No encontrado");
+      // Un link que no existe (o mal formado) no lee el cuerpo: 404 genérico.
+      if (!(await existeCompletar(app.db, request.params.token))) throw noEncontrado();
       if (!request.isMultipart()) throw invalida();
       let foto: Buffer | undefined;
       const campos: Record<string, string> = {};

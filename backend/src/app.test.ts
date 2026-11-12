@@ -80,7 +80,12 @@ describe("app", () => {
     const lineas: string[] = [];
     salida.on("data", (c: Buffer) => lineas.push(c.toString()));
     const app = await construirApp({ config: configTest({ LOG_LEVEL: "trace" }), db, logStream: salida });
-    const tokens = [generarToken(), generarToken(), generarToken(), generarToken()];
+    // Un 500 en una ruta con token: el log del error tampoco lo lleva.
+    app.get("/api/public/familia/:token/prueba-error", async () => {
+      throw new Error("falla");
+    });
+    const tokens = [generarToken(), generarToken(), generarToken(), generarToken(), generarToken()];
+    await app.inject({ method: "GET", url: `/api/public/familia/${tokens[4]}/prueba-error` });
     await app.inject({ method: "GET", url: `/api/public/familia/${tokens[0]}` });
     await app.inject({ method: "GET", url: `/api/public/completar/${tokens[1]}?x=1` });
     await app.inject({ method: "GET", url: `/api/public/credencial/${tokens[2]}/foto` });
@@ -90,6 +95,7 @@ describe("app", () => {
     // Se loguea el patrón de la ruta, nunca el token.
     expect(log).toContain('"url":"/api/public/familia/:token"');
     expect(log).toContain('"url":"/api/public/credencial/:token/foto"');
+    expect(log).toContain("error no controlado");
     for (const t of tokens) expect(log).not.toContain(t);
   });
 
