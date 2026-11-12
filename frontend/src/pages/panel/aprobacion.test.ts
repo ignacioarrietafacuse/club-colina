@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   armarAprobacion,
   armarRechazo,
+  armarRechazoVinculo,
+  contactoPosible,
   firmaSolicitud,
   formInicial,
   llaveVinculo,
@@ -362,5 +364,83 @@ describe("alcance de «Rechazar todo lo pendiente»", () => {
   it("no nombra a quien ya no está pendiente", () => {
     const s = solicitud({ jugadores: [jugador(J1, { estado: "activo" })] });
     expect(alcanceRechazoTotal(s)).toEqual({ seguras: [A1], posibles: [] });
+  });
+});
+
+describe("adulto sin teléfono (#27)", () => {
+  const conFaltaTelefono = () =>
+    solicitud({
+      jugadores: [
+        jugador(J1, { faltantes: ["telefono"], fecha_nacimiento: "2000-01-01", edad: 26 }),
+      ],
+    });
+
+  it("va con su apoderado y el vínculo en la misma petición", () => {
+    const form = formInicial(conFaltaTelefono());
+    expect(form.jugadores[J1]?.sin_contacto).toBe(true);
+    const r = armarAprobacion(form, nombres);
+    expect(r.ok && r.datos).toMatchObject({
+      jugadores: [{ id: J1 }],
+      apoderados: [{ id: A1 }],
+      vinculos: [{ jugador_id: J1, apoderado_id: A1 }],
+    });
+  });
+
+  it("sin su apoderado o sin el vínculo no se envía y explica por qué", () => {
+    const sinApoderado = formInicial(conFaltaTelefono());
+    sinApoderado.apoderados[A1]!.marcado = false;
+    const sinVinculo = formInicial(conFaltaTelefono());
+    sinVinculo.vinculos[llaveVinculo({ jugador_id: J1, apoderado_id: A1 })] = false;
+    for (const form of [sinApoderado, sinVinculo]) {
+      const r = armarAprobacion(form, nombres);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.errores[0]).toMatch(/^Ana Pérez: no tiene teléfono/);
+    }
+  });
+
+  it("sin un apoderado aprobable desde acá parte desmarcado (se le agrega teléfono en su ficha)", () => {
+    const OTRA = "55555555-5555-4555-8555-555555555555";
+    const sinVinculos = solicitud({ ...conFaltaTelefono(), vinculos: [] });
+    const deOtra = conFaltaTelefono();
+    deOtra.apoderados[0] = { ...deOtra.apoderados[0]!, solicitud_id: OTRA };
+    const sinFoto = conFaltaTelefono();
+    sinFoto.apoderados[0] = { ...sinFoto.apoderados[0]!, tiene_foto: false, faltantes: ["foto"] };
+    for (const s of [sinVinculos, deOtra, sinFoto]) {
+      expect(contactoPosible(J1, s)).toBe(false);
+      expect(formInicial(s).jugadores[J1]?.marcado).toBe(false);
+    }
+    expect(contactoPosible(J1, conFaltaTelefono())).toBe(true);
+  });
+
+  it("junta el error de teléfono con los de los campos", () => {
+    const form = formInicial(conFaltaTelefono());
+    form.apoderados[A1]!.marcado = false;
+    form.jugadores[J1]!.numero_camiseta = "";
+    const r = armarAprobacion(form, nombres);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.errores).toContain("Ana Pérez: revisa número de camiseta.");
+      expect(r.errores.some((e) => e.includes("no tiene teléfono"))).toBe(true);
+    }
+  });
+
+  it("con su apoderado ya activo basta el vínculo", () => {
+    const s = conFaltaTelefono();
+    s.apoderados[0] = { ...s.apoderados[0]!, estado: "activo" };
+    const r = armarAprobacion(formInicial(s), nombres);
+    expect(r.ok && r.datos.vinculos).toEqual([{ jugador_id: J1, apoderado_id: A1 }]);
+  });
+});
+
+describe("rechazar un vínculo suelto (#27)", () => {
+  it("manda solo ese vínculo, sin personas", () => {
+    expect(armarRechazoVinculo(`${J1}:${A1}`)).toEqual({
+      ok: true,
+      datos: { vinculos: [{ jugador_id: J1, apoderado_id: A1 }] },
+    });
+  });
+
+  it("una llave rota no se envía", () => {
+    expect(armarRechazoVinculo("x").ok).toBe(false);
   });
 });

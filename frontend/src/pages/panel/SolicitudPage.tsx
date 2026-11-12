@@ -26,6 +26,8 @@ import { api, mensajeDeError } from "@/lib/api";
 import {
   armarAprobacion,
   armarRechazo,
+  armarRechazoVinculo,
+  contactoPosible,
   contarMarcadas,
   firmaSolicitud,
   formInicial,
@@ -126,10 +128,13 @@ function DetalleSolicitud({
   const [form, setForm] = useState<FormAprobacion>(() => formInicial(s, desmarcados));
   const [errores, setErrores] = useState<string[]>([]);
   const [confirmar, setConfirmar] = useState<null | "marcadas" | "todo">(null);
+  /** Llave del vínculo cuyo rechazo está a medio confirmar. */
+  const [confirmarVinculo, setConfirmarVinculo] = useState<string | null>(null);
 
   // Cambiar las marcas anula una confirmación de rechazo a medio dar.
   function cambiarForm(cambio: (f: FormAprobacion) => FormAprobacion) {
     setConfirmar(null);
+    setConfirmarVinculo(null);
     setForm(cambio);
   }
 
@@ -183,6 +188,7 @@ function DetalleSolicitud({
   function enviarAprobacion() {
     if (desfasado) return;
     setConfirmar(null);
+    setConfirmarVinculo(null);
     rechazar.reset();
     quitarMarca.reset();
     const r = armarAprobacion(form, nombres);
@@ -190,7 +196,20 @@ function DetalleSolicitud({
     setErrores([]);
     aprobar.mutate(r.datos);
   }
+  function enviarRechazoVinculo(llave: string) {
+    if (desfasado) return;
+    aprobar.reset();
+    quitarMarca.reset();
+    setConfirmar(null);
+    const r = armarRechazoVinculo(llave);
+    if (!r.ok) return setErrores(r.errores);
+    setErrores([]);
+    if (confirmarVinculo !== llave) return setConfirmarVinculo(llave);
+    setConfirmarVinculo(null);
+    rechazar.mutate(r.datos);
+  }
   function enviarRechazo(cual: "marcadas" | "todo") {
+    setConfirmarVinculo(null);
     if (desfasado) return;
     aprobar.reset();
     quitarMarca.reset();
@@ -264,11 +283,13 @@ function DetalleSolicitud({
             key={j.id}
             j={j}
             deOtra={j.estado === "pendiente" && !esDeEstaSolicitud(j, s)}
+            sinContactoPosible={!contactoPosible(j.id, s)}
             quitarMarca={{
               enviar: () => {
                 aprobar.reset();
                 rechazar.reset();
                 setConfirmar(null);
+                setConfirmarVinculo(null);
                 quitarMarca.mutate(j.id);
               },
               ocupado,
@@ -295,50 +316,85 @@ function DetalleSolicitud({
               const aprobable = vinculoAprobable(v, s);
               const conocido = vinculoConocido(v, s);
               return (
-                <label key={llave} className="flex items-center gap-3 px-4 py-3 text-sm">
-                  {pendiente ? (
-                    <input
-                      type="checkbox"
-                      disabled={!aprobable || (form.vinculos[llave] && !vinculoVa(form, llave))}
-                      checked={vinculoVa(form, llave)}
-                      onChange={(e) =>
-                        cambiarForm((f) => ({
-                          ...f,
-                          vinculos: { ...f.vinculos, [llave]: e.target.checked },
-                        }))
-                      }
-                    />
-                  ) : (
-                    <Check className="size-4 text-success" />
+                <div key={llave} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
+                  <label className="flex min-w-0 flex-1 items-center gap-3">
+                    {pendiente ? (
+                      <input
+                        type="checkbox"
+                        disabled={!aprobable || (form.vinculos[llave] && !vinculoVa(form, llave))}
+                        checked={vinculoVa(form, llave)}
+                        onChange={(e) =>
+                          cambiarForm((f) => ({
+                            ...f,
+                            vinculos: { ...f.vinculos, [llave]: e.target.checked },
+                          }))
+                        }
+                      />
+                    ) : (
+                      <Check className="size-4 text-success" />
+                    )}
+                    <span className="flex-1">
+                      {nombres[v.apoderado_id] ?? "Apoderado de otra solicitud"} →{" "}
+                      {nombres[v.jugador_id] ?? "Jugador de otra solicitud"}
+                      {v.paga_mensualidad && (
+                        <span className="text-muted-foreground"> · paga la mensualidad</span>
+                      )}
+                      {pendiente && !conocido && (
+                        <span className="block text-xs text-destructive">
+                          Una de las personas no viene en esta solicitud: no se puede aprobar desde
+                          acá.
+                        </span>
+                      )}
+                      {pendiente && conocido && !aprobable && (
+                        <span className="block text-xs text-destructive">
+                          Una de las dos personas está rechazada, inactiva o precargada: no se puede
+                          aprobar desde acá. Si está precargada, complétala y actívala en su ficha.
+                        </span>
+                      )}
+                      {pendiente &&
+                        aprobable &&
+                        form.vinculos[llave] &&
+                        !vinculoVa(form, llave) && (
+                          <span className="block text-xs text-muted-foreground">
+                            Se aprueba junto con la persona desmarcada, no antes.
+                          </span>
+                        )}
+                      {confirmarVinculo === llave && (
+                        <span role="alert" className="block text-xs text-destructive">
+                          Se borra este vínculo y sus personas siguen pendientes (un precargado que
+                          era de esta solicitud solo por este vínculo vuelve a como estaba). No se
+                          deshace desde el panel.
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                  {pendiente && confirmarVinculo === llave && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setConfirmarVinculo(null)}
+                      disabled={ocupado}
+                    >
+                      Cancelar
+                    </Button>
                   )}
-                  <span className="flex-1">
-                    {nombres[v.apoderado_id] ?? "Apoderado de otra solicitud"} →{" "}
-                    {nombres[v.jugador_id] ?? "Jugador de otra solicitud"}
-                    {v.paga_mensualidad && (
-                      <span className="text-muted-foreground"> · paga la mensualidad</span>
-                    )}
-                    {pendiente && !conocido && (
-                      <span className="block text-xs text-destructive">
-                        Una de las personas no viene en esta solicitud: no se puede aprobar desde
-                        acá.
-                      </span>
-                    )}
-                    {pendiente && conocido && !aprobable && (
-                      <span className="block text-xs text-destructive">
-                        Una de las dos personas está rechazada, inactiva o precargada: no se puede
-                        aprobar desde acá. Si está precargada, complétala y actívala en su ficha.
-                      </span>
-                    )}
-                    {pendiente && aprobable && form.vinculos[llave] && !vinculoVa(form, llave) && (
-                      <span className="block text-xs text-muted-foreground">
-                        Se aprueba junto con la persona desmarcada, no antes.
-                      </span>
-                    )}
-                  </span>
+                  {pendiente && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => enviarRechazoVinculo(llave)}
+                      disabled={ocupado}
+                    >
+                      <X className="size-4" />
+                      {confirmarVinculo === llave
+                        ? "Confirmar rechazo del vínculo"
+                        : "Rechazar vínculo"}
+                    </Button>
+                  )}
                   <Badge tone={v.estado === "activo" ? "success" : "warning"}>
                     {v.estado === "activo" ? "Activo" : "Pendiente"}
                   </Badge>
-                </label>
+                </div>
               );
             })}
           </div>
@@ -379,7 +435,7 @@ function DetalleSolicitud({
         </div>
       )}
 
-      {conPosterior && (confirmar !== null || huboRechazo) && (
+      {conPosterior && (confirmar !== null || confirmarVinculo !== null || huboRechazo) && (
         <div role="status" className="mb-4 rounded-lg bg-warning/15 px-4 py-3 text-sm">
           Llegó después otra solicitud con las mismas personas.{" "}
           {huboRechazo ? "Como rechazaste" : "Si rechazas"} a alguien de esta, pide a la familia de
@@ -408,8 +464,8 @@ function DetalleSolicitud({
       {hayPendientes ? (
         <div className="card-surface flex flex-wrap items-center gap-3 p-4">
           <p className="flex-1 text-sm text-muted-foreground">
-            Se aprueba lo marcado; lo que quede sin marcar sigue pendiente. Un vínculo solo se
-            rechaza con «Rechazar todo lo pendiente».
+            Se aprueba lo marcado; lo que quede sin marcar sigue pendiente. Un vínculo se rechaza
+            con su propio botón.
           </p>
           {confirmar && (
             <Button variant="ghost" onClick={() => setConfirmar(null)} disabled={ocupado}>
@@ -656,6 +712,7 @@ function CampoNumero({
 function TarjetaJugador({
   j,
   deOtra,
+  sinContactoPosible,
   quitarMarca,
   categorias,
   form,
@@ -663,6 +720,8 @@ function TarjetaJugador({
 }: {
   j: JugadorDetalle;
   deOtra: boolean;
+  /** Adulto sin teléfono sin un vínculo aprobable desde acá (ver `contactoPosible`). */
+  sinContactoPosible: boolean;
   quitarMarca: { enviar: () => void; ocupado: boolean };
   categorias: CategoriaPanel[] | undefined;
   form: FormJugador | undefined;
@@ -688,6 +747,19 @@ function TarjetaJugador({
           )}
           {deOtra && <NotaDeOtra />}
           {j.apoderados.length === 0 && <Badge tone="neutral">Adulto sin apoderado</Badge>}
+          {j.estado === "pendiente" &&
+            j.faltantes.includes("telefono") &&
+            (sinContactoPosible ? (
+              <span className="w-full text-xs text-destructive">
+                No tiene teléfono ni un apoderado que se pueda aprobar desde acá: agrégale teléfono
+                en su ficha antes de aprobarlo.
+              </span>
+            ) : (
+              <span className="w-full text-xs text-muted-foreground">
+                No tiene teléfono: se aprueba en el mismo envío que su apoderado y el vínculo entre
+                ellos.
+              </span>
+            ))}
         </div>
         <Dato etiqueta="RUT">{j.rut}</Dato>
         <Dato etiqueta="Nacimiento">

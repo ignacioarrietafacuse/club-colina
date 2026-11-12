@@ -21,6 +21,11 @@ export interface FormJugador {
   beca_campus_pct: string;
   /** "" = no se envía (queda el que tenga). */
   metodo_pago: MetodoPago | "";
+  /**
+   * Adulto sin teléfono y sin un apoderado activo (`faltantes` trae «telefono»): su contacto es
+   * el apoderado, así que se aprueba junto con él y su vínculo en la misma petición.
+   */
+  sin_contacto: boolean;
 }
 export interface FormApoderado {
   marcado: boolean;
@@ -121,6 +126,25 @@ export function vinculoConocido(
 }
 
 /**
+ * Un adulto sin teléfono puede tener contacto desde esta solicitud: hay un vínculo pendiente que
+ * se puede aprobar acá hacia un apoderado ya activo, o pendiente de esta solicitud y con foto.
+ * Si no, la única salida es agregarle teléfono en su ficha.
+ */
+export function contactoPosible(jugadorId: string, s: SolicitudDetalle): boolean {
+  return s.vinculos.some((v) => {
+    if (v.jugador_id !== jugadorId || v.estado !== "pendiente" || !vinculoAprobable(v, s)) {
+      return false;
+    }
+    const a = s.apoderados.find((x) => x.id === v.apoderado_id);
+    if (!a) return false;
+    return (
+      a.estado === "activo" ||
+      (a.estado === "pendiente" && esDeEstaSolicitud(a, s) && !bloquea(a.faltantes))
+    );
+  });
+}
+
+/**
  * Solo lo pendiente se aprueba o rechaza; parte marcado con los valores que ya trae, salvo quien
  * no tiene foto (no se puede aprobar), un hijo marcado «ya no está», quien puede no ser de esta
  * solicitud, y los vínculos que no se pueden aprobar o cuyas personas no parten listas
@@ -140,13 +164,16 @@ export function formInicial(
         !bloquea(j.faltantes) &&
         j.marcado_retiro_en === null &&
         esDeEstaSolicitud(j, s) &&
-        !desmarcar.has(j.id),
+        !desmarcar.has(j.id) &&
+        // Un adulto sin teléfono que no puede tener contacto desde acá no se puede aprobar.
+        (!j.faltantes.includes("telefono") || contactoPosible(j.id, s)),
       categoria_id: j.categoria_id === null ? "" : String(j.categoria_id),
       numero_camiseta: j.numero_camiseta ?? "",
       beca_mensualidad_pct: String(j.beca_mensualidad_pct),
       beca_torneos_pct: String(j.beca_torneos_pct),
       beca_campus_pct: String(j.beca_campus_pct),
       metodo_pago: j.metodo_pago ?? "",
+      sin_contacto: j.faltantes.includes("telefono"),
     };
   }
   const apoderados: Record<string, FormApoderado> = {};
@@ -254,9 +281,19 @@ export function armarAprobacion(
   if (!datos.jugadores.length && !datos.apoderados.length && !datos.vinculos.length) {
     return { ok: false, errores: ["No hay nada marcado para aprobar."] };
   }
+  // Un adulto sin teléfono necesita un vínculo que quede activo en esta misma petición (con su
+  // apoderado ya activo o aprobado acá): si no, el servidor rechaza todo el envío.
+  for (const j of datos.jugadores) {
+    if (!form.jugadores[j.id]?.sin_contacto) continue;
+    if (!datos.vinculos.some((v) => v.jugador_id === j.id)) {
+      errores.push(
+        `${nombres[j.id] ?? "Jugador"}: no tiene teléfono. Márcalo junto con su apoderado y el vínculo entre ellos.`,
+      );
+    }
+  }
   const leido = aprobarRequest.safeParse(datos);
-  if (!leido.success) {
-    for (const issue of leido.error.issues) {
+  if (!leido.success || errores.length > 0) {
+    for (const issue of leido.error?.issues ?? []) {
       const [seccion, indice, campo] = issue.path;
       if (seccion === "jugadores" && typeof indice === "number") {
         const id = datos.jugadores[indice]?.id ?? "";
@@ -281,8 +318,7 @@ export function contarMarcadas(form: FormAprobacion): number {
 
 /**
  * Rechazo de todo lo pendiente de la solicitud (personas y vínculos): el contrato lo hace con
- * un cuerpo sin `personas`. Es la única forma de rechazar un vínculo, así que la pantalla lo
- * ofrece aparte y con confirmación.
+ * un cuerpo sin `personas` ni `vinculos`. La pantalla lo ofrece aparte y con confirmación.
  */
 export const RECHAZO_TOTAL: RechazarRequest = {};
 
@@ -296,9 +332,21 @@ export function armarRechazo(form: FormAprobacion): Resultado<RechazarRequest> {
       .filter(([, a]) => a.marcado)
       .map(([id]) => ({ rol: "apoderado" as const, id })),
   ];
-  // Nunca se manda sin `personas`: eso rechazaría todo lo pendiente sin que Mony lo eligiera.
+  // Nunca se manda vacío: sin `personas` ni `vinculos` se rechazaría todo lo pendiente.
   if (!personas.length) return { ok: false, errores: ["No hay personas marcadas para rechazar."] };
   const leido = rechazarRequest.safeParse({ personas });
   if (!leido.success) return { ok: false, errores: ["Hay datos inválidos en el rechazo."] };
   return { ok: true, datos: { personas } };
+}
+
+/**
+ * Rechazo de un solo vínculo pendiente: se borra y sus personas siguen pendientes (salvo un
+ * precargado que era de la solicitud solo por ese vínculo, que vuelve a como estaba).
+ */
+export function armarRechazoVinculo(llave: string): Resultado<RechazarRequest> {
+  const [jugador_id = "", apoderado_id = ""] = llave.split(":");
+  const datos = { vinculos: [{ jugador_id, apoderado_id }] };
+  const leido = rechazarRequest.safeParse(datos);
+  if (!leido.success) return { ok: false, errores: ["Hay datos inválidos en el rechazo."] };
+  return { ok: true, datos };
 }
