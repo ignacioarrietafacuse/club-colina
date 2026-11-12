@@ -30,6 +30,11 @@ const esquema = z.object({
    * migre una base que no es localhost al arrancar. Sin las dos, la guarda de host lo frena.
    */
   MIGRAR_AL_ARRANCAR: z.enum(["si", "no"]).default("no"),
+  /**
+   * Secreto compartido con el middleware de Vercel (variable del mismo nombre allá). Con él, el
+   * límite de intentos confía en `x-vercel-forwarded-for`. Sin él, usa `x-real-ip`.
+   */
+  PROXY_SECRETO: z.string().min(32).optional(),
 });
 
 export type Config = z.infer<typeof esquema>;
