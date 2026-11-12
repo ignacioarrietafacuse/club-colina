@@ -158,12 +158,6 @@ class Proceso {
     return { token_acceso: tokenAcceso, otros_apoderados: otros };
   }
 
-  /**
-   * Antes de modificar la ficha de alguien que ya existía, guarda cómo estaba (`fichas_previas`),
-   * para que S1 la restaure si Mony la rechaza. Solo la primera solicitud guarda la copia: si ya
-   * hay una de otra solicitud, esta no modifica la ficha (devuelve false), solo vincula, y la
-   * otra recibe `hay_solicitud_posterior`. Así ninguna pisa los cambios de la otra.
-   */
   /** Si otra solicitud tiene copia de esa persona (y la anota para avisarle). */
   private async copiaDeOtra(p: { jugador: Jugador } | { apoderado: Apoderado }): Promise<boolean> {
     const [copia] = await this.tx
@@ -175,6 +169,12 @@ class Proceso {
     return true;
   }
 
+  /**
+   * Antes de modificar la ficha de alguien que ya existía, guarda cómo estaba (`fichas_previas`),
+   * para que S1 la restaure si Mony la rechaza. Solo la primera solicitud guarda la copia: si ya
+   * hay una de otra solicitud, esta no modifica la ficha (devuelve false), solo vincula, y la
+   * otra recibe `hay_solicitud_posterior`. Así ninguna pisa los cambios de la otra.
+   */
   private async copiaPrevia(p: { jugador: Jugador } | { apoderado: Apoderado }): Promise<boolean> {
     if (await this.copiaDeOtra(p)) return false;
     const [propia] = await this.tx
@@ -536,9 +536,9 @@ class Proceso {
         // Solo se puede marcar a un hijo propio. Queda marcado para que Mony lo confirme, sin
         // `solicitud_id`: no aparece en /familia.
         if (!jugador || !enLista) throw invalido([`${p}ya_no_esta`]);
-        // Si otra solicitud ya tiene copia de este hijo, no se toca (y ella recibe el aviso de
-        // solicitud posterior); el aviso de "ya no está" va solo si el hijo quedó marcado.
-        // Ya marcado: no hay nada que modificar ni copiar; solo se mira si otra solicitud lo tiene.
+        // Si otra solicitud tiene copia de este hijo, no se toca y ella recibe el aviso de solicitud
+        // posterior. Si ya venía marcado, no hay nada que copiar: solo se mira la otra solicitud.
+        // El aviso de "ya no está" va solo si esta solicitud pudo marcarlo.
         const puede =
           jugador.marcado_retiro_en === null
             ? await this.copiaPrevia({ jugador })
