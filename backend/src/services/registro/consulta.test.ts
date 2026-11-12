@@ -18,8 +18,9 @@ describe("consulta: piezas", () => {
     expect(edad("2008-11-12", new Date("2026-11-12T02:00:00Z"))).toBe(17);
   });
 
-  it("sin fecha de nacimiento se le deja seguir como adulto", () => {
-    expect(esAdulto({ fecha_nacimiento: null })).toBe(true);
+  it("sin fecha de nacimiento no se sabe si es adulto: ante la duda, no", () => {
+    expect(esAdulto({ fecha_nacimiento: null })).toBe(false);
+    expect(esAdulto({ fecha_nacimiento: "2000-01-01" })).toBe(true);
     expect(esAdulto({ fecha_nacimiento: "2015-01-01" })).toBe(false);
   });
 

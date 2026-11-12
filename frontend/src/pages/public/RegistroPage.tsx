@@ -1,5 +1,11 @@
-import { PaginaVacia } from "@/components/PaginaVacia";
+import { Marco } from "@/components/public/Marco";
+import { Registro } from "@/components/public/registro/Registro";
 
+/** `/registro`: el link que Mony comparte por los grupos del club. */
 export function RegistroPage() {
-  return <PaginaVacia titulo="Registro" />;
+  return (
+    <Marco titulo="Registro">
+      <Registro />
+    </Marco>
+  );
 }

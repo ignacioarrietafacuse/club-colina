@@ -15,6 +15,13 @@
       "when": 1794443863769,
       "tag": "0001_seed_categorias",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794485041063,
+      "tag": "0002_titular_y_fichas_previas",
+      "breakpoints": true
     }
   ]
 }

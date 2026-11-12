@@ -1,0 +1,29 @@
+#!/bin/sh
+# Reconstruye el grafo local al cambiar de rama si cambió código. Nunca falla un checkout.
+# $1 = commit anterior, $2 = commit nuevo, $3 = 1 si fue cambio de rama (0 si fue de archivos).
+# Un $1 de solo ceros es un clon o un `git worktree add`: no hay «antes» que comparar.
+# Rebase: git mueve HEAD a la base nueva con un checkout y recién después reaplica los commits.
+# Si quedan commits por reaplicar, el que reconstruye es post-rewrite, al terminar (una sola
+# vez); si no queda ninguno (avance rápido: la rama no tenía commits propios), post-rewrite no
+# se ejecuta nunca y este checkout es el único aviso del cambio: reconstruye aquí. Ver
+# graphify_rebase_state en la lib.
+trap 'exit 0' EXIT
+lib="$(dirname "$0")/lib-graphify.sh"
+[ -r "$lib" ] || exit 0
+. "$lib"
+[ "$3" = "1" ] && [ "$1" != "$2" ] || exit 0
+case "$(graphify_rebase_state)" in
+  pending) exit 0 ;;
+  idle) graphify_precheck rebase || exit 0 ;;
+  *) graphify_precheck || exit 0 ;;
+esac
+case "$1" in
+  *[!0]*) ;;
+  *) graphify_rebuild; exit 0 ;;
+esac
+if git -c core.quotePath=false diff --no-renames --name-only "$1" "$2" 2>/dev/null | graphify_relevant; then
+  graphify_rebuild
+else
+  echo "[graphify] cambio de rama sin código: no se reconstruye"
+fi
+exit 0

@@ -312,8 +312,15 @@ export const familiaResponse = z.object({
   otros_apoderados: z.array(z.object({ nombre_completo: z.string(), foto_subida: z.boolean() })),
 });
 
-/** GET /api/public/completar/:token */
-export const completarResponse = z.object({ primer_nombre: z.string(), foto_subida: z.boolean() });
+/**
+ * GET /api/public/completar/:token — `credencial_token` solo cuando Mony ya aprobó a ese
+ * apoderado (activo): con eso ve su propio QR. Nunca nada del resto de la familia.
+ */
+export const completarResponse = z.object({
+  primer_nombre: z.string(),
+  foto_subida: z.boolean(),
+  credencial_token: token.optional(),
+});
 /** POST /api/public/completar/:token — multipart: archivo `foto` + campo `consentimiento=true`. Responde 204. */
 export const completarCampos = z.object({ consentimiento: z.literal("true") });
 

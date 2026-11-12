@@ -43,7 +43,9 @@ describe("app", () => {
       url: "/api/public/solicitudes",
       headers: { origin: "https://panel.ejemplo.test" },
     });
-    expect(propio.statusCode).toBe(404);
+    // Pasa la reja de origen; la ruta responde 400 porque el pedido no es multipart.
+    expect(propio.statusCode).toBe(400);
+    expect(propio.json().error.codigo).toBe("validacion");
     await app.close();
   });
 
@@ -78,17 +80,22 @@ describe("app", () => {
     const lineas: string[] = [];
     salida.on("data", (c: Buffer) => lineas.push(c.toString()));
     const app = await construirApp({ config: configTest({ LOG_LEVEL: "trace" }), db, logStream: salida });
-    app.get("/api/public/familia/:token", async () => {
+    // Un 500 en una ruta con token: el log del error tampoco lo lleva.
+    app.get("/api/public/familia/:token/prueba-error", async () => {
       throw new Error("falla");
     });
-    const tokens = [generarToken(), generarToken(), generarToken(), generarToken()];
+    const tokens = [generarToken(), generarToken(), generarToken(), generarToken(), generarToken()];
+    await app.inject({ method: "GET", url: `/api/public/familia/${tokens[4]}/prueba-error` });
     await app.inject({ method: "GET", url: `/api/public/familia/${tokens[0]}` });
     await app.inject({ method: "GET", url: `/api/public/completar/${tokens[1]}?x=1` });
     await app.inject({ method: "GET", url: `/api/public/credencial/${tokens[2]}/foto` });
     await app.inject({ method: "POST", url: `/api/public/completar/${tokens[3]}`, headers: { origin: "https://malo.test" } });
     await app.close();
     const log = lineas.join("");
-    expect(log).toContain("[censurado]");
+    // Se loguea el patrón de la ruta, nunca el token.
+    expect(log).toContain('"url":"/api/public/familia/:token"');
+    expect(log).toContain('"url":"/api/public/credencial/:token/foto"');
+    expect(log).toContain("error no controlado");
     for (const t of tokens) expect(log).not.toContain(t);
   });
 

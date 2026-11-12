@@ -1,0 +1,19 @@
+#!/bin/sh
+# Reconstruye el grafo local tras un pull, un merge o un avance rápido si cambió código.
+# Nunca falla un merge. $1 = 1 si fue `merge --squash`.
+# Compara con el HEAD anterior según el reflog (HEAD@{1}), que sí es el de antes de este
+# merge; ORIG_HEAD puede venir de una operación vieja. Si no se puede comparar, reconstruye:
+# `update` es incremental y con lock, y un grafo viejo es el error caro.
+trap 'exit 0' EXIT
+lib="$(dirname "$0")/lib-graphify.sh"
+[ -r "$lib" ] || exit 0
+. "$lib"
+graphify_precheck merge || exit 0
+if [ "$1" = "1" ] || ! git rev-parse -q --verify 'HEAD@{1}' >/dev/null 2>&1; then
+  graphify_rebuild
+elif git -c core.quotePath=false diff --no-renames --name-only 'HEAD@{1}' HEAD 2>/dev/null | graphify_relevant; then
+  graphify_rebuild
+else
+  echo "[graphify] merge sin código: no se reconstruye"
+fi
+exit 0
