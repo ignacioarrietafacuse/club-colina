@@ -49,7 +49,9 @@ function nombreVisible(p: Persona): string {
 /**
  * GET /familia/:token_acceso — solo las personas que llegaron en esa solicitud: las que tienen ese
  * `solicitud_id` y los hijos cuyo vínculo con el titular creó la solicitud, estos solo cuando Mony
- * lo aprobó. Nunca el resto de la familia de la base. Un hijo marcado "ya no está" sigue apareciendo:
+ * lo aprobó y solo si el titular no estaba ya registrado (aviso `titular_ya_registrado`): en ese caso,
+ * solo las personas que la solicitud creó o completó (las de su `solicitud_id`, que nunca se
+ * reasigna ni se pone a quien ya estaba activo). Nunca el resto de la familia de la base. Un hijo marcado "ya no está" sigue apareciendo:
  * la marca es solo una señal para Mony; lo saca de aquí la baja que ella decide en la ficha. El token se
  * busca solo entre solicitudes de tipo `formulario`.
  *
@@ -95,9 +97,12 @@ export async function verFamilia(db: Db, token: string): Promise<FamiliaResponse
     if (t && TITULAR_VIGENTE.has(t.estado)) titularApoderado = t.id;
   }
 
-  // Hijos que llegaron por un vínculo de esta solicitud con el titular, ya aprobado por Mony.
+  // Hijos que llegaron por un vínculo de esta solicitud con el titular, ya aprobado por Mony. Si el
+  // titular ya estaba registrado, ninguno: quien usa el RUT de un apoderado registrado puede ser
+  // otro, y nombrar por RUT a un hijo que ya existía no lo hace suyo. Ese hijo tiene su QR en su
+  // propio link, que Mony puede reenviar (decisión de Ignacio, 2026-11-12).
   const porVinculo =
-    titularApoderado === null
+    titularApoderado === null || s.avisos.includes("titular_ya_registrado")
       ? []
       : (
           await db

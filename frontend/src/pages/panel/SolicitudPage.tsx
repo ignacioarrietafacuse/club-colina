@@ -174,6 +174,12 @@ function DetalleSolicitud({
     },
   });
 
+  const revisar = useMutation({
+    mutationFn: () => api.panel.darPorRevisada(s.id),
+    onSuccess: refrescar,
+  });
+  const [confirmarRevisada, setConfirmarRevisada] = useState(false);
+
   const quitarMarca = useMutation({
     mutationFn: (jugadorId: string) => api.panel.quitarMarcaRetiro(jugadorId),
     // Como después de aprobar o rechazar: el formulario se rehace con el detalle nuevo (y una
@@ -185,7 +191,12 @@ function DetalleSolicitud({
     Object.keys(form.jugadores).length + Object.keys(form.apoderados).length;
   const hayPendientes = personasPendientes + Object.keys(form.vinculos).length > 0;
   const marcadas = contarMarcadas(form);
-  const ocupado = aprobar.isPending || rechazar.isPending || quitarMarca.isPending || desfasado;
+  const ocupado =
+    aprobar.isPending ||
+    rechazar.isPending ||
+    quitarMarca.isPending ||
+    revisar.isPending ||
+    desfasado;
   const rechazaTodo = alcanceRechazoTotal(s).map((id) => nombres[id] ?? "");
   const conPosterior = s.avisos.includes("hay_solicitud_posterior");
   // Una persona nueva rechazada se borra y ya no sale en el detalle: cuenta el rechazo hecho en
@@ -230,7 +241,7 @@ function DetalleSolicitud({
   }
 
   // Solo el error de la última acción.
-  const errorServidor = aprobar.error ?? rechazar.error ?? quitarMarca.error;
+  const errorServidor = aprobar.error ?? rechazar.error ?? quitarMarca.error ?? revisar.error;
 
   return (
     <div>
@@ -499,6 +510,38 @@ function DetalleSolicitud({
           <Button onClick={enviarAprobacion} disabled={ocupado}>
             <Check className="size-4" />
             {aprobar.isPending ? "Aprobando…" : "Aprobar lo marcado"}
+          </Button>
+        </div>
+      ) : s.estado === "pendiente" ? (
+        <div className="card-surface flex flex-wrap items-center gap-3 p-4">
+          <p className="flex-1 text-sm text-muted-foreground">
+            {confirmarRevisada
+              ? "La solicitud pasa a revisada y ya no podrá devolver a nadie a como estaba. No se deshace desde el panel."
+              : "No queda nada por decidir desde esta solicitud (lo que trae ya se decidió o se decide en otra). Si ya la miraste, dala por revisada."}
+          </p>
+          {confirmarRevisada && (
+            <Button variant="ghost" onClick={() => setConfirmarRevisada(false)} disabled={ocupado}>
+              Cancelar
+            </Button>
+          )}
+          <Button
+            onClick={() => {
+              if (desfasado) return;
+              aprobar.reset();
+              rechazar.reset();
+              quitarMarca.reset();
+              if (!confirmarRevisada) return setConfirmarRevisada(true);
+              setConfirmarRevisada(false);
+              revisar.mutate();
+            }}
+            disabled={ocupado}
+          >
+            <Check className="size-4" />
+            {revisar.isPending
+              ? "Cerrando…"
+              : confirmarRevisada
+                ? "Confirmar: dar por revisada"
+                : "Dar por revisada"}
           </Button>
         </div>
       ) : (

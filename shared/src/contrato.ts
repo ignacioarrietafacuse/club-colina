@@ -607,6 +607,12 @@ export const rechazarRequest = z.object({
  */
 export const linkResponse = z.object({ url: z.url() });
 
+/**
+ * POST /api/panel/solicitudes/:id/dar-por-revisada — cierra una solicitud pendiente que ya no deja
+ * personas ni vínculos por decidir desde ella, y borra sus copias en `fichas_previas`. Sin cuerpo;
+ * responde el detalle. 409 `conflicto` si no está pendiente o si todavía queda algo por decidir.
+ */
+
 /** POST /api/panel/:tipo/:id/foto — multipart: archivo `foto`. GET devuelve la imagen. */
 export const fotoSubidaResponse = z.object({ tiene_foto: z.literal(true) });
 /** POST /api/panel/:tipo/:id/regenerar-token — solo personas activas. */
@@ -665,6 +671,7 @@ export const API = {
     aprobar: (i: string) => `/api/panel/solicitudes/${seg(i)}/aprobar`,
     rechazar: (i: string) => `/api/panel/solicitudes/${seg(i)}/rechazar`,
     link: (i: string) => `/api/panel/solicitudes/${seg(i)}/link`,
+    darPorRevisada: (i: string) => `/api/panel/solicitudes/${seg(i)}/dar-por-revisada`,
     jugadores: "/api/panel/jugadores",
     jugador: (i: string) => `/api/panel/jugadores/${seg(i)}`,
     apoderados: "/api/panel/apoderados",

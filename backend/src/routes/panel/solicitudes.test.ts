@@ -106,6 +106,7 @@ describe("solicitudes: lectura", () => {
       ["POST", `/api/panel/solicitudes/${s.id}/aprobar`],
       ["POST", `/api/panel/solicitudes/${s.id}/rechazar`],
       ["POST", `/api/panel/solicitudes/${s.id}/link`],
+      ["POST", `/api/panel/solicitudes/${s.id}/dar-por-revisada`],
     ] as const) {
       expect((await app.inject({ method, url, payload: method === "POST" ? {} : undefined })).statusCode).toBe(401);
     }
@@ -1330,6 +1331,65 @@ describe("solicitudes: un hijo marcado 'ya no está' y las copias al cerrar", ()
     expect(cerrada?.estado).toBe("revisada");
     expect(await copiasDe(hijo)).toHaveLength(0);
     expect((await estadoJ(hijo))?.marcado_retiro_en).not.toBeNull();
+    await app.close();
+  });
+});
+
+describe("solicitudes: dar por revisada", () => {
+  const darPorRevisada = (app: Awaited<ReturnType<typeof appConSesion>>["app"], cookies: Record<string, string>, id: string) =>
+    app.inject({ method: "POST", url: API.panel.darPorRevisada(id), cookies });
+
+  it("con una persona o un vínculo por decidir es 409 y no cambia nada", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo, hijo } = await familia();
+    expect((await darPorRevisada(app, cookies, s.id)).statusCode).toBe(409);
+    expect(await estadoS(s.id)).toBe("pendiente");
+
+    // Las personas ya decididas, pero el vínculo sigue pendiente: tampoco.
+    await db.update(apoderados).set({ estado: "rechazado" }).where(eq(apoderados.id, apo));
+    await db.update(jugadores).set({ estado: "rechazado" }).where(eq(jugadores.id, hijo));
+    expect((await darPorRevisada(app, cookies, s.id)).statusCode).toBe(409);
+    expect(await estadoS(s.id)).toBe("pendiente");
+    await app.close();
+  });
+
+  it("sin nada por decidir la cierra y borra sus copias; las de otra solicitud no se tocan", async () => {
+    const { app, cookies } = await appConSesion(db);
+    // Titular ya registrado cuyos cambios bloqueó otra solicitud: no le queda nada que decidir.
+    const titular = await crearApoderado(db, {
+      estado: "activo",
+      foto_id: await fotoPrueba(db),
+      metodo_pago: "forpay_mensual",
+      credencial_token: generarToken(),
+    });
+    const s = await nuevaSolicitud({
+      titular_apoderado_id: titular,
+      avisos: ["titular_ya_registrado", "cambios_bloqueados_por_otra_solicitud"],
+    });
+    const otra = await nuevaSolicitud();
+    const hijo = await crearJugador(db, { estado: "precargado" });
+    const ajeno = await crearJugador(db, { estado: "precargado" });
+    await db.insert(fichasPrevias).values([
+      { solicitud_id: s.id, jugador_id: hijo, datos: { estado: "precargado", solicitud_id: null } },
+      { solicitud_id: otra.id, jugador_id: ajeno, datos: { estado: "precargado", solicitud_id: null } },
+    ]);
+
+    const r = await darPorRevisada(app, cookies, s.id);
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ id: s.id, estado: "revisada" });
+    expect(r.json().revisada_en).not.toBeNull();
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.solicitud_id, s.id))).toHaveLength(0);
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.solicitud_id, otra.id))).toHaveLength(1);
+    expect(await estadoS(otra.id)).toBe("pendiente");
+
+    // Ya revisada: 409.
+    expect((await darPorRevisada(app, cookies, s.id)).statusCode).toBe(409);
+    await app.close();
+  });
+
+  it("una solicitud que no existe es 404", async () => {
+    const { app, cookies } = await appConSesion(db);
+    expect((await darPorRevisada(app, cookies, "00000000-0000-4000-8000-000000000000")).statusCode).toBe(404);
     await app.close();
   });
 });
