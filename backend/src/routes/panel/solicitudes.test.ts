@@ -1064,6 +1064,9 @@ describe("solicitudes: paga_mensualidad de un vínculo de la base", () => {
     const rut = (await estadoA(titular))?.rut;
     expect((await enviar(app, rut, false, "198.51.100.80")).statusCode).toBe(201);
     expect((await vinculo(hijo, titular))?.paga_mensualidad).toBe(false);
+    // La forma que comparten S1 y S2: el valor anterior por jugador, en la copia del titular.
+    const [copia] = await db.select().from(fichasPrevias).where(eq(fichasPrevias.apoderado_id, titular));
+    expect(copia?.datos).toMatchObject({ vinculos_paga: { [hijo]: true } });
     const [s] = await db.select().from(solicitudesRegistro).where(eq(solicitudesRegistro.titular_apoderado_id, titular));
     if (!s) throw new Error("sin solicitud");
     const r = await app.inject({ method: "POST", url: API.panel.rechazar(s.id), cookies, payload: {} });

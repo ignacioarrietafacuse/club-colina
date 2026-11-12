@@ -5,7 +5,7 @@ import {
   type SolicitudCreadaResponse,
   type solicitudDatos,
 } from "@club-colina/shared";
-import { and, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
 import type { z } from "zod";
 import type { Db, Ejecutor } from "../../db/cliente";
 import { apoderados, categorias, fichasPrevias, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
@@ -599,15 +599,23 @@ class Proceso {
    * Solo se llama si esta solicitud tiene la copia del titular: si no, no modifica nada suyo.
    */
   private async pagaDeVinculoBase(jugadorId: string, apoderadoId: string, paga: boolean) {
-    const donde = and(eq(jugadorApoderado.jugador_id, jugadorId), eq(jugadorApoderado.apoderado_id, apoderadoId));
+    // Solo vínculos de la base (sin solicitud): uno pendiente de otra solicitud se decide allá.
+    const donde = and(
+      eq(jugadorApoderado.jugador_id, jugadorId),
+      eq(jugadorApoderado.apoderado_id, apoderadoId),
+      isNull(jugadorApoderado.solicitud_id),
+    );
     const [v] = await this.tx.select({ paga: jugadorApoderado.paga_mensualidad }).from(jugadorApoderado).where(donde);
     if (!v || v.paga === paga) return;
-    await this.tx
+    const anotada = await this.tx
       .update(fichasPrevias)
       .set({
         datos: sql`${fichasPrevias.datos} || jsonb_build_object('vinculos_paga', coalesce(${fichasPrevias.datos} -> 'vinculos_paga', '{}'::jsonb) || jsonb_build_object(${jugadorId}::text, ${v.paga}::boolean))`,
       })
-      .where(and(eq(fichasPrevias.apoderado_id, apoderadoId), eq(fichasPrevias.solicitud_id, this.solicitudId)));
+      .where(and(eq(fichasPrevias.apoderado_id, apoderadoId), eq(fichasPrevias.solicitud_id, this.solicitudId)))
+      .returning({ id: fichasPrevias.id });
+    // Sin la copia donde anotar el valor anterior no se cambia nada: no habría cómo volverlo atrás.
+    if (anotada.length !== 1) throw new Error("sin copia del titular para anotar paga_mensualidad");
     await this.tx.update(jugadorApoderado).set({ paga_mensualidad: paga }).where(donde);
   }
 
