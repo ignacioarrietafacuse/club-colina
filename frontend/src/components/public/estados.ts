@@ -56,3 +56,11 @@ export function tituloCompletar(d: CompletarResponse | undefined): string {
   if (d?.foto_subida) return "Tu registro";
   return "Sube tu foto";
 }
+
+/**
+ * Si `/completar` ya no pide la foto: la subió por el link, o el club ya lo activó (por ejemplo,
+ * completó la foto desde el panel). En ese caso se muestra su estado y, si está activo, su QR.
+ */
+export function completarTermino(d: CompletarResponse): boolean {
+  return d.foto_subida || d.credencial_token !== undefined;
+}

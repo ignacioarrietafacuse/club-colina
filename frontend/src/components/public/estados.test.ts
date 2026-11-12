@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ErrorApi } from "@/lib/api";
 import {
+  completarTermino,
   esNoEncontrado,
   estadoDesdeConsulta,
   tituloCompletar,
@@ -84,5 +85,19 @@ describe("tituloCompletar", () => {
         credencial_token: "T".repeat(43),
       }),
     ).toBe("Tu credencial");
+  });
+});
+
+describe("completarTermino", () => {
+  it("deja de pedir la foto si la subió o si el club ya lo activó", () => {
+    expect(completarTermino({ primer_nombre: "Eva", foto_subida: false })).toBe(false);
+    expect(completarTermino({ primer_nombre: "Eva", foto_subida: true })).toBe(true);
+    expect(
+      completarTermino({
+        primer_nombre: "Eva",
+        foto_subida: false,
+        credencial_token: "T".repeat(43),
+      }),
+    ).toBe(true);
   });
 });

@@ -767,7 +767,8 @@ export function LinkParaGuardar({ ruta, etiqueta }: { ruta: string; etiqueta: st
   const [copiado, setCopiado] = useState(false);
   // Sin dirección pública (no debería pasar: el formulario no envía sin ella) se muestra la
   // ruta, para que la familia no pierda el único link que recibe.
-  const url = urlPublica(ruta) ?? ruta;
+  const completa = urlPublica(ruta);
+  const url = completa ?? ruta;
   async function copiar() {
     try {
       await navigator.clipboard.writeText(url);
@@ -780,11 +781,17 @@ export function LinkParaGuardar({ ruta, etiqueta }: { ruta: string; etiqueta: st
     <div className="space-y-2 rounded-xl border bg-card p-4">
       <p className="text-sm font-medium">{etiqueta}</p>
       <p className="select-all break-all rounded-md bg-muted p-2 font-mono text-xs">{url}</p>
+      {!completa && (
+        <p className="text-xs text-destructive">
+          No pudimos armar el link completo. Guarda este texto y entrégaselo al club.
+        </p>
+      )}
       <div className="flex gap-2">
         <Button type="button" variant="secondary" size="sm" onClick={() => void copiar()}>
           {copiado ? "Copiado" : "Copiar link"}
         </Button>
-        {typeof navigator !== "undefined" && typeof navigator.share === "function" && (
+        {/* Compartir una ruta sin dirección la completaría con la del navegador: no se ofrece. */}
+        {completa && typeof navigator !== "undefined" && typeof navigator.share === "function" && (
           <Button
             type="button"
             variant="outline"

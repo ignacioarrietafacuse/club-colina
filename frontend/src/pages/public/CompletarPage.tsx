@@ -4,7 +4,12 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { mensajeError } from "@/components/public/api";
 import { CompletarListo, FormularioCompletar } from "@/components/public/Completar";
-import { esNoEncontrado, tituloCompletar, tokenConForma } from "@/components/public/estados";
+import {
+  completarTermino,
+  esNoEncontrado,
+  tituloCompletar,
+  tokenConForma,
+} from "@/components/public/estados";
 import { Aviso, Cargando, Marco } from "@/components/public/Marco";
 
 const LINK_INVALIDO = "Este link no es válido. Pídele uno nuevo a quien te registró o al club.";
@@ -45,7 +50,7 @@ export function CompletarPage() {
             </Button>
           </div>
         )
-      ) : consulta.data.foto_subida || consulta.data.credencial_token ? (
+      ) : completarTermino(consulta.data) ? (
         <CompletarListo datos={consulta.data} />
       ) : (
         <FormularioCompletar

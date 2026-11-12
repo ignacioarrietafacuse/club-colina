@@ -2,11 +2,13 @@ import type { FamiliaResponse } from "@club-colina/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CompletarListo } from "./Completar";
 import { VistaCredencial } from "./Credencial";
 import { VistaFamilia } from "./Familia";
 import { Listo, Registro } from "./registro/Registro";
+
+afterEach(() => vi.unstubAllEnvs());
 
 // Datos siempre ficticios.
 const TOKEN = "T".repeat(43);
@@ -114,6 +116,14 @@ describe("registro", () => {
     expect(h).toContain("no el de tu hijo");
   });
 
+  it("sin dirección pública, el final no se cae: muestra la ruta y pide entregarla al club", () => {
+    vi.stubEnv("VITE_PUBLIC_BASE_URL", "");
+    const h = html(<Listo resultado={{ token_acceso: TOKEN, otros_apoderados: [] }} />);
+    expect(h).toContain(`/familia/${TOKEN}`);
+    expect(h).not.toContain("https://");
+    expect(h).toContain("entrégaselo al club");
+  });
+
   it("al terminar muestra el link privado y los de los otros apoderados", () => {
     const otro = "O".repeat(43);
     const h = html(
@@ -149,6 +159,7 @@ describe("completar", () => {
       />,
     );
     expect(h).toContain("tu credencial está activa");
+    expect(h).toContain("animate-pulse");
   });
 
   it("foto subida y aún sin aprobar: en revisión, sin QR", () => {
