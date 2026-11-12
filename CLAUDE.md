@@ -102,8 +102,8 @@ lo pide.
   vínculos del apoderado en `jugador_apoderado`, sin filtrar por estado, ordenados por
   `jugador_apoderado.creado_en, jugador_id`. Se ocultan los vínculos pendientes que creó una
   solicitud hacia un hijo que no llegó en esa misma solicitud (un jugador que ya existía, nombrado
-  por RUT); aparece cuando Mony aprueba el vínculo. Un jugador menor de edad responde igual que un
-  RUT desconocido (`encontrado: false`): si su apoderado lo nombra por RUT, el formulario pide todo
+  por RUT); aparece cuando Mony aprueba el vínculo. Un jugador que no es adulto con certeza (menor,
+  o sin fecha en la base) responde igual que un RUT desconocido (`encontrado: false`): si su apoderado lo nombra por RUT, el formulario pide todo
   y el servidor completa solo lo que falta. La solicitud los nombra con `ref.precargado` y el
   `primer_nombre` que vio; al recibirla, el servidor recalcula la lista desde el RUT de quien llena
   y responde 409 `conflicto` si la posición no existe o el nombre no coincide. Ignora la tabla `entrenadores`. Si un RUT es apoderado y

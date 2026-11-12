@@ -249,7 +249,7 @@ Horarios, lugar y entrenador se agregan en la Etapa 2.
 ## Diseño técnico
 - **Verificación:** página pública `panel.clubcolina.cl/c/{token}`. Muestra foto + nombre + rol (Jugador / Apoderado / Entrenador) solo si la persona está en estado activo.
 - **No se muestra al escanear:** categoría, número, becas, estado de pago, RUT, teléfono ni familiares.
-- **Consulta de RUT del formulario:** responde solo si está o no en la base y qué campos faltan (más el primer nombre de los hijos). Nunca devuelve los datos guardados. Con límite de intentos.
+- **Consulta de RUT del formulario:** responde solo si está o no en la base y qué campos faltan (más el primer nombre de los hijos). Nunca devuelve los datos guardados. Con límite de intentos. El RUT de un jugador que no es adulto con certeza (menor, o sin fecha en la base) responde como si no estuviera, y la lista de hijos oculta los vínculos pendientes hacia hijos de otra familia nombrados por RUT hasta que Mony los aprueba (decisión de Ignacio, 2026-11-12).
 - **Panel de Mony:**
   - Login.
   - Solicitudes pendientes con foto y datos: aprobar / rechazar, asignar becas por jugador (mensualidad, torneos, campus/clínicas) y corregir categoría y número. Etiqueta "Coincide con la base" en las que vienen de un RUT precargado.

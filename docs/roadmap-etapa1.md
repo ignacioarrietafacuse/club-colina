@@ -39,7 +39,7 @@ agregan `GET /api/public/categorias` y `POST /api/panel/:tipo/:id/activar`, y
 `GET /api/panel/fotos/:id` pasa a ser `GET /api/panel/:tipo/:id/foto`.
 
 **Público** (sin login)
-- `POST /api/public/rut-lookup` `{rut}` → si está precargado, el tipo y qué campos faltan, más el primer nombre de los hijos y sus faltantes. Nunca devuelve datos guardados ni ids: los hijos precargados van por posición, que el servidor recalcula desde el RUT al recibir la solicitud. Con límite de intentos.
+- `POST /api/public/rut-lookup` `{rut}` → si está precargado, el tipo y qué campos faltan, más el primer nombre de los hijos y sus faltantes. Nunca devuelve datos guardados ni ids: los hijos precargados van por posición, que el servidor recalcula desde el RUT al recibir la solicitud. Con límite de intentos. Un jugador que no es adulto con certeza responde como RUT desconocido (2026-11-12).
 - `POST /api/public/solicitudes` (multipart: datos + fotos) → `{token_acceso, otros_apoderados}` con los links de `/completar`. Es la única vez que se entregan: la base guarda solo su hash. Calcula los avisos de suplantación para el panel.
 - `GET /api/public/familia/:token_acceso` → estado de la solicitud y de cada persona que llegó en ella, nunca el resto de la familia de la base (nombre, rol, estado y `credencial_token` si está activa).
 - `GET /api/public/categorias` → `[{id, nombre, disciplina}]`, para cuando el formulario tiene que preguntar la categoría.
