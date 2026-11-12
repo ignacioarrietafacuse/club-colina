@@ -348,7 +348,9 @@ export const credencialResponse = z.object({ nombre_completo: z.string(), rol })
  * `debe_cambiar_clave`: el usuario entró con una clave temporal; el panel solo le muestra la
  * pantalla de cambiar clave, y /api/panel responde 403 `debe_cambiar_clave` hasta que la cambie.
  */
-export const usuario = z.object({ id, nombre: z.string(), debe_cambiar_clave: z.boolean() });
+// Con default: un backend anterior a la columna (despliegue a medias o vuelta atrás) no la manda,
+// y tampoco aplica el 403, así que leerla como false no abre nada.
+export const usuario = z.object({ id, nombre: z.string(), debe_cambiar_clave: z.boolean().default(false) });
 /** POST /api/auth/login — deja la cookie `__Host-sesion`. */
 export const loginRequest = z.object({
   usuario: z.string().trim().min(1).max(100),
@@ -363,7 +365,8 @@ export const CLAVE_MIN = 12;
 /**
  * POST /api/auth/cambiar-clave — con sesión. La nueva tiene al menos `CLAVE_MIN` caracteres y es
  * distinta de la actual. Si la actual no coincide: 400 `credenciales_invalidas`. Al cambiarla se
- * cierran todas las demás sesiones del usuario (la actual sigue) y se apaga `debe_cambiar_clave`.
+ * cierran todas las sesiones del usuario, se abre una nueva para quien la cambió (cookie nueva: la
+ * anterior deja de servir, por si alguien la había copiado) y se apaga `debe_cambiar_clave`.
  * Responde 204. Con límite de intentos por usuario.
  */
 export const cambiarClaveRequest = z

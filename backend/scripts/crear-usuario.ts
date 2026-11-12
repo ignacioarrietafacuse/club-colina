@@ -7,6 +7,8 @@
  *
  * --cambiar pone la contraseña nueva y cierra las sesiones abiertas; no toca el nombre ni
  * reactiva a un usuario desactivado (para eso, --reactivar).
+ * --temporal (al crear o con --cambiar) obliga a cambiar la contraseña en el primer ingreso: úsalo
+ * siempre que la contraseña la elija otra persona y se la mandes.
  *
  * La contraseña se pide por la terminal (sin mostrarla) o se lee de la entrada estándar; nunca
  * va como argumento, para que no quede en el historial. Contra una base que no sea localhost
@@ -61,11 +63,12 @@ async function main() {
   const nombre = argumento("--nombre");
   const cambiar = process.argv.includes("--cambiar");
   const reactivar = process.argv.includes("--reactivar");
+  const temporal = process.argv.includes("--temporal");
   // --cambiar no toca el nombre: pasarlo igual sería creer que cambió.
   if (!usuario || (!cambiar && !nombre) || (cambiar && nombre) || (reactivar && !cambiar)) {
     throw new ErrorDeUso(
-      'Uso: crear-usuario.ts --usuario <usuario> --nombre "<nombre>" [--produccion]\n' +
-        "     crear-usuario.ts --usuario <usuario> --cambiar [--reactivar] [--produccion]",
+      'Uso: crear-usuario.ts --usuario <usuario> --nombre "<nombre>" [--temporal] [--produccion]\n' +
+        "     crear-usuario.ts --usuario <usuario> --cambiar [--reactivar] [--temporal] [--produccion]",
     );
   }
   const url = process.env.DATABASE_URL;
@@ -86,12 +89,12 @@ async function main() {
   const { db, cerrar } = crearDb(url, { max: 1 });
   try {
     if (cambiar) {
-      const { activo } = await cambiarPassword(db, { usuario, password }, { reactivar });
+      const { activo } = await cambiarPassword(db, { usuario, password }, { reactivar, temporal });
       process.stdout.write(
         `Contraseña cambiada; sesiones cerradas. El usuario está ${activo ? "activo" : "INACTIVO (usa --reactivar)"}.\n`,
       );
     } else {
-      await crearUsuario(db, { usuario, nombre: nombre ?? "", password });
+      await crearUsuario(db, { usuario, nombre: nombre ?? "", password, temporal });
       process.stdout.write("Usuario creado.\n");
     }
   } finally {

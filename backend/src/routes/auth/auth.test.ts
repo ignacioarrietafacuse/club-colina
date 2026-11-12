@@ -8,7 +8,7 @@ import { sesiones, usuarios } from "../../db/schema";
 import { LIMITES } from "../../lib/limite-intentos";
 import { hashToken } from "../../lib/tokens";
 import { configTest, dbTest, urlTest } from "../../test/db";
-import { crearUsuario } from "../../services/panel/usuarios";
+import { cambiarPassword, crearUsuario } from "../../services/panel/usuarios";
 import { LIMITE_LOGIN_IP } from "./index";
 
 const { db, cerrar } = dbTest();
@@ -294,7 +294,7 @@ describe("cambiar clave", () => {
     await app.close();
   });
 
-  it("la cambia, cierra las demás sesiones y deja abierta la actual", async () => {
+  it("la cambia, cierra todas sus sesiones y le abre una nueva a quien la cambió", async () => {
     const app = await construirApp({ config: configTest(), db });
     const usuario = await usuarioNuevo();
     const actual = cookieDe(await login(app, usuario, PASSWORD, "198.51.100.20"));
@@ -302,8 +302,12 @@ describe("cambiar clave", () => {
     const ajena = cookieDe(await login(app, await usuarioNuevo(), PASSWORD, "198.51.100.22"));
     const r = await cambiar(app, actual, { clave_actual: PASSWORD, clave_nueva: NUEVA });
     expect(r.statusCode).toBe(204);
+    const nueva = cookieDe(r);
+    expect(nueva).not.toBe(actual);
     const me = (token: string) => app.inject({ method: "GET", url: "/api/auth/me", cookies: { [COOKIE_SESION]: token } });
-    expect((await me(actual)).statusCode).toBe(200);
+    expect((await me(nueva)).statusCode).toBe(200);
+    // También la cookie desde la que se cambió: si alguien la había copiado, ya no le sirve.
+    expect((await me(actual)).statusCode).toBe(401);
     expect((await me(otra)).statusCode).toBe(401);
     // Las sesiones de otro usuario no se tocan.
     expect((await me(ajena)).statusCode).toBe(200);
@@ -356,15 +360,28 @@ describe("cambiar clave", () => {
     expect(me.statusCode).toBe(200);
     expect(me.json().usuario.debe_cambiar_clave).toBe(true);
 
-    expect((await cambiar(app, token, { clave_actual: PASSWORD, clave_nueva: NUEVA })).statusCode).toBe(204);
+    const cambio = await cambiar(app, token, { clave_actual: PASSWORD, clave_nueva: NUEVA });
+    expect(cambio.statusCode).toBe(204);
+    const cookiesNuevas = { [COOKIE_SESION]: cookieDe(cambio) };
     expect((await hashDe(usuario))?.debe_cambiar_clave).toBe(false);
-    expect((await app.inject({ method: "GET", url: "/api/panel/solicitudes", cookies })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/api/panel/solicitudes", cookies: cookiesNuevas })).statusCode).toBe(200);
 
     // Salir también funciona con la marca puesta.
     await db.update(usuarios).set({ debe_cambiar_clave: true }).where(eq(usuarios.usuario, usuario));
-    expect((await app.inject({ method: "POST", url: "/api/auth/logout", cookies })).statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url: "/api/auth/me", cookies })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/api/auth/logout", cookies: cookiesNuevas })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/api/auth/me", cookies: cookiesNuevas })).statusCode).toBe(401);
     await app.close();
+  });
+
+  it("el script con temporal deja la marca al crear y al cambiar; sin temporal no la toca", async () => {
+    const usuario = `temporal${Date.now()}`;
+    await crearUsuario(db, { usuario, nombre: "Prueba", password: PASSWORD, temporal: true });
+    expect((await hashDe(usuario))?.debe_cambiar_clave).toBe(true);
+    await db.update(usuarios).set({ debe_cambiar_clave: false }).where(eq(usuarios.usuario, usuario));
+    await cambiarPassword(db, { usuario, password: NUEVA });
+    expect((await hashDe(usuario))?.debe_cambiar_clave).toBe(false);
+    await cambiarPassword(db, { usuario, password: PASSWORD }, { temporal: true });
+    expect((await hashDe(usuario))?.debe_cambiar_clave).toBe(true);
   });
 
   it("un usuario con arroba se puede crear con el script y entra", async () => {

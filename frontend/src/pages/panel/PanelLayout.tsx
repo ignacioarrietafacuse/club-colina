@@ -2,6 +2,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Outlet, useNavigate, useRouteContext } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { AppShell } from "@/components/panel/AppShell";
+import type { Usuario } from "@club-colina/shared";
+import { RUTA_CAMBIAR_CLAVE } from "./guarda";
 import { CLAVE_SESION, cerrarSesion, olvidarSesion, vigilarSesion } from "./sesion";
 
 export function PanelLayout() {
@@ -12,12 +14,24 @@ export function PanelLayout() {
   // Cualquier consulta o acción del panel que reciba 401 cierra la sesión en pantalla.
   useEffect(
     () =>
-      vigilarSesion(queryClient, () => {
-        // La sesión guardada se borra ya (la guarda no deja pasar con ella); el resto, al salir
-        // de las páginas del panel, para que nada vuelva a pedir datos. Aunque navegar falle.
-        queryClient.removeQueries({ queryKey: CLAVE_SESION });
-        void navigate({ to: "/login" }).finally(() => olvidarSesion(queryClient));
-      }),
+      vigilarSesion(
+        queryClient,
+        () => {
+          // La sesión guardada se borra ya (la guarda no deja pasar con ella); el resto, al salir
+          // de las páginas del panel, para que nada vuelva a pedir datos. Aunque navegar falle.
+          queryClient.removeQueries({ queryKey: CLAVE_SESION });
+          void navigate({ to: "/login" }).finally(() => olvidarSesion(queryClient));
+        },
+        () => {
+          // La marca se puso con la sesión abierta: la guarda la ve en la sesión guardada y deja
+          // solo la pantalla de cambiar clave.
+          queryClient.setQueryData<Usuario | null>(
+            CLAVE_SESION,
+            (u) => u && { ...u, debe_cambiar_clave: true },
+          );
+          void navigate({ to: RUTA_CAMBIAR_CLAVE });
+        },
+      ),
     [queryClient, navigate],
   );
 

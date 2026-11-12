@@ -141,6 +141,10 @@ lo pide.
 - **Errores:** lanzar `ErrorApi` (`backend/src/lib/errores.ts`). El logger nunca registra el
   mensaje de un error (drizzle mete ahí los parámetros de la consulta): solo tipo, código
   SQLSTATE, restricción, tabla y stack (`resumirError`).
+- **Clave temporal (2026-11-12):** `usuarios.debe_cambiar_clave`. Con la marca, el login responde
+  igual, `/api/panel/*` responde 403 `debe_cambiar_clave` (hook `exigirClaveAlDia`) y el panel solo
+  muestra `/cambiar-clave`; `/api/auth/*` (login, logout, me, cambiar-clave) queda fuera de ese
+  403. `crear-usuario.ts --temporal` la pone; cambiar la clave la apaga y renueva la sesión.
 - **Panel cerrado por defecto:** `rutasPanel` responde 401 a todo `/api/panel/*` y
   `guardaPanel` manda a `/login`. S1 y S4 los reemplazan por la verificación real de sesión,
   sin dejar ninguna ruta afuera.

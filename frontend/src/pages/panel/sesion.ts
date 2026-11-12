@@ -35,16 +35,30 @@ export function esSesionVencida(error: unknown): boolean {
   return error instanceof ErrorApi && error.status === 401;
 }
 
+/** El usuario tiene una clave temporal: el panel responde 403 `debe_cambiar_clave`. */
+export function debeCambiarClave(error: unknown): boolean {
+  return error instanceof ErrorApi && error.status === 403 && error.codigo === "debe_cambiar_clave";
+}
+
 /**
  * Llama a `alVencer` una sola vez cuando una consulta o acción recibe 401 (aunque varias fallen
- * a la vez). Devuelve la función para dejar de vigilar.
+ * a la vez), y a `alDebeCambiar` (si se da) cuando recibe 403 `debe_cambiar_clave`: la marca se
+ * puso con la sesión abierta. Devuelve la función para dejar de vigilar.
  */
-export function vigilarSesion(queryClient: QueryClient, alVencer: () => void): () => void {
+export function vigilarSesion(
+  queryClient: QueryClient,
+  alVencer: () => void,
+  alDebeCambiar?: () => void,
+): () => void {
   let avisado = false;
   const avisar = (error: unknown) => {
-    if (avisado || !esSesionVencida(error)) return;
-    avisado = true;
-    alVencer();
+    if (avisado) return;
+    if (esSesionVencida(error)) {
+      avisado = true;
+      alVencer();
+    } else if (alDebeCambiar && debeCambiarClave(error)) {
+      alDebeCambiar();
+    }
   };
   const sinConsultas = queryClient.getQueryCache().subscribe((evento) => {
     if (evento.type === "updated") avisar(evento.query.state.error);

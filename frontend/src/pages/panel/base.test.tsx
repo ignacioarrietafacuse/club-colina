@@ -112,6 +112,29 @@ describe("guarda del panel", () => {
   });
 });
 
+describe("clave temporal en medio de la sesión", () => {
+  it("un 403 debe_cambiar_clave avisa una vez para ir a cambiar la clave; otros 403 no", () => {
+    const queryClient = new QueryClient();
+    const alVencer = vi.fn();
+    const alDebeCambiar = vi.fn();
+    const dejar = vigilarSesion(queryClient, alVencer, alDebeCambiar);
+    const fallar = (error: ErrorApi) =>
+      queryClient
+        .getMutationCache()
+        .build(queryClient, { mutationFn: () => Promise.reject(error) })
+        .execute(undefined)
+        .catch(() => undefined);
+    return (async () => {
+      await fallar(new ErrorApi(403, "origen_no_permitido", "x"));
+      expect(alDebeCambiar).not.toHaveBeenCalled();
+      await fallar(new ErrorApi(403, "debe_cambiar_clave", "x"));
+      expect(alDebeCambiar).toHaveBeenCalled();
+      expect(alVencer).not.toHaveBeenCalled();
+      dejar();
+    })();
+  });
+});
+
 describe("sesión", () => {
   it("solo un 401 cuenta como sesión vencida", () => {
     expect(esSesionVencida(new ErrorApi(401, "no_autenticado", "x"))).toBe(true);

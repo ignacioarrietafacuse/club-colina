@@ -1,12 +1,13 @@
 import { verify } from "@node-rs/argon2";
-import { and, eq, ne } from "drizzle-orm";
+import { CLAVE_MIN } from "@club-colina/shared";
+import { eq } from "drizzle-orm";
 import type { Ejecutor } from "../../db/cliente";
 import { sesiones, usuarios } from "../../db/schema";
 import { ErrorApi } from "../../lib/errores";
-import { hashToken } from "../../lib/tokens";
-import { hashPassword, normalizarUsuario } from "./sesiones";
+import { crearSesion, hashPassword, normalizarUsuario } from "./sesiones";
 
-export const PASSWORD_MIN = 12;
+/** El mismo mínimo que el panel (`CLAVE_MIN` del contrato). */
+export const PASSWORD_MIN = CLAVE_MIN;
 
 /** Error de uso del script: su mensaje es propio y se puede mostrar. */
 export class ErrorDeUso extends Error {
@@ -44,7 +45,7 @@ function validarUsuario(usuario: string): string {
 /** Crea un usuario del panel. Falla si ya existe. */
 export async function crearUsuario(
   db: Ejecutor,
-  datos: { usuario: string; nombre: string; password: string },
+  datos: { usuario: string; nombre: string; password: string; temporal?: boolean },
 ): Promise<void> {
   const usuario = validarUsuario(datos.usuario);
   const nombre = datos.nombre.trim();
@@ -52,7 +53,12 @@ export async function crearUsuario(
   validarPassword(datos.password);
   const [existente] = await db.select({ id: usuarios.id }).from(usuarios).where(eq(usuarios.usuario, usuario));
   if (existente) throw new ErrorDeUso("Ese usuario ya existe. Para cambiarle la contraseña, usa --cambiar.");
-  await db.insert(usuarios).values({ usuario, nombre, password_hash: await hashPassword(datos.password) });
+  await db.insert(usuarios).values({
+    usuario,
+    nombre,
+    password_hash: await hashPassword(datos.password),
+    debe_cambiar_clave: datos.temporal ?? false,
+  });
 }
 
 /**
@@ -63,7 +69,7 @@ export async function crearUsuario(
 export async function cambiarPassword(
   db: Ejecutor,
   datos: { usuario: string; password: string },
-  { reactivar = false }: { reactivar?: boolean } = {},
+  { reactivar = false, temporal = false }: { reactivar?: boolean; temporal?: boolean } = {},
 ): Promise<{ activo: boolean }> {
   const usuario = validarUsuario(datos.usuario);
   validarPassword(datos.password);
@@ -76,40 +82,43 @@ export async function cambiarPassword(
       .for("update");
     if (!existente) throw new ErrorDeUso("Ese usuario no existe. Para crearlo, quita --cambiar.");
     const activo = reactivar || existente.activo;
-    await tx.update(usuarios).set({ password_hash, activo }).where(eq(usuarios.id, existente.id));
+    // Con `temporal`, el usuario tiene que cambiarla al entrar; sin él, la marca queda como estaba.
+    await tx
+      .update(usuarios)
+      .set({ password_hash, activo, ...(temporal && { debe_cambiar_clave: true }) })
+      .where(eq(usuarios.id, existente.id));
     await tx.delete(sesiones).where(eq(sesiones.usuario_id, existente.id));
     return { activo };
   });
 }
 
 /**
- * El propio usuario cambia su clave desde el panel (POST /api/auth/cambiar-clave). Verifica la
- * actual, guarda la nueva, apaga `debe_cambiar_clave` y cierra todas sus otras sesiones; la de
- * `tokenSesion` (desde donde la cambió) sigue abierta. La ruta ya validó largo y que sean distintas.
+ * El propio usuario cambia su clave desde el panel (POST /api/auth/cambiar-clave). Con la fila del
+ * usuario bloqueada (dos cambios a la vez se ordenan), verifica la actual, guarda la nueva, apaga
+ * `debe_cambiar_clave`, cierra todas sus sesiones y abre una nueva para quien la cambió: si alguien
+ * había copiado la cookie de esta sesión, tampoco le sirve. La ruta ya validó largo y que sean
+ * distintas. Devuelve la sesión nueva para la cookie.
  */
 export async function cambiarClavePropia(
   db: Ejecutor,
-  datos: { usuarioId: string; claveActual: string; claveNueva: string; tokenSesion: string },
-): Promise<void> {
-  const [fila] = await db
-    .select({ password_hash: usuarios.password_hash })
-    .from(usuarios)
-    .where(and(eq(usuarios.id, datos.usuarioId), eq(usuarios.activo, true)));
-  let coincide = false;
-  try {
-    coincide = fila ? await verify(fila.password_hash, datos.claveActual) : false;
-  } catch {
-    coincide = false;
-  }
-  if (!coincide) throw new ErrorApi(400, "credenciales_invalidas", "La clave actual no es correcta.");
+  datos: { usuarioId: string; claveActual: string; claveNueva: string },
+): Promise<{ token: string; expira: Date }> {
   const password_hash = await hashPassword(datos.claveNueva);
-  await db.transaction(async (tx) => {
-    await tx
-      .update(usuarios)
-      .set({ password_hash, debe_cambiar_clave: false })
-      .where(eq(usuarios.id, datos.usuarioId));
-    await tx
-      .delete(sesiones)
-      .where(and(eq(sesiones.usuario_id, datos.usuarioId), ne(sesiones.id, hashToken(datos.tokenSesion))));
+  return db.transaction(async (tx) => {
+    const [fila] = await tx
+      .select({ password_hash: usuarios.password_hash, activo: usuarios.activo })
+      .from(usuarios)
+      .where(eq(usuarios.id, datos.usuarioId))
+      .for("update");
+    let coincide = false;
+    try {
+      coincide = fila?.activo === true ? await verify(fila.password_hash, datos.claveActual) : false;
+    } catch {
+      coincide = false;
+    }
+    if (!coincide) throw new ErrorApi(400, "credenciales_invalidas", "La clave actual no es correcta.");
+    await tx.update(usuarios).set({ password_hash, debe_cambiar_clave: false }).where(eq(usuarios.id, datos.usuarioId));
+    await tx.delete(sesiones).where(eq(sesiones.usuario_id, datos.usuarioId));
+    return crearSesion(tx, datos.usuarioId);
   });
 }

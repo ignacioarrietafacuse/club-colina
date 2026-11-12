@@ -82,15 +82,14 @@ export async function rutasAuth(app: FastifyInstance) {
     { onRequest: exigirSesion, config: { rateLimit: LIMITES.cambiarClave } },
     async (request, reply) => {
       const usuario = request.usuarioPanel;
-      const token = request.cookies[COOKIE_SESION];
-      if (!usuario || !token) throw new ErrorApi(401, "no_autenticado", "Sesión requerida");
+      if (!usuario) throw new ErrorApi(401, "no_autenticado", "Sesión requerida");
       const { clave_actual, clave_nueva } = validarEntrada(cambiarClaveRequest, request.body);
-      await cambiarClavePropia(app.db, {
+      const { token, expira } = await cambiarClavePropia(app.db, {
         usuarioId: usuario.id,
         claveActual: clave_actual,
         claveNueva: clave_nueva,
-        tokenSesion: token,
       });
+      ponerCookieSesion(reply, token, expira);
       return reply.status(204).send();
     },
   );
