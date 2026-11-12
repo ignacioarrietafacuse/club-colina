@@ -200,3 +200,170 @@ describe("sesión", () => {
     expect((await errorDe(api.auth.sesionActual())).status).toBe(500);
   });
 });
+
+describe("cada función llama al método y la URL del contrato", () => {
+  const vacio = () => new Response(null, { status: 204 });
+  const casos: [string, () => Promise<unknown>, Response, string, string][] = [
+    ["logout", () => api.auth.logout(), vacio(), "POST", "/api/auth/logout"],
+    [
+      "familia",
+      () => api.publico.familia(TOKEN),
+      json({ estado_solicitud: "pendiente", personas: [], otros_apoderados: [] }),
+      "GET",
+      `/api/public/familia/${TOKEN}`,
+    ],
+    [
+      "verCompletar",
+      () => api.publico.verCompletar(TOKEN),
+      json({ primer_nombre: "Ana", foto_subida: false }),
+      "GET",
+      `/api/public/completar/${TOKEN}`,
+    ],
+    [
+      "rechazarSolicitud",
+      () => api.panel.rechazarSolicitud(ID),
+      vacio(),
+      "POST",
+      `/api/panel/solicitudes/${ID}/rechazar`,
+    ],
+    [
+      "nuevoLinkSolicitud",
+      () => api.panel.nuevoLinkSolicitud(ID),
+      json({ url: `https://ejemplo.test/familia/${TOKEN}` }),
+      "POST",
+      `/api/panel/solicitudes/${ID}/link`,
+    ],
+    [
+      "activar",
+      () => api.panel.activar("apoderados", ID),
+      json({ estado: "activo", credencial_token: TOKEN }),
+      "POST",
+      `/api/panel/apoderados/${ID}/activar`,
+    ],
+    [
+      "desactivar",
+      () => api.panel.desactivar("jugadores", ID),
+      json({ estado: "inactivo", credencial_token: null }),
+      "POST",
+      `/api/panel/jugadores/${ID}/desactivar`,
+    ],
+    [
+      "regenerarToken",
+      () => api.panel.regenerarToken("entrenadores", ID),
+      json({ credencial_token: TOKEN }),
+      "POST",
+      `/api/panel/entrenadores/${ID}/regenerar-token`,
+    ],
+    [
+      "editarEntrenador",
+      () => api.panel.editarEntrenador(ID, { nombre: "Luis" }),
+      vacio(),
+      "PATCH",
+      `/api/panel/entrenadores/${ID}`,
+    ],
+    [
+      "editarApoderado",
+      () => api.panel.editarApoderado(ID, { email: null }),
+      vacio(),
+      "PATCH",
+      `/api/panel/apoderados/${ID}`,
+    ],
+  ];
+  it.each(casos)("%s", async (_nombre, llamar, respuesta, metodo, url) => {
+    responder(respuesta);
+    await llamar();
+    expect(llamadas[0]?.init.method).toBe(metodo);
+    expect(llamadas[0]?.url).toBe(url);
+  });
+
+  it("rechazar sin personas manda un objeto vacío (rechaza todo lo pendiente)", async () => {
+    responder(vacio());
+    await api.panel.rechazarSolicitud(ID);
+    expect(JSON.parse(String(llamadas[0]?.init.body))).toEqual({});
+  });
+
+  it("aprobar manda el cuerpo y valida el detalle que vuelve", async () => {
+    const detalle = {
+      id: ID,
+      creada_en: "2026-11-12T10:00:00.000Z",
+      estado: "revisada",
+      tipo: "formulario",
+      consentimiento_en: null,
+      revisada_en: "2026-11-12T11:00:00.000Z",
+      coincide_base: true,
+      avisos: [],
+      jugadores: [],
+      apoderados: [],
+      vinculos: [],
+    };
+    responder(json(detalle));
+    const datos = { apoderados: [{ id: ID }] };
+    expect(await api.panel.aprobarSolicitud(ID, datos)).toEqual(detalle);
+    expect(llamadas[0]?.url).toBe(`/api/panel/solicitudes/${ID}/aprobar`);
+    expect(JSON.parse(String(llamadas[0]?.init.body))).toEqual(datos);
+  });
+});
+
+describe("multipart del panel", () => {
+  it("crear entrenador: datos primero y la foto después", async () => {
+    responder(new Response(null, { status: 201 }));
+    const datos = {
+      nombre: "Luis",
+      apellido: "Rojas",
+      rut: generarRutFicticio(4),
+      telefono: "912345678",
+      disciplina: "voleibol" as const,
+    };
+    await api.panel.crearEntrenador(datos, new Blob(["x"], { type: "image/jpeg" }));
+    expect(llamadas[0]?.url).toBe("/api/panel/entrenadores");
+    expect(llamadas[0]?.init.method).toBe("POST");
+    const formData = cuerpoMultipart(llamadas[0]!.init);
+    expect([...formData.keys()]).toEqual(["datos", "foto"]);
+    expect(JSON.parse(String(formData.get("datos")))).toEqual(datos);
+  });
+
+  it("subir foto: campo foto y respuesta del contrato", async () => {
+    responder(json({ tiene_foto: true }));
+    const r = await api.panel.subirFoto("jugadores", ID, new Blob(["x"], { type: "image/jpeg" }));
+    expect(r).toEqual({ tiene_foto: true });
+    expect(llamadas[0]?.url).toBe(`/api/panel/jugadores/${ID}/foto`);
+    expect([...cuerpoMultipart(llamadas[0]!.init).keys()]).toEqual(["foto"]);
+  });
+});
+
+describe("cortes de otras capas y cancelación", () => {
+  it("un 413 sin formato del contrato es archivo_invalido", async () => {
+    responder(new Response("Request Entity Too Large", { status: 413 }));
+    expect((await errorDe(api.publico.enviarCompletar(TOKEN, new Blob(["x"])))).codigo).toBe(
+      "archivo_invalido",
+    );
+  });
+
+  it("un 429 sin formato del contrato es demasiados_intentos", async () => {
+    responder(new Response("", { status: 429 }));
+    expect((await errorDe(api.publico.consultarRut(generarRutFicticio(5)))).codigo).toBe(
+      "demasiados_intentos",
+    );
+  });
+
+  it("cancelar no se confunde con falta de red", async () => {
+    const control = new AbortController();
+    control.abort();
+    const cancelado = new DOMException("Aborted", "AbortError");
+    responder(cancelado);
+    await expect(api.panel.jugadores({}, control.signal)).rejects.toBe(cancelado);
+    expect(llamadas[0]?.init.signal).toBe(control.signal);
+  });
+
+  it("rechaza claves de foto inválidas sin llamar al servidor", async () => {
+    responder();
+    const error = await errorDe(
+      api.publico.crearSolicitud(
+        { rut: generarRutFicticio(6), tipo: "apoderado", consentimiento: true },
+        { "Hijo-1": new Blob(["x"]) },
+      ),
+    );
+    expect(error.codigo).toBe("validacion");
+    expect(llamadas).toHaveLength(0);
+  });
+});

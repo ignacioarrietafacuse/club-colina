@@ -36,18 +36,18 @@ export type FiltrosJugadores = z.output<typeof jugadoresQuery>;
 export type FiltrosApoderados = z.output<typeof apoderadosQuery>;
 export type FiltrosSolicitudes = z.output<typeof solicitudesQuery>;
 
-export function dashboard() {
-  return pedir(API.panel.dashboard, dashboardResponse);
+export function dashboard(signal?: AbortSignal) {
+  return pedir(API.panel.dashboard, dashboardResponse, { signal });
 }
 
 // --- Solicitudes ------------------------------------------------------------
 
-export function solicitudes(filtros: FiltrosSolicitudes = {}) {
-  return pedir(API.panel.solicitudes, solicitudesResponse, { query: filtros });
+export function solicitudes(filtros: FiltrosSolicitudes = {}, signal?: AbortSignal) {
+  return pedir(API.panel.solicitudes, solicitudesResponse, { query: filtros, signal });
 }
 
-export function solicitud(id: string) {
-  return pedir(API.panel.solicitud(id), solicitudDetalle);
+export function solicitud(id: string, signal?: AbortSignal) {
+  return pedir(API.panel.solicitud(id), solicitudDetalle, { signal });
 }
 
 /** Aprobación parcial: lo que no se envía queda pendiente. Devuelve el detalle actualizado. */
@@ -67,12 +67,12 @@ export function nuevoLinkSolicitud(id: string) {
 
 // --- Jugadores --------------------------------------------------------------
 
-export function jugadores(filtros: FiltrosJugadores = {}) {
-  return pedir(API.panel.jugadores, jugadoresResponse, { query: filtros });
+export function jugadores(filtros: FiltrosJugadores = {}, signal?: AbortSignal) {
+  return pedir(API.panel.jugadores, jugadoresResponse, { query: filtros, signal });
 }
 
-export function jugador(id: string) {
-  return pedir(API.panel.jugador(id), jugadorDetalle);
+export function jugador(id: string, signal?: AbortSignal) {
+  return pedir(API.panel.jugador(id), jugadorDetalle, { signal });
 }
 
 export function editarJugador(id: string, datos: JugadorPatch) {
@@ -81,12 +81,12 @@ export function editarJugador(id: string, datos: JugadorPatch) {
 
 // --- Apoderados -------------------------------------------------------------
 
-export function apoderados(filtros: FiltrosApoderados = {}) {
-  return pedir(API.panel.apoderados, apoderadosResponse, { query: filtros });
+export function apoderados(filtros: FiltrosApoderados = {}, signal?: AbortSignal) {
+  return pedir(API.panel.apoderados, apoderadosResponse, { query: filtros, signal });
 }
 
-export function apoderado(id: string) {
-  return pedir(API.panel.apoderado(id), apoderadoDetalle);
+export function apoderado(id: string, signal?: AbortSignal) {
+  return pedir(API.panel.apoderado(id), apoderadoDetalle, { signal });
 }
 
 export function editarApoderado(id: string, datos: ApoderadoPatch) {
@@ -95,12 +95,12 @@ export function editarApoderado(id: string, datos: ApoderadoPatch) {
 
 // --- Entrenadores -----------------------------------------------------------
 
-export function entrenadores() {
-  return pedir(API.panel.entrenadores, entrenadoresResponse);
+export function entrenadores(signal?: AbortSignal) {
+  return pedir(API.panel.entrenadores, entrenadoresResponse, { signal });
 }
 
-export function entrenador(id: string) {
-  return pedir(API.panel.entrenador(id), entrenadorDetalle);
+export function entrenador(id: string, signal?: AbortSignal) {
+  return pedir(API.panel.entrenador(id), entrenadorDetalle, { signal });
 }
 
 /** Multipart: `datos` (JSON) primero y la foto obligatoria después. */
@@ -140,6 +140,6 @@ export function desactivar(tipo: TipoPersona, id: string) {
   return pedir(API.panel.desactivar(tipo, id), cambioEstadoResponse, { metodo: "POST" });
 }
 
-export function categorias() {
-  return pedir(API.panel.categorias, categoriasPanelResponse);
+export function categorias(signal?: AbortSignal) {
+  return pedir(API.panel.categorias, categoriasPanelResponse, { signal });
 }

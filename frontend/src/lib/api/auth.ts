@@ -16,17 +16,17 @@ export function logout() {
   return pedirSinRespuesta(API.auth.logout, { metodo: "POST" });
 }
 
-export function me() {
-  return pedir(API.auth.me, meResponse);
+export function me(signal?: AbortSignal) {
+  return pedir(API.auth.me, meResponse, { signal });
 }
 
 /**
  * Usuario con sesión, o `null` si el servidor dice 401. Cualquier otro error se lanza: quien
  * llama decide, y la guarda del panel lo trata como "sin sesión" (denegar por defecto).
  */
-export async function sesionActual(): Promise<Usuario | null> {
+export async function sesionActual(signal?: AbortSignal): Promise<Usuario | null> {
   try {
-    return (await me()).usuario;
+    return (await me(signal)).usuario;
   } catch (error) {
     if (error instanceof ErrorApi && error.status === 401) return null;
     throw error;

@@ -39,6 +39,8 @@ interface Opciones {
   /** Cuerpo multipart. */
   formData?: FormData;
   query?: Query;
+  /** Para cancelar (TanStack Query lo entrega en `queryFn`). */
+  signal?: AbortSignal;
 }
 
 function armarUrl(ruta: string, query?: Query): string {
@@ -62,7 +64,18 @@ async function errorDeRespuesta(res: Response): Promise<ErrorApi> {
   if (leido.success && esCodigoError(leido.data.error.codigo)) {
     return new ErrorApi(res.status, leido.data.error.codigo, leido.data.error.mensaje);
   }
-  // Un error sin el formato del contrato (p. ej. un 502 del proxy): denegar con un mensaje fijo.
+  // Sin el formato del contrato: lo cortó otra capa (el borde de Vercel o Railway, el proxy
+  // de Vite). El tamaño y el límite de intentos igual se reconocen por el status.
+  if (res.status === 413) {
+    return new ErrorApi(
+      413,
+      "archivo_invalido",
+      "El archivo es demasiado grande o son demasiados.",
+    );
+  }
+  if (res.status === 429) {
+    return new ErrorApi(429, "demasiados_intentos", "Demasiados intentos. Espera un momento.");
+  }
   return new ErrorApi(res.status, "error_interno", "El servidor no respondió como se esperaba.");
 }
 
@@ -84,8 +97,11 @@ async function enviar(ruta: string, opciones: Opciones): Promise<Response> {
       body,
       // Mismo origen: Vercel reescribe /api/* al backend, así viaja la cookie de sesión.
       credentials: "same-origin",
+      signal: opciones.signal,
     });
-  } catch {
+  } catch (error) {
+    // Cancelar no es un problema de red: se relanza tal cual para que quien canceló lo ignore.
+    if (opciones.signal?.aborted) throw error;
     throw new ErrorApi(0, "sin_conexion", "No hay conexión con el servidor. Revisa tu internet.");
   }
   if (!res.ok) throw await errorDeRespuesta(res);
