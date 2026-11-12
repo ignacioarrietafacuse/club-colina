@@ -437,6 +437,99 @@ describe("solicitudes: rechazar vuelve a como estaba", () => {
   });
 });
 
+describe("solicitudes: dos solicitudes sobre un precargado y casos sin copia", () => {
+  /** Hijo precargado sin apoderado que la solicitud X completó (S2 lo deja pendiente sin solicitud). */
+  async function hijoCompletadoPor(x: { s: { id: string }; apo: string }) {
+    const hijo = await crearJugador(db, { nombre: "Solo", numero_camiseta: null });
+    await db.insert(fichasPrevias).values({
+      solicitud_id: x.s.id,
+      jugador_id: hijo,
+      datos: { numero_camiseta: null, foto_id: null, estado: "precargado", solicitud_id: null },
+    });
+    await db
+      .update(jugadores)
+      .set({ numero_camiseta: "8", foto_id: await fotoPrueba(db), estado: "pendiente" })
+      .where(eq(jugadores.id, hijo));
+    await db.insert(jugadorApoderado).values({ jugador_id: hijo, apoderado_id: x.apo, solicitud_id: x.s.id });
+    return hijo;
+  }
+
+  it("el pendiente sin solicitud es propio solo de la solicitud que escribió su copia", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const x = await familia();
+    const y = await familia();
+    const hijo = await hijoCompletadoPor(x);
+    // Y lo nombra después: S2 solo crea el vínculo.
+    await db.insert(jugadorApoderado).values({ jugador_id: hijo, apoderado_id: y.apo, solicitud_id: y.s.id });
+
+    const desdeY = (accion: string, payload: object) =>
+      app.inject({ method: "POST", url: `/api/panel/solicitudes/${y.s.id}/${accion}`, cookies, payload });
+    expect(
+      (await desdeY("aprobar", { jugadores: [{ id: hijo, categoria_id: null, numero_camiseta: "8", ...becas }] })).statusCode,
+    ).toBe(409);
+    expect((await desdeY("rechazar", { personas: [{ rol: "jugador", id: hijo }] })).statusCode).toBe(409);
+    // El rechazo total de Y solo quita su vínculo: el hijo y su copia siguen para X.
+    expect((await desdeY("rechazar", {})).statusCode).toBe(200);
+    expect((await estadoJ(hijo))?.estado).toBe("pendiente");
+    expect(await vinculo(hijo, y.apo)).toBeUndefined();
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.jugador_id, hijo))).toHaveLength(1);
+
+    // Desde X sí: se rechaza y vuelve a como estaba.
+    const r = await app.inject({
+      method: "POST",
+      url: `/api/panel/solicitudes/${x.s.id}/rechazar`,
+      cookies,
+      payload: { personas: [{ rol: "jugador", id: hijo }] },
+    });
+    expect(r.statusCode).toBe(200);
+    expect(await estadoJ(hijo)).toMatchObject({ estado: "precargado", numero_camiseta: null, foto_id: null });
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.jugador_id, hijo))).toHaveLength(0);
+    await app.close();
+  });
+
+  it("sin copia, a un precargado de la base no se lo rechaza: 409 y su ficha no cambia", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const s = await nuevaSolicitud();
+    const apo = await crearApoderado(db, { estado: "pendiente", origen: "base_2026", solicitud_id: s.id, foto_id: await fotoPrueba(db) });
+    await db.update(solicitudesRegistro).set({ titular_apoderado_id: apo }).where(eq(solicitudesRegistro.id, s.id));
+    const r = await app.inject({ method: "POST", url: `/api/panel/solicitudes/${s.id}/rechazar`, cookies, payload: {} });
+    expect(r.statusCode).toBe(409);
+    expect(r.json().error.mensaje).toContain("no hay registro de cómo estaba");
+    expect((await estadoA(apo))?.estado).toBe("pendiente");
+    await app.close();
+  });
+
+  it("una copia que no es de un precargado no se restaura: 409", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const s = await nuevaSolicitud();
+    const apo = await crearApoderado(db, { estado: "pendiente", origen: "base_2026", solicitud_id: s.id, foto_id: await fotoPrueba(db) });
+    await db.insert(fichasPrevias).values({ solicitud_id: s.id, apoderado_id: apo, datos: { estado: "activo" } });
+    const r = await app.inject({ method: "POST", url: `/api/panel/solicitudes/${s.id}/rechazar`, cookies, payload: {} });
+    expect(r.statusCode).toBe(409);
+    expect((await estadoA(apo))).toMatchObject({ estado: "pendiente", credencial_token: null });
+    await app.close();
+  });
+
+  it("un vínculo hacia un precargado de otra familia dice cómo seguir", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo } = await familia();
+    const ajeno = await crearJugador(db);
+    await db.insert(jugadorApoderado).values({ jugador_id: ajeno, apoderado_id: apo, solicitud_id: s.id });
+    await app.inject({ method: "POST", url: `/api/panel/solicitudes/${s.id}/aprobar`, cookies, payload: { apoderados: [{ id: apo }] } });
+    const r = await app.inject({
+      method: "POST",
+      url: `/api/panel/solicitudes/${s.id}/aprobar`,
+      cookies,
+      payload: { vinculos: [{ jugador_id: ajeno, apoderado_id: apo }] },
+    });
+    expect(r.statusCode).toBe(409);
+    expect(r.json().error.mensaje).toBe(
+      "El jugador de ese vínculo está precargado: complétalo y actívalo en su ficha antes de aprobar el vínculo",
+    );
+    await app.close();
+  });
+});
+
 describe("solicitudes: link", () => {
   it("link nuevo: anula el anterior, apunta a /familia o /completar y no se guarda en caché", async () => {
     const { app, cookies } = await appConSesion(db);

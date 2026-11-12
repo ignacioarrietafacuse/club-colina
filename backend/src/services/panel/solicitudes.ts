@@ -15,14 +15,17 @@
  *   solo se decide el vínculo. Un vínculo se aprueba solo si el jugador y el apoderado quedan
  *   activos.
  */
-import type {
-  aprobarRequest,
-  rechazarRequest,
-  solicitudDetalle,
-  solicitudResumen,
-  solicitudesQuery,
+import {
+  DISCIPLINAS,
+  ESTADOS_PERSONA,
+  METODOS_PAGO,
+  type aprobarRequest,
+  type rechazarRequest,
+  type solicitudDetalle,
+  type solicitudResumen,
+  type solicitudesQuery,
 } from "@club-colina/shared";
-import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import type { Ejecutor } from "../../db/cliente";
 import {
@@ -103,6 +106,17 @@ async function miembros(db: Ejecutor, s: Fila): Promise<Miembros> {
   const enVinculosJ = unicos(vinculos.map((v) => v.jugador_id));
   const enVinculosA = unicos(vinculos.map((v) => v.apoderado_id));
 
+  // Una persona que ya existía y que s dejó pendiente sin asignarle solicitud es propia de s solo
+  // si s escribió su ficha previa: sin eso no se sabe qué solicitud la modificó (denegar por
+  // defecto), y otra solicitud que la nombre después solo crea su vínculo.
+  const copiasJ = db
+    .select({ id: fichasPrevias.jugador_id })
+    .from(fichasPrevias)
+    .where(and(eq(fichasPrevias.solicitud_id, s.id), isNotNull(fichasPrevias.jugador_id)));
+  const copiasA = db
+    .select({ id: fichasPrevias.apoderado_id })
+    .from(fichasPrevias)
+    .where(and(eq(fichasPrevias.solicitud_id, s.id), isNotNull(fichasPrevias.apoderado_id)));
   const segundas = db
     .select({ id: solicitudesRegistro.id })
     .from(solicitudesRegistro)
@@ -114,7 +128,12 @@ async function miembros(db: Ejecutor, s: Fila): Promise<Miembros> {
       or(
         eq(jugadores.solicitud_id, s.id),
         enVinculosJ.length > 0
-          ? and(isNull(jugadores.solicitud_id), eq(jugadores.estado, "pendiente"), inArray(jugadores.id, enVinculosJ))
+          ? and(
+              isNull(jugadores.solicitud_id),
+              eq(jugadores.estado, "pendiente"),
+              inArray(jugadores.id, enVinculosJ),
+              inArray(jugadores.id, copiasJ),
+            )
           : undefined,
       ),
     );
@@ -126,7 +145,12 @@ async function miembros(db: Ejecutor, s: Fila): Promise<Miembros> {
         eq(apoderados.solicitud_id, s.id),
         inArray(apoderados.solicitud_id, segundas),
         enVinculosA.length > 0
-          ? and(isNull(apoderados.solicitud_id), eq(apoderados.estado, "pendiente"), inArray(apoderados.id, enVinculosA))
+          ? and(
+              isNull(apoderados.solicitud_id),
+              eq(apoderados.estado, "pendiente"),
+              inArray(apoderados.id, enVinculosA),
+              inArray(apoderados.id, copiasA),
+            )
           : undefined,
       ),
     );
@@ -422,8 +446,14 @@ export async function aprobarSolicitud(
       if (jv?.estado === "inactivo") {
         throw conflicto("El jugador de ese vínculo está inactivo: reactívalo en su ficha antes de aprobar el vínculo");
       }
+      if (jv?.estado === "precargado") {
+        throw conflicto("El jugador de ese vínculo está precargado: complétalo y actívalo en su ficha antes de aprobar el vínculo");
+      }
       if (jv?.estado !== "activo") {
         throw conflicto("El jugador de ese vínculo no está activo: hay que aprobarlo antes que el vínculo");
+      }
+      if (av?.estado === "precargado") {
+        throw conflicto("El apoderado de ese vínculo está precargado: complétalo y actívalo en su ficha antes de aprobar el vínculo");
       }
       if (av?.estado !== "activo") {
         throw conflicto("El apoderado de ese vínculo no está activo: hay que aprobarlo antes que el vínculo");
@@ -459,17 +489,17 @@ const previoJugador = z
   .object({
     nombre: textoONulo,
     apellido: textoONulo,
-    fecha_nacimiento: textoONulo,
-    disciplina: z.enum(["basketball", "voleibol"]),
-    categoria_id: z.number().int().nullable(),
-    numero_camiseta: textoONulo,
-    telefono: textoONulo,
+    fecha_nacimiento: z.iso.date().nullable(),
+    disciplina: z.enum(DISCIPLINAS),
+    categoria_id: z.number().int().positive().nullable(),
+    numero_camiseta: z.string().regex(/^[0-9]{1,2}$/).nullable(),
+    telefono: z.string().regex(/^[0-9]{9}$/).nullable(),
     email: textoONulo,
-    metodo_pago: z.enum(["forpay_mensual", "transferencia_anual", "tarjeta_credito_anual"]).nullable(),
+    metodo_pago: z.enum(METODOS_PAGO).nullable(),
     foto_id: z.uuid().nullable(),
-    estado: z.enum(["precargado", "pendiente", "activo", "rechazado", "inactivo"]),
+    estado: z.enum(ESTADOS_PERSONA),
     solicitud_id: z.uuid().nullable(),
-    marcado_retiro_en: textoONulo,
+    marcado_retiro_en: z.iso.datetime({ offset: true }).nullable(),
   })
   .partial();
 const previoApoderado = previoJugador.pick({
@@ -508,11 +538,30 @@ async function rechazarPersona(
   }
 
   if (!previa) {
+    // Sin copia, solo se rechaza a quien esta solicitud creó (persona nueva del formulario). A
+    // alguien que ya existía no se lo deja `rechazado`: no habría cómo volverlo atrás.
+    const [p] = await tx
+      .select({ origen: tabla.origen, solicitud_id: tabla.solicitud_id })
+      .from(tabla)
+      .where(eq(tabla.id, personaId));
+    const segunda =
+      p?.solicitud_id && p.solicitud_id !== solicitudId
+        ? (await filaSolicitud(tx, p.solicitud_id)).solicitud_origen_id === solicitudId
+        : false;
+    if (p?.origen !== "formulario" || (p.solicitud_id !== solicitudId && !segunda)) {
+      throw conflicto(
+        "Esa persona ya existía y no hay registro de cómo estaba antes de esta solicitud: no se puede rechazar sin perder su ficha",
+      );
+    }
     if (tipo === "jugador") await tx.update(jugadores).set({ estado: "rechazado", credencial_token: null }).where(eq(jugadores.id, personaId));
     else await tx.update(apoderados).set({ estado: "rechazado", credencial_token: null }).where(eq(apoderados.id, personaId));
     return;
   }
   // Si la copia no tiene la forma esperada, falla (500) y no se toca nada: denegar por defecto.
+  const estadoPrevio = (tipo === "jugador" ? previoJugador : previoApoderado).parse(previa.datos).estado;
+  if (estadoPrevio !== undefined && estadoPrevio !== "precargado") {
+    throw conflicto("La ficha previa de esa persona no es la de un precargado: no se puede restaurar sola");
+  }
   if (tipo === "jugador") {
     const d = previoJugador.parse(previa.datos);
     const { marcado_retiro_en, ...resto } = d;
@@ -523,8 +572,8 @@ async function rechazarPersona(
         ...(marcado_retiro_en !== undefined
           ? { marcado_retiro_en: marcado_retiro_en === null ? null : new Date(marcado_retiro_en) }
           : {}),
-        estado: d.estado === "activo" ? "activo" : (d.estado ?? "precargado"),
-        credencial_token: d.estado === "activo" ? generarToken() : null,
+        estado: "precargado",
+        credencial_token: null,
       })
       .where(eq(jugadores.id, personaId));
   } else {
@@ -533,8 +582,8 @@ async function rechazarPersona(
       .update(apoderados)
       .set({
         ...d,
-        estado: d.estado ?? "precargado",
-        credencial_token: d.estado === "activo" ? generarToken() : null,
+        estado: "precargado",
+        credencial_token: null,
       })
       .where(eq(apoderados.id, personaId));
   }
