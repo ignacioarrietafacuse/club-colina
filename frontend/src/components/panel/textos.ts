@@ -23,7 +23,8 @@ export const TEXTO_AVISO: Record<AvisoSolicitud, string> = {
   telefono_distinto_base: "El teléfono ingresado no coincide con el de la base.",
   hijo_con_otro_apoderado: "Un hijo agregado por RUT ya tiene otro apoderado vinculado.",
   apoderado_nuevo_para_hijo_registrado: "Se agrega un apoderado nuevo a un hijo ya registrado.",
-  hijo_marcado_ya_no_esta: "Se marcó un hijo como «ya no está en el club».",
+  hijo_marcado_ya_no_esta:
+    "Se marcó un hijo como «ya no está en el club». Para confirmar el retiro, abre su ficha y déjalo inactivo.",
   otro_apoderado_ya_registrado: "El otro apoderado que se agrega ya existía en la base.",
   sin_telefono_en_base: "El RUT estaba en la base sin teléfono: no hubo con qué comparar.",
   hay_solicitud_posterior: "Llegó después otra solicitud con las mismas personas.",

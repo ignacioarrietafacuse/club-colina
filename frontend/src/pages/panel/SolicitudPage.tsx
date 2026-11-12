@@ -27,6 +27,7 @@ import {
   armarAprobacion,
   armarRechazo,
   contarMarcadas,
+  firmaSolicitud,
   formInicial,
   RECHAZO_TOTAL,
   vinculoAprobable,
@@ -59,15 +60,23 @@ export function SolicitudPage() {
       >
         <ArrowLeft className="size-3.5" /> Solicitudes
       </Link>
-      {consulta.isError ? (
-        <p role="alert" className="card-surface p-5 text-sm text-destructive">
-          {mensajeDeError(consulta.error)}
-        </p>
-      ) : consulta.isPending ? (
-        <p className="text-sm text-muted-foreground">Cargando…</p>
+      {consulta.data === undefined ? (
+        consulta.isError ? (
+          <p role="alert" className="card-surface p-5 text-sm text-destructive">
+            {mensajeDeError(consulta.error)}
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">Cargando…</p>
+        )
       ) : (
         <>
-          {categorias.isError && (
+          {/* Una recarga que falla con datos ya cargados no desmonta lo que se está editando. */}
+          {consulta.isError && (
+            <p role="alert" className="mb-4 rounded-lg bg-warning/15 px-4 py-3 text-sm">
+              No se pudo actualizar la solicitud: {mensajeDeError(consulta.error)}
+            </p>
+          )}
+          {categorias.data === undefined && categorias.isError && (
             <p role="alert" className="mb-4 rounded-lg bg-warning/15 px-4 py-3 text-sm">
               No se pudieron cargar las categorías: se mantiene la que ya tiene cada jugador.
             </p>
@@ -76,10 +85,12 @@ export function SolicitudPage() {
             key={generacion}
             s={consulta.data}
             categorias={categorias.data}
-            alCambiar={async () => {
-              await consulta.refetch();
-              setGeneracion((g) => g + 1);
-            }}
+            alCambiar={() => setGeneracion((g) => g + 1)}
+          />
+          {/* Fuera del formulario que se rehace: el link se entrega una sola vez. */}
+          <LinkPrivado
+            solicitudId={consulta.data.id}
+            segundoApoderado={consulta.data.tipo === "segundo_apoderado"}
           />
         </>
       )}
@@ -95,7 +106,7 @@ function DetalleSolicitud({
   s: SolicitudDetalle;
   /** `undefined` mientras no carguen (o si fallaron): el selector queda deshabilitado. */
   categorias: CategoriaPanel[] | undefined;
-  alCambiar: () => Promise<void>;
+  alCambiar: () => void;
 }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormAprobacion>(() => formInicial(s));
@@ -112,10 +123,16 @@ function DetalleSolicitud({
     [...s.jugadores, ...s.apoderados].map((p) => [p.id, nombreCompleto(p)]),
   );
 
+  // invalidateQueries espera a que la solicitud (activa) se vuelva a pedir; recién ahí se
+  // rehace el formulario con el detalle nuevo.
   const refrescar = async () => {
     await queryClient.invalidateQueries({ queryKey: ["panel"] });
-    await alCambiar();
+    alCambiar();
   };
+  // Si la solicitud cambió por otro lado (otra pestaña, otro usuario), el formulario ya no
+  // calza con lo que hay: no se envía hasta rehacerlo.
+  const [firmaInicial] = useState(() => firmaSolicitud(s));
+  const desfasado = firmaSolicitud(s) !== firmaInicial;
 
   const aprobar = useMutation({
     mutationFn: (datos: Parameters<typeof api.panel.aprobarSolicitud>[1]) =>
@@ -132,9 +149,10 @@ function DetalleSolicitud({
     Object.keys(form.jugadores).length + Object.keys(form.apoderados).length;
   const hayPendientes = personasPendientes + Object.keys(form.vinculos).length > 0;
   const marcadas = contarMarcadas(form);
-  const ocupado = aprobar.isPending || rechazar.isPending;
+  const ocupado = aprobar.isPending || rechazar.isPending || desfasado;
 
   function enviarAprobacion() {
+    if (desfasado) return;
     setConfirmar(null);
     rechazar.reset();
     const r = armarAprobacion(form, nombres);
@@ -143,6 +161,7 @@ function DetalleSolicitud({
     aprobar.mutate(r.datos);
   }
   function enviarRechazo(cual: "marcadas" | "todo") {
+    if (desfasado) return;
     aprobar.reset();
     const r = cual === "todo" ? { ok: true as const, datos: RECHAZO_TOTAL } : armarRechazo(form);
     if (!r.ok) return setErrores(r.errores);
@@ -287,6 +306,21 @@ function DetalleSolicitud({
         </div>
       )}
 
+      {desfasado && (
+        <div
+          role="alert"
+          className="mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-warning/15 px-4 py-3 text-sm"
+        >
+          <span className="flex-1">
+            La solicitud cambió desde que abriste esta pantalla. Recarga el formulario antes de
+            aprobar o rechazar.
+          </span>
+          <Button size="sm" variant="outline" onClick={alCambiar}>
+            Recargar formulario
+          </Button>
+        </div>
+      )}
+
       {hayPendientes ? (
         <div className="card-surface flex flex-wrap items-center gap-3 p-4">
           <p className="flex-1 text-sm text-muted-foreground">
@@ -326,8 +360,6 @@ function DetalleSolicitud({
           No queda nada pendiente en esta solicitud.
         </p>
       )}
-
-      <LinkPrivado solicitudId={s.id} segundoApoderado={s.tipo === "segundo_apoderado"} />
     </div>
   );
 }

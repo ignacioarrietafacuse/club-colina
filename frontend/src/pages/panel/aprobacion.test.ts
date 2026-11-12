@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   armarAprobacion,
   armarRechazo,
+  firmaSolicitud,
   formInicial,
   llaveVinculo,
   RECHAZO_TOTAL,
@@ -230,5 +231,31 @@ describe("vínculos y personas", () => {
     expect(RECHAZO_TOTAL).toEqual({});
     const s = solicitud({ jugadores: [], apoderados: [] });
     expect(armarRechazo(formInicial(s)).ok).toBe(false);
+  });
+});
+
+describe("casos de la segunda revisión", () => {
+  const LLAVE = llaveVinculo({ jugador_id: J1, apoderado_id: A1 });
+
+  it("un hijo marcado «ya no está» parte desmarcado", () => {
+    const s = solicitud({ jugadores: [jugador(J1, { marcado_retiro_en: AHORA })] });
+    expect(formInicial(s).jugadores[J1]?.marcado).toBe(false);
+  });
+
+  it("un vínculo con una persona inactiva tampoco se aprueba", () => {
+    const s = solicitud({ jugadores: [jugador(J1, { estado: "inactivo" })] });
+    expect(formInicial(s).vinculos[LLAVE]).toBe(false);
+  });
+
+  it("la firma cambia si cambia el estado de una persona o vínculo, no por otros datos", () => {
+    const base = solicitud();
+    expect(firmaSolicitud(solicitud({ coincide_base: true }))).toBe(firmaSolicitud(base));
+    expect(
+      firmaSolicitud(
+        solicitud({
+          jugadores: [jugador(J1, { estado: "activo" }), jugador(J2, { estado: "activo" })],
+        }),
+      ),
+    ).not.toBe(firmaSolicitud(base));
   });
 });

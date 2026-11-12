@@ -62,7 +62,8 @@ export function formInicial(s: SolicitudDetalle): FormAprobacion {
   for (const j of s.jugadores) {
     if (j.estado !== "pendiente") continue;
     jugadores[j.id] = {
-      marcado: !bloquea(j.faltantes),
+      // Un hijo marcado «ya no está» no se activa por inercia: Mony lo marca a mano si corresponde.
+      marcado: !bloquea(j.faltantes) && j.marcado_retiro_en === null,
       categoria_id: j.categoria_id === null ? "" : String(j.categoria_id),
       numero_camiseta: j.numero_camiseta ?? "",
       beca_mensualidad_pct: String(j.beca_mensualidad_pct),
@@ -93,6 +94,18 @@ export function vinculoVa(form: FormAprobacion, llave: string): boolean {
   const jugador = form.jugadores[jugadorId];
   const apoderado = form.apoderados[apoderadoId];
   return (!jugador || jugador.marcado) && (!apoderado || apoderado.marcado);
+}
+
+/** Estados de las personas y vínculos: si cambian, el formulario armado ya no sirve. */
+export function firmaSolicitud(s: SolicitudDetalle): string {
+  return [
+    s.estado,
+    ...s.jugadores.map((j) => `j:${j.id}:${j.estado}`),
+    ...s.apoderados.map((a) => `a:${a.id}:${a.estado}`),
+    ...s.vinculos.map((v) => `v:${llaveVinculo(v)}:${v.estado}`),
+  ]
+    .sort()
+    .join("|");
 }
 
 /** Texto → entero, o NaN si no es un entero escrito tal cual (así el esquema lo rechaza). */
