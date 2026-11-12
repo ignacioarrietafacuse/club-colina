@@ -8,7 +8,6 @@ import { ErrorApi, manejarError, resumirError } from "./lib/errores";
 import { registrarLimiteIntentos } from "./lib/limite-intentos";
 import { serializarRequest } from "./lib/logs";
 import { rutasAuth } from "./routes/auth";
-import { rutasDiagnostico } from "./routes/diagnostico";
 import { rutasHealth } from "./routes/health";
 import { rutasPanel } from "./routes/panel";
 import { rutasPublic } from "./routes/public";
@@ -86,9 +85,6 @@ export async function construirApp({ config, db, logStream }: OpcionesApp): Prom
   await app.register(rutasAuth, { prefix: "/api/auth" });
   await app.register(rutasPanel, { prefix: "/api/panel" });
   await app.register(rutasPublic, { prefix: "/api/public" });
-  if (config.DIAGNOSTICO_TOKEN) {
-    await app.register(rutasDiagnostico, { token: config.DIAGNOSTICO_TOKEN });
-  }
 
   return app;
 }

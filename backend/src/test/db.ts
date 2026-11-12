@@ -30,7 +30,6 @@ export function configTest(extra: Partial<Config> = {}): Config {
     PUBLIC_BASE_URL: "https://panel.ejemplo.test",
     ORIGENES_PERMITIDOS: [],
     MIGRAR_AL_ARRANCAR: "no",
-    DIAGNOSTICO_TOKEN: undefined,
     ...extra,
   };
 }
