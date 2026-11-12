@@ -699,9 +699,12 @@ async function rechazarPersona(
  * - Personas: propias de la solicitud y pendientes. Se borran los vínculos que esta solicitud (o
  *   su origen) creó para ellas, también si ya estaban activos: no queda ninguno hacia alguien
  *   rechazado.
- * - Vínculos: pendientes y de esta solicitud. Se borran; sus personas siguen como estaban.
- * - Sin nada indicado, también se borran los vínculos pendientes hacia personas de otras
- *   solicitudes.
+ * - Vínculos: pendientes y de esta solicitud. Se borran; sus personas siguen como estaban, salvo
+ *   un precargado que esta solicitud (o su origen) completó y que se quedó sin el último vínculo
+ *   que lo mostraba: vuelve a como estaba.
+ * - Sin nada indicado, se borran todos los vínculos pendientes que muestra el detalle, también los
+ *   que van hacia personas de otras solicitudes y, en una de segundo apoderado, los que creó su origen
+ *   hacia él (aunque él ya esté activo).
  */
 export async function rechazarSolicitud(
   db: Ejecutor,
@@ -712,6 +715,10 @@ export async function rechazarSolicitud(
     await tomarCandado(tx);
     const s = await filaSolicitud(tx, id, true);
     const m = await miembros(tx, s);
+    // En una de segundo apoderado se pueden borrar vínculos que creó el origen: hay que ver también
+    // a quién deja suelto el origen.
+    const origen = s.solicitud_origen_id ? await filaSolicitud(tx, s.solicitud_origen_id) : null;
+    const mOrigen = origen ? await miembros(tx, origen) : null;
     const parcial = pedido.personas !== undefined || pedido.vinculos !== undefined;
     let candidatosJ: string[];
     let candidatosA: string[];
@@ -752,7 +759,9 @@ export async function rechazarSolicitud(
     const pendientesDeEsta = new Set(
       m.vinculos.filter((v) => v.estado === "pendiente").map((v) => `${v.jugador_id}|${v.apoderado_id}`),
     );
-    const vinculosPedidos = pedido.vinculos ?? [];
+    const vinculosPedidos = parcial
+      ? (pedido.vinculos ?? [])
+      : m.vinculos.filter((v) => v.estado === "pendiente");
     if (vinculosPedidos.some((v) => !pendientesDeEsta.has(`${v.jugador_id}|${v.apoderado_id}`))) {
       throw fueraDeLaSolicitud();
     }
@@ -785,12 +794,6 @@ export async function rechazarSolicitud(
           ),
         );
     }
-    if (!parcial) {
-      await tx
-        .delete(jugadorApoderado)
-        .where(and(eq(jugadorApoderado.solicitud_id, s.id), eq(jugadorApoderado.estado, "pendiente")));
-    }
-
     // Quien era de la solicitud solo por un vínculo que se acaba de borrar (un precargado que ella
     // completó, sin solicitud_id) ya no se podría decidir desde ninguna: vuelve a como estaba.
     const despues = await miembros(tx, s);
@@ -806,9 +809,22 @@ export async function rechazarSolicitud(
     };
     rechJ.push(...(await arrastrados(m.propiosJ, despues.propiosJ, rechJ, jugadores)));
     rechA.push(...(await arrastrados(m.propiosA, despues.propiosA, rechA, apoderados)));
+    // Los que el origen completó y quedaron sin vínculo que los muestre: se restauran a nombre del
+    // origen, que es quien escribió su ficha previa.
+    const rechJOrigen: string[] = [];
+    const rechAOrigen: string[] = [];
+    if (origen && mOrigen) {
+      const despuesOrigen = await miembros(tx, origen);
+      rechJOrigen.push(...(await arrastrados(mOrigen.propiosJ, despuesOrigen.propiosJ, rechJ, jugadores)));
+      rechAOrigen.push(...(await arrastrados(mOrigen.propiosA, despuesOrigen.propiosA, rechA, apoderados)));
+      for (const j of rechJOrigen) await rechazarPersona(tx, origen.id, "jugador", j);
+      for (const a of rechAOrigen) await rechazarPersona(tx, origen.id, "apoderado", a);
+    }
 
     for (const j of rechJ) await rechazarPersona(tx, s.id, "jugador", j);
     for (const a of rechA) await rechazarPersona(tx, s.id, "apoderado", a);
+    rechJ.push(...rechJOrigen);
+    rechA.push(...rechAOrigen);
     if (!parcial) await deshacerMarcas(tx, s.id, rechJ);
     await borrarFichasPrevias(tx, "jugador", rechJ);
     await borrarFichasPrevias(tx, "apoderado", rechA);
