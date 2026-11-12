@@ -12,13 +12,23 @@ export function censurarUrl(url: string): string {
 }
 
 /**
- * Serializador del request para el logger de Fastify: sin tokens, sin cabeceras. `proxy` dice si
- * pasó por el middleware de Vercel (un booleano; nunca el secreto ni la IP del usuario).
+ * Solo la ruta, sin la consulta: el buscador del panel (`?q=`) lleva RUT, teléfonos y nombres,
+ * también de menores, y un filtro puede llevar cualquier cosa. Ningún log necesita los valores.
+ */
+export function rutaSinConsulta(url: string): string {
+  const fin = url.search(/[?#]/);
+  return fin === -1 ? url : url.slice(0, fin);
+}
+
+/**
+ * Serializador del request para el logger de Fastify: sin consulta, sin tokens, sin cabeceras.
+ * `proxy` dice si pasó por el middleware de Vercel (un booleano; nunca el secreto ni la IP del
+ * usuario).
  */
 export function serializarRequest(request: FastifyRequest) {
   return {
     method: request.method,
-    url: censurarUrl(request.url),
+    url: censurarUrl(rutaSinConsulta(request.url)),
     remoteAddress: request.ip,
     proxy: vieneDelProxy(request),
   };
