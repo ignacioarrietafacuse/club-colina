@@ -82,6 +82,7 @@ export function CompletarListo({ datos }: { datos: CompletarResponse }) {
           Pucalán y guarda este link para volver a verlo.
         </Aviso>
         <div className="rounded-xl border bg-card p-4">
+          {/* El contrato solo trae el primer nombre: el PNG se llama así. */}
           <CodigoQr credencialToken={datos.credencial_token} nombreCompleto={datos.primer_nombre} />
         </div>
       </div>
@@ -89,8 +90,8 @@ export function CompletarListo({ datos }: { datos: CompletarResponse }) {
   }
   return (
     <Aviso tono="ok">
-      Listo, {datos.primer_nombre}: ya tenemos tu foto. El club la revisará y, cuando la apruebe, tu
-      código QR aparecerá en este mismo link. Guárdalo para volver.
+      Listo, {datos.primer_nombre}: ya tenemos tu foto. Si el club aprueba tu registro, tu código QR
+      aparecerá en este mismo link. Guárdalo para volver.
     </Aviso>
   );
 }

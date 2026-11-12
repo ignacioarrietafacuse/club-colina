@@ -1,5 +1,4 @@
 import QRCode from "qrcode";
-import { normalizarBasePublica } from "@/lib/base-publica";
 import { urlQrCredencial } from "@/lib/credencial";
 
 /**
@@ -7,22 +6,14 @@ import { urlQrCredencial } from "@/lib/credencial";
  * (fijada al compilar), nunca del navegador: abierta desde una vista previa o un alias, igual
  * graba la dirección pública. `base` es solo para los tests.
  */
-export function qrCredencial(credencialToken: string, base?: string): Promise<string> {
+// async: si falta la dirección, `urlQrCredencial` lanza y eso tiene que ser una promesa
+// rechazada (CodigoQr muestra su aviso), no un error que tumbe la página entera.
+export async function qrCredencial(credencialToken: string, base?: string): Promise<string> {
   return QRCode.toDataURL(urlQrCredencial(credencialToken, base), {
     errorCorrectionLevel: "M",
     margin: 2,
     width: 512,
   });
-}
-
-/** Link público del sitio (`/familia/...`, `/completar/...`) con la misma dirección que los QR. */
-export function urlPublica(
-  ruta: string,
-  base: string | undefined = import.meta.env.VITE_PUBLIC_BASE_URL,
-): string {
-  const valida = normalizarBasePublica(base);
-  if (!valida) throw new Error("Falta la dirección pública del sitio (VITE_PUBLIC_BASE_URL).");
-  return `${valida}${ruta}`;
 }
 
 /** Nombre del archivo PNG al descargar un QR. Sin tildes ni espacios. */

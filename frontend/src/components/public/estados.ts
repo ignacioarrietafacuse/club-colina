@@ -1,5 +1,5 @@
 import { token as esquemaToken } from "@club-colina/shared";
-import type { CredencialResponse } from "@club-colina/shared";
+import type { CompletarResponse, CredencialResponse } from "@club-colina/shared";
 import { statusDe } from "./api";
 import type { EstadoCredencial } from "./Credencial";
 
@@ -48,4 +48,11 @@ export function estadoDesdeConsulta(c: {
     fotoUrl: c.fotoUrl,
     verificadaEn: new Date(c.actualizadaEn),
   };
+}
+
+/** Título de `/completar` según dónde va el segundo apoderado: subir la foto, en revisión o activo. */
+export function tituloCompletar(d: CompletarResponse | undefined): string {
+  if (d?.credencial_token) return "Tu credencial";
+  if (d?.foto_subida) return "Tu registro";
+  return "Sube tu foto";
 }

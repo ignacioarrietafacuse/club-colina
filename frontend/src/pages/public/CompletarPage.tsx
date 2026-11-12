@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { mensajeError } from "@/components/public/api";
 import { CompletarListo, FormularioCompletar } from "@/components/public/Completar";
-import { esNoEncontrado, tokenConForma } from "@/components/public/estados";
+import { esNoEncontrado, tituloCompletar, tokenConForma } from "@/components/public/estados";
 import { Aviso, Cargando, Marco } from "@/components/public/Marco";
 
 const LINK_INVALIDO = "Este link no es válido. Pídele uno nuevo a quien te registró o al club.";
@@ -25,7 +25,7 @@ export function CompletarPage() {
   });
 
   return (
-    <Marco titulo={consulta.data?.credencial_token ? "Tu credencial" : "Sube tu foto"}>
+    <Marco titulo={tituloCompletar(consulta.data)}>
       {!conForma ? (
         <Aviso tono="error">{LINK_INVALIDO}</Aviso>
       ) : consulta.isPending ? (

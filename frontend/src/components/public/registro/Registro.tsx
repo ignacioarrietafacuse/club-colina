@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { mensajeError, statusDe } from "../api";
 import { Aviso } from "../Marco";
-import { urlPublica } from "../qr";
+import { hayBasePublica, urlPublica } from "../links";
 import { Campo, CamposPersona, Casilla } from "./campos";
 import {
   armarSolicitud,
@@ -271,6 +271,15 @@ function Pasos({
     if (Object.keys(e).length > 0) return;
     if (actual !== "confirmar") {
       onPaso(paso + 1);
+      return;
+    }
+    // Los links privados se entregan una sola vez, al terminar: si no se pueden armar, mejor
+    // no crear la solicitud que perderlos.
+    if (!hayBasePublica()) {
+      setFallaEnvio({
+        mensaje: "El sitio no está bien configurado. Avísale al club e intenta más tarde.",
+        reiniciar: false,
+      });
       return;
     }
     setFallaEnvio(null);
@@ -754,8 +763,11 @@ function PasoConfirmar({ f, onCambio, errores }: PropsPaso) {
 // Resultado
 // ---------------------------------------------------------------------------
 
-export function LinkParaGuardar({ url, etiqueta }: { url: string; etiqueta: string }) {
+export function LinkParaGuardar({ ruta, etiqueta }: { ruta: string; etiqueta: string }) {
   const [copiado, setCopiado] = useState(false);
+  // Sin dirección pública (no debería pasar: el formulario no envía sin ella) se muestra la
+  // ruta, para que la familia no pierda el único link que recibe.
+  const url = urlPublica(ruta) ?? ruta;
   async function copiar() {
     try {
       await navigator.clipboard.writeText(url);
@@ -808,7 +820,7 @@ export function Listo({ resultado }: { resultado: SolicitudCreadaResponse }) {
       </Aviso>
       <LinkParaGuardar
         etiqueta="Tu link privado"
-        url={urlPublica(`/familia/${encodeURIComponent(resultado.token_acceso)}`)}
+        ruta={`/familia/${encodeURIComponent(resultado.token_acceso)}`}
       />
       {resultado.otros_apoderados.length > 0 && (
         <section className="space-y-3">
@@ -820,7 +832,7 @@ export function Listo({ resultado }: { resultado: SolicitudCreadaResponse }) {
             <LinkParaGuardar
               key={o.completar_token}
               etiqueta={o.nombre_completo}
-              url={urlPublica(`/completar/${encodeURIComponent(o.completar_token)}`)}
+              ruta={`/completar/${encodeURIComponent(o.completar_token)}`}
             />
           ))}
         </section>

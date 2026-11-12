@@ -142,9 +142,19 @@ describe("completar", () => {
     expect(h).toContain("animate-pulse");
   });
 
+  it("activo sin haber subido la foto por el link (la completó el club): igual ve su QR", () => {
+    const h = html(
+      <CompletarListo
+        datos={{ primer_nombre: "Eva", foto_subida: false, credencial_token: TOKEN }}
+      />,
+    );
+    expect(h).toContain("tu credencial está activa");
+  });
+
   it("foto subida y aún sin aprobar: en revisión, sin QR", () => {
     const h = html(<CompletarListo datos={{ primer_nombre: "Eva", foto_subida: true }} />);
     expect(h).toContain("ya tenemos tu foto");
+    expect(h).toContain("Si el club aprueba");
     expect(h).not.toContain("animate-pulse");
   });
 });
