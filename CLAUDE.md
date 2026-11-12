@@ -164,7 +164,10 @@ lo pide.
 - **Segundo apoderado (S2):** tiene su propia fila en `solicitudes_registro` (`tipo
   segundo_apoderado`, con `solicitud_origen_id` = la solicitud que lo agregó) y su `solicitud_id`
   apunta a esa fila suya. `otros_apoderados` de `/familia` sale de las solicitudes con
-  `solicitud_origen_id` = la actual.
+  `solicitud_origen_id` = la actual. Solo un otro apoderado **nuevo** recibe esa fila y su link:
+  si su RUT ya existía (también precargado), queda solo el vínculo pendiente y el aviso
+  `otro_apoderado_ya_registrado`, sin link ni datos suyos en la respuesta (2026-11-12).
+  `GET /completar/:token` devuelve su `credencial_token` cuando está activo (solo el suyo).
 - **Avisos de suplantación (S2 calcula, S1 y S4 muestran):** `solicitudes_registro.avisos` con los
   valores de `AVISOS_SOLICITUD`, sin repetidos; S2 los calcula al recibir la solicitud y, si
   involucra a personas de una solicitud pendiente anterior, le agrega a esa `hay_solicitud_posterior`.
