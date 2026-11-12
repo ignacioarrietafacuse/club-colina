@@ -322,6 +322,31 @@ async function cerrarSiCorresponde(tx: Ejecutor, solicitudId: string): Promise<v
       .update(solicitudesRegistro)
       .set({ estado: "revisada", revisada_en: new Date() })
       .where(eq(solicitudesRegistro.id, solicitudId));
+    // Una solicitud revisada ya no restaura a nadie: una copia que le quede (la de un hijo marcado
+    // "ya no está", que nunca pasa a pendiente) solo bloquearía a las solicitudes que vengan.
+    await tx.delete(fichasPrevias).where(eq(fichasPrevias.solicitud_id, solicitudId));
+  }
+}
+
+/**
+ * «Rechazar todo»: la marca de "ya no está" que puso esta solicitud se deshace con su copia. El
+ * hijo marcado sigue `precargado` y no es propio de la solicitud, así que no pasa por
+ * `rechazarPersona`.
+ */
+async function deshacerMarcas(tx: Ejecutor, solicitudId: string, yaRechazados: string[]) {
+  const copias = await tx
+    .select({ jugador_id: fichasPrevias.jugador_id, datos: fichasPrevias.datos })
+    .from(fichasPrevias)
+    .innerJoin(jugadores, eq(jugadores.id, fichasPrevias.jugador_id))
+    .where(and(eq(fichasPrevias.solicitud_id, solicitudId), eq(jugadores.estado, "precargado")));
+  for (const c of copias) {
+    if (!c.jugador_id || yaRechazados.includes(c.jugador_id)) continue;
+    const previo = previoJugador.parse(c.datos).marcado_retiro_en;
+    if (previo === undefined) continue;
+    await tx
+      .update(jugadores)
+      .set({ marcado_retiro_en: previo === null ? null : new Date(previo) })
+      .where(eq(jugadores.id, c.jugador_id));
   }
 }
 
@@ -784,6 +809,7 @@ export async function rechazarSolicitud(
 
     for (const j of rechJ) await rechazarPersona(tx, s.id, "jugador", j);
     for (const a of rechA) await rechazarPersona(tx, s.id, "apoderado", a);
+    if (!parcial) await deshacerMarcas(tx, s.id, rechJ);
     await borrarFichasPrevias(tx, "jugador", rechJ);
     await borrarFichasPrevias(tx, "apoderado", rechA);
     await cerrarSiCorresponde(tx, id);

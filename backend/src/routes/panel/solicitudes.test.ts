@@ -938,3 +938,81 @@ describe("solicitudes: fotos al restaurar, propia y topes", () => {
     await app.close();
   });
 });
+
+describe("solicitudes: la copia de un hijo marcado 'ya no está'", () => {
+  async function marcarDesdeElFormulario(app: Awaited<ReturnType<typeof appConSesion>>["app"]) {
+    const titular = await crearApoderado(db, { nombre: "Rosa", apellido: "Ficticia", telefono: "911111111" });
+    const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: null });
+    await db.insert(jugadorApoderado).values({ jugador_id: hijo, apoderado_id: titular, estado: "activo" });
+    const antesA = await estadoA(titular);
+    const antesJ = await estadoJ(hijo);
+    const form = new FormData();
+    form.append(
+      "datos",
+      JSON.stringify({
+        rut: antesA?.rut,
+        tipo: "apoderado",
+        consentimiento: true,
+        foto: "titular",
+        hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
+      }),
+    );
+    form.append("foto_titular", new Blob([new Uint8Array(JPEG_PRUEBA)], { type: "image/jpeg" }), "titular.jpg");
+    const r = await app.inject({ method: "POST", url: API.public.solicitudes, payload: form, headers: { "x-real-ip": "198.51.100.78" } });
+    expect(r.statusCode).toBe(201);
+    expect((await estadoJ(hijo))?.marcado_retiro_en).not.toBeNull();
+    const [s] = await db.select().from(solicitudesRegistro).where(eq(solicitudesRegistro.titular_apoderado_id, titular));
+    if (!s) throw new Error("sin solicitud");
+    return { s, titular, hijo, antesA, antesJ };
+  }
+
+  const copiasDe = (hijo: string) => db.select().from(fichasPrevias).where(eq(fichasPrevias.jugador_id, hijo));
+  const sinTiempos = <T extends { actualizado_en: Date }>(f: T | undefined) => f && { ...f, actualizado_en: null };
+
+  it("«Rechazar todo» deshace la marca y no deja copias", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, titular, hijo, antesA, antesJ } = await marcarDesdeElFormulario(app);
+    const r = await app.inject({ method: "POST", url: API.panel.rechazar(s.id), cookies, payload: {} });
+    expect(r.statusCode).toBe(200);
+    expect(sinTiempos(await estadoJ(hijo))).toEqual(sinTiempos(antesJ));
+    expect(sinTiempos(await estadoA(titular))).toEqual(sinTiempos(antesA));
+    expect(await copiasDe(hijo)).toHaveLength(0);
+    await app.close();
+  });
+
+  it("al cerrarse la solicitud aprobada se borra la copia: si Mony quita la marca, otra solicitud puede completar al hijo", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, titular, hijo, antesA } = await marcarDesdeElFormulario(app);
+    const aprobada = await app.inject({
+      method: "POST",
+      url: API.panel.aprobar(s.id),
+      cookies,
+      payload: { apoderados: [{ id: titular, metodo_pago: "forpay_mensual" }] },
+    });
+    expect(aprobada.statusCode).toBe(200);
+    const [cerrada] = await db.select().from(solicitudesRegistro).where(eq(solicitudesRegistro.id, s.id));
+    expect(cerrada?.estado).toBe("revisada");
+    expect(await copiasDe(hijo)).toHaveLength(0);
+    // La marca la decide Mony: aprobar no la quita.
+    expect((await estadoJ(hijo))?.marcado_retiro_en).not.toBeNull();
+    expect((await app.inject({ method: "DELETE", url: API.panel.marcaRetiro(hijo), cookies })).statusCode).toBe(200);
+
+    const form = new FormData();
+    form.append(
+      "datos",
+      JSON.stringify({
+        rut: antesA?.rut,
+        tipo: "apoderado",
+        consentimiento: true,
+        hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, numero_camiseta: "7", foto: "h0" }],
+      }),
+    );
+    form.append("foto_h0", new Blob([new Uint8Array(JPEG_PRUEBA)], { type: "image/jpeg" }), "h0.jpg");
+    const otra = await app.inject({ method: "POST", url: API.public.solicitudes, payload: form, headers: { "x-real-ip": "198.51.100.79" } });
+    expect(otra.statusCode).toBe(201);
+    const [nueva] = await db.select().from(solicitudesRegistro).where(eq(solicitudesRegistro.estado, "pendiente"));
+    expect(nueva?.avisos).not.toContain("cambios_bloqueados_por_otra_solicitud");
+    expect(await estadoJ(hijo)).toMatchObject({ numero_camiseta: "7", estado: "pendiente" });
+    await app.close();
+  });
+});
