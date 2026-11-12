@@ -31,6 +31,7 @@ import {
   contarMarcadas,
   firmaSolicitud,
   formInicial,
+  fueraDelLink,
   RECHAZO_TOTAL,
   seDecideAca,
   alcanceRechazoTotal,
@@ -174,6 +175,15 @@ function DetalleSolicitud({
     },
   });
 
+  const revisar = useMutation({
+    mutationFn: () => api.panel.darPorRevisada(s.id),
+    onSuccess: refrescar,
+    // Un 409 quiere decir que la solicitud cambió (algo quedó por decidir): se vuelve a pedir el
+    // detalle para que la pantalla muestre lo que hay, sin rehacer el formulario a medio llenar.
+    onError: () => queryClient.invalidateQueries({ queryKey: ["panel"] }),
+  });
+  const [confirmarRevisada, setConfirmarRevisada] = useState(false);
+
   const quitarMarca = useMutation({
     mutationFn: (jugadorId: string) => api.panel.quitarMarcaRetiro(jugadorId),
     // Como después de aprobar o rechazar: el formulario se rehace con el detalle nuevo (y una
@@ -185,7 +195,12 @@ function DetalleSolicitud({
     Object.keys(form.jugadores).length + Object.keys(form.apoderados).length;
   const hayPendientes = personasPendientes + Object.keys(form.vinculos).length > 0;
   const marcadas = contarMarcadas(form);
-  const ocupado = aprobar.isPending || rechazar.isPending || quitarMarca.isPending || desfasado;
+  const ocupado =
+    aprobar.isPending ||
+    rechazar.isPending ||
+    quitarMarca.isPending ||
+    revisar.isPending ||
+    desfasado;
   const rechazaTodo = alcanceRechazoTotal(s).map((id) => nombres[id] ?? "");
   const conPosterior = s.avisos.includes("hay_solicitud_posterior");
   // Una persona nueva rechazada se borra y ya no sale en el detalle: cuenta el rechazo hecho en
@@ -194,6 +209,7 @@ function DetalleSolicitud({
     rechazoHecho || [...s.jugadores, ...s.apoderados].some((p) => p.estado === "rechazado");
 
   function enviarAprobacion() {
+    revisar.reset();
     if (desfasado) return;
     setConfirmar(null);
     setConfirmarVinculo(null);
@@ -205,6 +221,7 @@ function DetalleSolicitud({
     aprobar.mutate(r.datos);
   }
   function enviarRechazoVinculo(llave: string) {
+    revisar.reset();
     if (desfasado) return;
     aprobar.reset();
     quitarMarca.reset();
@@ -217,6 +234,7 @@ function DetalleSolicitud({
     rechazar.mutate(r.datos);
   }
   function enviarRechazo(cual: "marcadas" | "todo") {
+    revisar.reset();
     setConfirmarVinculo(null);
     if (desfasado) return;
     aprobar.reset();
@@ -230,7 +248,7 @@ function DetalleSolicitud({
   }
 
   // Solo el error de la última acción.
-  const errorServidor = aprobar.error ?? rechazar.error ?? quitarMarca.error;
+  const errorServidor = aprobar.error ?? rechazar.error ?? quitarMarca.error ?? revisar.error;
 
   return (
     <div>
@@ -287,31 +305,41 @@ function DetalleSolicitud({
       <Seccion titulo="Jugadores">
         {s.jugadores.length === 0 && <Vacio />}
         {s.jugadores.map((j) => (
-          <TarjetaJugador
-            key={j.id}
-            j={j}
-            soloSeMuestra={j.estado === "pendiente" && !seDecideAca(j)}
-            sinContactoPosible={!contactoPosible(j.id, s)}
-            quitarMarca={{
-              enviar: () => {
-                aprobar.reset();
-                rechazar.reset();
-                setConfirmar(null);
-                setConfirmarVinculo(null);
-                quitarMarca.mutate(j.id);
-              },
-              ocupado,
-            }}
-            categorias={categorias?.filter((c) => c.disciplina === j.disciplina)}
-            form={form.jugadores[j.id]}
-            onChange={(cambio) =>
-              cambiarForm((f) => {
-                const actual = f.jugadores[j.id];
-                if (!actual) return f;
-                return { ...f, jugadores: { ...f.jugadores, [j.id]: { ...actual, ...cambio } } };
-              })
-            }
-          />
+          <div key={j.id}>
+            <TarjetaJugador
+              j={j}
+              soloSeMuestra={j.estado === "pendiente" && !seDecideAca(j)}
+              sinContactoPosible={!contactoPosible(j.id, s)}
+              quitarMarca={{
+                enviar: () => {
+                  aprobar.reset();
+                  rechazar.reset();
+                  setConfirmar(null);
+                  setConfirmarVinculo(null);
+                  revisar.reset();
+                  quitarMarca.mutate(j.id);
+                },
+                ocupado,
+              }}
+              categorias={categorias?.filter((c) => c.disciplina === j.disciplina)}
+              form={form.jugadores[j.id]}
+              onChange={(cambio) =>
+                cambiarForm((f) => {
+                  const actual = f.jugadores[j.id];
+                  if (!actual) return f;
+                  return { ...f, jugadores: { ...f.jugadores, [j.id]: { ...actual, ...cambio } } };
+                })
+              }
+            />
+            {j.propia &&
+              fueraDelLink(s, j.id) &&
+              (j.estado === "activo" || form.jugadores[j.id]?.marcado === true) && (
+                <p className="-mt-2 mb-4 rounded-lg bg-warning/15 px-4 py-2 text-xs text-warning-foreground">
+                  Esta familia no verá el QR de {nombres[j.id] ?? "este jugador"} en su link:
+                  descárgalo desde su ficha y envíaselo si corresponde.
+                </p>
+              )}
+          </div>
         ))}
       </Seccion>
 
@@ -323,6 +351,11 @@ function DetalleSolicitud({
               const pendiente = llave in form.vinculos;
               const aprobable = vinculoAprobable(v, s);
               const conocido = vinculoConocido(v, s);
+              // Un niño que ya existía no aparece en el link de esta familia (solo quienes
+              // entraron por la solicitud): al aprobar el vínculo, Mony entrega el QR a mano.
+              const recordarQr =
+                fueraDelLink(s, v.jugador_id) &&
+                (v.estado === "activo" || (pendiente && vinculoVa(form, llave)));
               return (
                 <div key={llave} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
                   <label className="flex min-w-0 flex-1 items-center gap-3">
@@ -367,6 +400,12 @@ function DetalleSolicitud({
                             Se aprueba junto con la persona desmarcada, no antes.
                           </span>
                         )}
+                      {recordarQr && (
+                        <span className="block text-xs text-warning-foreground">
+                          Esta familia no verá el QR de {nombres[v.jugador_id] ?? "este jugador"} en
+                          su link: descárgalo desde su ficha y envíaselo si corresponde.
+                        </span>
+                      )}
                       {confirmarVinculo === llave && (
                         <span role="alert" className="block text-xs text-destructive">
                           Se borra este vínculo y sus personas siguen pendientes (un precargado que
@@ -435,7 +474,9 @@ function DetalleSolicitud({
             variant="outline"
             onClick={() => alCambiar()}
             // Mientras corre una acción, su propio final rehace el formulario.
-            disabled={aprobar.isPending || rechazar.isPending || quitarMarca.isPending}
+            disabled={
+              aprobar.isPending || rechazar.isPending || quitarMarca.isPending || revisar.isPending
+            }
           >
             Recargar formulario
           </Button>
@@ -499,6 +540,38 @@ function DetalleSolicitud({
           <Button onClick={enviarAprobacion} disabled={ocupado}>
             <Check className="size-4" />
             {aprobar.isPending ? "Aprobando…" : "Aprobar lo marcado"}
+          </Button>
+        </div>
+      ) : s.estado === "pendiente" ? (
+        <div className="card-surface flex flex-wrap items-center gap-3 p-4">
+          <p className="flex-1 text-sm text-muted-foreground">
+            {confirmarRevisada
+              ? "La solicitud pasa a revisada y ya no podrá devolver a nadie a como estaba. No se deshace desde el panel."
+              : "No queda nada por decidir desde esta solicitud (lo que trae ya se decidió o se decide en otra). Si ya la miraste, dala por revisada."}
+          </p>
+          {confirmarRevisada && (
+            <Button variant="ghost" onClick={() => setConfirmarRevisada(false)} disabled={ocupado}>
+              Cancelar
+            </Button>
+          )}
+          <Button
+            onClick={() => {
+              if (desfasado) return;
+              aprobar.reset();
+              rechazar.reset();
+              quitarMarca.reset();
+              if (!confirmarRevisada) return setConfirmarRevisada(true);
+              setConfirmarRevisada(false);
+              revisar.mutate();
+            }}
+            disabled={ocupado}
+          >
+            <Check className="size-4" />
+            {revisar.isPending
+              ? "Cerrando…"
+              : confirmarRevisada
+                ? "Confirmar: dar por revisada"
+                : "Dar por revisada"}
           </Button>
         </div>
       ) : (

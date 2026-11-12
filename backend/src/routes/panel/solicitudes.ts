@@ -13,6 +13,7 @@ import { noEncontrado } from "../../lib/errores";
 import { respuesta, validarEntrada } from "../../lib/validar";
 import {
   aprobarSolicitud,
+  darPorRevisada,
   detalleSolicitud,
   listarSolicitudes,
   nuevoLink,
@@ -26,7 +27,7 @@ function idDe(params: unknown): string {
   return r.data.id;
 }
 
-/** Solicitudes de registro: listado, detalle, aprobar, rechazar y link privado nuevo. */
+/** Solicitudes de registro: listado, detalle, aprobar, rechazar, dar por revisada y link privado nuevo. */
 export async function rutasSolicitudes(app: FastifyInstance) {
   const db = app.db;
 
@@ -45,6 +46,11 @@ export async function rutasSolicitudes(app: FastifyInstance) {
   app.post("/solicitudes/:id/rechazar", async (request) => {
     const id = idDe(request.params);
     await rechazarSolicitud(db, id, validarEntrada(rechazarRequest, request.body ?? {}));
+    return respuesta(solicitudDetalle, await detalleSolicitud(db, id));
+  });
+  app.post("/solicitudes/:id/dar-por-revisada", async (request) => {
+    const id = idDe(request.params);
+    await darPorRevisada(db, id);
     return respuesta(solicitudDetalle, await detalleSolicitud(db, id));
   });
   // El link es una credencial: se entrega una vez y no se guarda en ningún caché.

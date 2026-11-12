@@ -106,6 +106,7 @@ describe("solicitudes: lectura", () => {
       ["POST", `/api/panel/solicitudes/${s.id}/aprobar`],
       ["POST", `/api/panel/solicitudes/${s.id}/rechazar`],
       ["POST", `/api/panel/solicitudes/${s.id}/link`],
+      ["POST", `/api/panel/solicitudes/${s.id}/dar-por-revisada`],
     ] as const) {
       expect((await app.inject({ method, url, payload: method === "POST" ? {} : undefined })).statusCode).toBe(401);
     }
@@ -1330,6 +1331,142 @@ describe("solicitudes: un hijo marcado 'ya no está' y las copias al cerrar", ()
     expect(cerrada?.estado).toBe("revisada");
     expect(await copiasDe(hijo)).toHaveLength(0);
     expect((await estadoJ(hijo))?.marcado_retiro_en).not.toBeNull();
+    await app.close();
+  });
+});
+
+describe("solicitudes: dar por revisada", () => {
+  const darPorRevisada = (app: Awaited<ReturnType<typeof appConSesion>>["app"], cookies: Record<string, string>, id: string) =>
+    app.inject({ method: "POST", url: API.panel.darPorRevisada(id), cookies });
+
+  it("con una persona o un vínculo por decidir es 409 y no cambia nada", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo, hijo } = await familia();
+    const otro = await crearJugador(db, { estado: "precargado" });
+    await db
+      .insert(fichasPrevias)
+      .values({ solicitud_id: s.id, jugador_id: otro, datos: { estado: "precargado", solicitud_id: null } });
+    expect((await darPorRevisada(app, cookies, s.id)).statusCode).toBe(409);
+    expect(await estadoS(s.id)).toBe("pendiente");
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.solicitud_id, s.id))).toHaveLength(1);
+
+    // Las personas ya decididas, pero el vínculo sigue pendiente: tampoco.
+    await db.update(apoderados).set({ estado: "rechazado" }).where(eq(apoderados.id, apo));
+    await db.update(jugadores).set({ estado: "rechazado" }).where(eq(jugadores.id, hijo));
+    expect((await darPorRevisada(app, cookies, s.id)).statusCode).toBe(409);
+    expect(await estadoS(s.id)).toBe("pendiente");
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.solicitud_id, s.id))).toHaveLength(1);
+    await app.close();
+  });
+
+  it("sin nada por decidir la cierra y borra sus copias; las de otra solicitud no se tocan", async () => {
+    const { app, cookies } = await appConSesion(db);
+    // Titular ya registrado cuyos cambios bloqueó otra solicitud: no le queda nada que decidir.
+    const titular = await crearApoderado(db, {
+      estado: "activo",
+      foto_id: await fotoPrueba(db),
+      metodo_pago: "forpay_mensual",
+      credencial_token: generarToken(),
+    });
+    const s = await nuevaSolicitud({
+      titular_apoderado_id: titular,
+      avisos: ["titular_ya_registrado", "cambios_bloqueados_por_otra_solicitud"],
+    });
+    const otra = await nuevaSolicitud();
+    const hijo = await crearJugador(db, { estado: "precargado" });
+    const ajeno = await crearJugador(db, { estado: "precargado" });
+    await db.insert(fichasPrevias).values([
+      { solicitud_id: s.id, jugador_id: hijo, datos: { estado: "precargado", solicitud_id: null } },
+      { solicitud_id: otra.id, jugador_id: ajeno, datos: { estado: "precargado", solicitud_id: null } },
+    ]);
+
+    const r = await darPorRevisada(app, cookies, s.id);
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ id: s.id, estado: "revisada" });
+    expect(r.json().revisada_en).not.toBeNull();
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.solicitud_id, s.id))).toHaveLength(0);
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.solicitud_id, otra.id))).toHaveLength(1);
+    expect(await estadoS(otra.id)).toBe("pendiente");
+
+    // Ya revisada: 409.
+    expect((await darPorRevisada(app, cookies, s.id)).statusCode).toBe(409);
+    await app.close();
+  });
+
+  it("un otro apoderado nuevo pendiente (de su solicitud de segundo apoderado) también es 409, en las dos", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo, hijo } = await familia();
+    await db.update(apoderados).set({ estado: "rechazado" }).where(eq(apoderados.id, apo));
+    await db.update(jugadores).set({ estado: "rechazado" }).where(eq(jugadores.id, hijo));
+    await db.update(jugadorApoderado).set({ estado: "activo" }).where(eq(jugadorApoderado.solicitud_id, s.id));
+    const s2 = await nuevaSolicitud({ tipo: "segundo_apoderado", solicitud_origen_id: s.id });
+    await crearApoderado(db, { estado: "pendiente", origen: "formulario", solicitud_id: s2.id });
+    expect((await darPorRevisada(app, cookies, s.id)).statusCode).toBe(409);
+    expect((await darPorRevisada(app, cookies, s2.id)).statusCode).toBe(409);
+    expect(await estadoS(s.id)).toBe("pendiente");
+    expect(await estadoS(s2.id)).toBe("pendiente");
+    await app.close();
+  });
+
+  it("una solicitud que no existe es 404", async () => {
+    const { app, cookies } = await appConSesion(db);
+    expect((await darPorRevisada(app, cookies, "00000000-0000-4000-8000-000000000000")).statusCode).toBe(404);
+    await app.close();
+  });
+});
+
+describe("solicitudes: quién aparece en el link de la familia", () => {
+  it("el hijo que creó la solicitud sí; un niño que ya existía, nombrado por su vínculo, no", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo, hijo } = await familia();
+    const existente = await crearJugadorActivo(db);
+    await db
+      .insert(jugadorApoderado)
+      .values({ jugador_id: existente, apoderado_id: apo, solicitud_id: s.id, paga_mensualidad: false });
+    const r = await app.inject({ method: "GET", url: API.panel.solicitud(s.id), cookies });
+    expect(r.statusCode).toBe(200);
+    const enLink = Object.fromEntries(
+      r.json().jugadores.map((j: { id: string; en_link_familia: boolean }) => [j.id, j.en_link_familia]),
+    );
+    expect(enLink).toEqual({ [hijo]: true, [existente]: false });
+    await app.close();
+  });
+
+  it("titular precargado (no registrado): el precargado de su lista que completó sí aparece", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s } = await familia({ avisos: [] });
+    const precargado = await crearJugador(db, { estado: "pendiente", solicitud_id: s.id });
+    const r = await app.inject({ method: "GET", url: API.panel.solicitud(s.id), cookies });
+    const enLink = Object.fromEntries(
+      r.json().jugadores.map((j: { id: string; en_link_familia: boolean }) => [j.id, j.en_link_familia]),
+    );
+    expect(enLink[precargado]).toBe(true);
+    await app.close();
+  });
+
+  it("en una solicitud de segundo apoderado nadie está en un link de familia", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const origen = await nuevaSolicitud();
+    const s = await nuevaSolicitud({ tipo: "segundo_apoderado", solicitud_origen_id: origen.id });
+    const apo = await crearApoderado(db, { estado: "pendiente", origen: "formulario", solicitud_id: s.id });
+    const hijo = await crearJugador(db, { estado: "pendiente", origen: "formulario", solicitud_id: s.id });
+    await db.insert(jugadorApoderado).values({ jugador_id: hijo, apoderado_id: apo, solicitud_id: s.id, paga_mensualidad: false });
+    const r = await app.inject({ method: "GET", url: API.panel.solicitud(s.id), cookies });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().jugadores.map((j: { en_link_familia: boolean }) => j.en_link_familia)).toEqual([false]);
+    await app.close();
+  });
+
+  it("con titular ya registrado, ni el precargado de su lista que la solicitud completó", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, hijo } = await familia({ avisos: ["titular_ya_registrado"] });
+    const precargado = await crearJugador(db, { estado: "pendiente", solicitud_id: s.id });
+    const r = await app.inject({ method: "GET", url: API.panel.solicitud(s.id), cookies });
+    const enLink = Object.fromEntries(
+      r.json().jugadores.map((j: { id: string; en_link_familia: boolean }) => [j.id, j.en_link_familia]),
+    );
+    expect(enLink[hijo]).toBe(true);
+    expect(enLink[precargado]).toBe(false);
     await app.close();
   });
 });

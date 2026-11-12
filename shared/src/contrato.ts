@@ -579,8 +579,15 @@ export const solicitudDetalle = z.object({
    * que ya estaba activo, un hijo de otra solicitud nombrado por RUT, un hijo marcado "ya no
    * está") solo se muestran; desde aquí se decide, a lo más, su vínculo. Se aprueba o rechaza
    * con `propia && estado === "pendiente"`: una propia ya decidida sigue `propia` pero responde 409.
+   *
+   * `en_link_familia`: si el jugador aparece en el link /familia de esta solicitud (solo las
+   * personas que entraron por ella; siempre false en una de segundo apoderado). El panel lo usa
+   * para recordarle a Mony que entregue el QR desde la ficha a quien no aparece. Aparecer no
+   * garantiza el QR: el link lo da solo con un vínculo activo con un titular vigente.
    */
-  jugadores: z.array(jugadorDetalle.extend({ propia: z.boolean() })),
+  // Con default: un backend anterior al campo (despliegue a medias) no lo manda; true solo omite el
+  // recordatorio, no muestra nada de más.
+  jugadores: z.array(jugadorDetalle.extend({ propia: z.boolean(), en_link_familia: z.boolean().default(true) })),
   apoderados: z.array(apoderadoDetalle.extend({ propia: z.boolean() })),
   vinculos: z.array(
     z.object({
@@ -689,6 +696,10 @@ export const API = {
     aprobar: (i: string) => `/api/panel/solicitudes/${seg(i)}/aprobar`,
     rechazar: (i: string) => `/api/panel/solicitudes/${seg(i)}/rechazar`,
     link: (i: string) => `/api/panel/solicitudes/${seg(i)}/link`,
+    // Cierra una solicitud pendiente que ya no deja personas ni vínculos por decidir y borra sus
+    // copias en `fichas_previas`. Sin cuerpo; responde `solicitudDetalle`. 409 si no está
+    // pendiente o si todavía queda algo por decidir.
+    darPorRevisada: (i: string) => `/api/panel/solicitudes/${seg(i)}/dar-por-revisada`,
     jugadores: "/api/panel/jugadores",
     jugador: (i: string) => `/api/panel/jugadores/${seg(i)}`,
     apoderados: "/api/panel/apoderados",

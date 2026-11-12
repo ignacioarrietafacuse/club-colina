@@ -156,13 +156,16 @@ lo pide.
   link de `/familia` (o de `/completar` en una solicitud de segundo apoderado); el link se compara
   buscando por su hash. Se entrega una sola vez, en `solicitudCreadaResponse`; `POST
   .../solicitudes/:id/link` genera uno nuevo y anula el anterior. `credencial_token` va en claro.
-- **`/familia` (S2):** solo las personas con ese `solicitud_id`, más los hijos cuyo vínculo creó
-  esa solicitud (`jugador_apoderado.solicitud_id`) una vez que Mony lo aprobó (vínculo `activo`).
-  Nunca el resto de la familia de la base. `solicitud_id` de una persona se asigna solo si está
+- **`/familia` (S2):** un link de familia solo muestra a las personas que entraron por esa
+  solicitud (`entraPorSolicitud` en `services/registro/links.ts`): las de ese `solicitud_id`. Un
+  hijo que ya existía y llegó por un vínculo nunca aparece, aunque Mony lo apruebe; el panel le
+  recuerda entregar ese QR desde la ficha (`en_link_familia` del detalle). Nunca el resto de la
+  familia de la base. `solicitud_id` de una persona se asigna solo si está
   en NULL (persona nueva, o precargada del RUT de quien llena) y **nunca se reasigna**: un hijo
-  que ya existía y se nombró por RUT entra solo por su vínculo, y no aparece hasta que Mony lo
-  aprueba. A un hijo marcado "ya no está" no se le asigna `solicitud_id`; la marca es solo una
-  señal para Mony y no lo saca de ningún `/familia` (lo saca la baja en la ficha). S2 cubre esto con un
+  que ya existía y se nombró por RUT entra solo por su vínculo. Si el titular ya estaba registrado
+  (aviso `titular_ya_registrado`), solo las personas que la solicitud creó (`origen = 'formulario'`),
+  no los precargados de su lista (decisiones de Ignacio, 2026-11-12). A un hijo marcado "ya no
+  está" no se le asigna `solicitud_id`; la marca es solo una señal para Mony y no lo saca de ningún `/familia` (lo saca la baja en la ficha). S2 cubre esto con un
   test (un RUT ajeno nombrado en la solicitud no devuelve su nombre ni su `credencial_token`).
 - **Tipos de link (S2):** `/familia` busca el hash solo entre solicitudes `tipo = 'formulario'` y
   `/completar` solo entre `tipo = 'segundo_apoderado'`; en cualquier otro caso, 404 genérico. Con test.

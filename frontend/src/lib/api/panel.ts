@@ -60,6 +60,11 @@ export function rechazarSolicitud(id: string, datos: RechazarRequest = {}) {
   return pedirSinRespuesta(API.panel.rechazar(id), { metodo: "POST", json: datos });
 }
 
+/** Cierra una solicitud pendiente que ya no deja nada por decidir. Devuelve el detalle. */
+export function darPorRevisada(id: string) {
+  return pedir(API.panel.darPorRevisada(id), solicitudDetalle, { metodo: "POST" });
+}
+
 /** Genera un link privado nuevo y anula el anterior. */
 export function nuevoLinkSolicitud(id: string) {
   return pedir(API.panel.link(id), linkResponse, { metodo: "POST" });

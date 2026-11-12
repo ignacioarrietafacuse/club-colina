@@ -24,7 +24,7 @@ export function VistaFamilia({ datos }: { datos: FamiliaResponse }) {
         <Aviso tono="atencion">
           {hayActivas
             ? "Algunas personas siguen en revisión. Sus códigos QR aparecerán aquí cuando el club las apruebe."
-            : "El club está revisando tu registro. Cuando lo apruebe, aquí aparecerán los códigos QR."}{" "}
+            : "El club está revisando tu registro. Cuando lo apruebe, aquí aparecerán los códigos QR de las personas nuevas; los demás te los enviará el club."}{" "}
           Guarda este link para volver.
         </Aviso>
       )}
