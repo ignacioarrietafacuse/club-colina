@@ -674,7 +674,9 @@ async function rechazarPersona(
  * - Personas: propias de la solicitud y pendientes. Se borran los vínculos que esta solicitud (o
  *   su origen) creó para ellas, también si ya estaban activos: no queda ninguno hacia alguien
  *   rechazado.
- * - Vínculos: pendientes y de esta solicitud. Se borran; sus personas siguen como estaban.
+ * - Vínculos: pendientes y de esta solicitud. Se borran; sus personas siguen como estaban, salvo
+ *   un precargado que esta solicitud (o su origen) completó y que se quedó sin el último vínculo
+ *   que lo mostraba: vuelve a como estaba.
  * - Sin nada indicado, se borran todos los vínculos pendientes que muestra el detalle, también los
  *   que van hacia personas de otras solicitudes y, en una de segundo apoderado, los que creó su origen
  *   hacia él (aunque él ya esté activo).
@@ -790,12 +792,12 @@ export async function rechazarSolicitud(
       const despuesOrigen = await miembros(tx, origen);
       rechJOrigen.push(...(await arrastrados(mOrigen.propiosJ, despuesOrigen.propiosJ, rechJ, jugadores)));
       rechAOrigen.push(...(await arrastrados(mOrigen.propiosA, despuesOrigen.propiosA, rechA, apoderados)));
+      for (const j of rechJOrigen) await rechazarPersona(tx, origen.id, "jugador", j);
+      for (const a of rechAOrigen) await rechazarPersona(tx, origen.id, "apoderado", a);
     }
 
     for (const j of rechJ) await rechazarPersona(tx, s.id, "jugador", j);
     for (const a of rechA) await rechazarPersona(tx, s.id, "apoderado", a);
-    for (const j of rechJOrigen) await rechazarPersona(tx, origen?.id ?? s.id, "jugador", j);
-    for (const a of rechAOrigen) await rechazarPersona(tx, origen?.id ?? s.id, "apoderado", a);
     rechJ.push(...rechJOrigen);
     rechA.push(...rechAOrigen);
     await borrarFichasPrevias(tx, "jugador", rechJ);

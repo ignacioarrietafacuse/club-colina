@@ -837,6 +837,37 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
     await app.close();
   });
 
+  it("segundo apoderado: un precargado del origen que conserva el vínculo con el titular no se toca", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo } = await familia();
+    const segunda = await nuevaSolicitud({ tipo: "segundo_apoderado", solicitud_origen_id: s.id });
+    const otro = await crearApoderado(db, {
+      estado: "activo",
+      origen: "formulario",
+      solicitud_id: segunda.id,
+      foto_id: await fotoPrueba(db),
+      credencial_token: generarToken(),
+    });
+    const huerfano = await crearJugador(db, { nombre: "Peque", numero_camiseta: null });
+    await db.insert(fichasPrevias).values({
+      solicitud_id: s.id,
+      jugador_id: huerfano,
+      datos: { numero_camiseta: null, foto_id: null, estado: "precargado", solicitud_id: null, marcado_retiro_en: null },
+    });
+    await db.update(jugadores).set({ numero_camiseta: "5", estado: "pendiente" }).where(eq(jugadores.id, huerfano));
+    await db.insert(jugadorApoderado).values([
+      { jugador_id: huerfano, apoderado_id: apo, solicitud_id: s.id },
+      { jugador_id: huerfano, apoderado_id: otro, solicitud_id: s.id },
+    ]);
+    const r = await app.inject({ method: "POST", url: `/api/panel/solicitudes/${segunda.id}/rechazar`, cookies, payload: {} });
+    expect(r.statusCode).toBe(200);
+    expect(await vinculo(huerfano, otro)).toBeUndefined();
+    expect((await vinculo(huerfano, apo))?.estado).toBe("pendiente");
+    expect(await estadoJ(huerfano)).toMatchObject({ estado: "pendiente", numero_camiseta: "5" });
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.jugador_id, huerfano))).toHaveLength(1);
+    await app.close();
+  });
+
   it("jugador adulto sin teléfono: su contacto es un apoderado activo con el vínculo aprobado, en el mismo pedido sirve", async () => {
     const { app, cookies } = await appConSesion(db);
     const { s, apo, hijo } = await familia();
