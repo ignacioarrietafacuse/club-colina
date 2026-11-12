@@ -4,7 +4,7 @@ import { generarRutFicticio } from "@club-colina/shared";
 import { dbTest, JPEG_PRUEBA } from "../test/db";
 import { borrarFoto, guardarFoto } from "../lib/fotos";
 import { generarToken, hashToken } from "../lib/tokens";
-import { apoderados, categorias, entrenadores, jugadores, solicitudesRegistro } from "./schema";
+import { apoderados, categorias, entrenadores, fichasPrevias, jugadores, solicitudesRegistro } from "./schema";
 
 const { db, cerrar } = dbTest();
 afterAll(cerrar);
@@ -109,4 +109,96 @@ describe("esquema y migraciones", () => {
     await db.delete(entrenadores).where(eq(entrenadores.foto_id, foto_id));
     expect(await borrarFoto(db, foto_id)).toBe(true);
   });
+
+  it("la solicitud tiene a lo más un titular, que tiene que existir", async () => {
+    const base = { consentimiento_en: new Date() };
+    const [apo] = await db
+      .insert(apoderados)
+      .values({ rut: generarRutFicticio(), origen: "formulario" })
+      .returning({ id: apoderados.id });
+    const [jug] = await db
+      .insert(jugadores)
+      .values({ rut: generarRutFicticio(), disciplina: "voleibol", origen: "formulario" })
+      .returning({ id: jugadores.id });
+    const [s] = await db
+      .insert(solicitudesRegistro)
+      .values({ ...base, token_acceso_hash: hashToken(generarToken()), titular_apoderado_id: apo?.id })
+      .returning();
+    expect(s?.titular_apoderado_id).toBe(apo?.id);
+    await expect(
+      db.insert(solicitudesRegistro).values({
+        ...base,
+        token_acceso_hash: hashToken(generarToken()),
+        titular_apoderado_id: apo?.id,
+        titular_jugador_id: jug?.id,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      db.insert(solicitudesRegistro).values({
+        ...base,
+        token_acceso_hash: hashToken(generarToken()),
+        titular_jugador_id: "00000000-0000-4000-8000-000000000000",
+      }),
+    ).rejects.toThrow();
+    await db
+      .insert(solicitudesRegistro)
+      .values({ ...base, token_acceso_hash: hashToken(generarToken()), titular_jugador_id: jug?.id });
+  });
+
+  it("fichas_previas: una sola copia por persona, de un jugador o de un apoderado que existen", async () => {
+    const [s] = await db
+      .insert(solicitudesRegistro)
+      .values({ consentimiento_en: new Date(), token_acceso_hash: hashToken(generarToken()) })
+      .returning({ id: solicitudesRegistro.id });
+    const [otra] = await db
+      .insert(solicitudesRegistro)
+      .values({ consentimiento_en: new Date(), token_acceso_hash: hashToken(generarToken()) })
+      .returning({ id: solicitudesRegistro.id });
+    const [jug] = await db
+      .insert(jugadores)
+      .values({ rut: generarRutFicticio(), disciplina: "voleibol", origen: "base_2026" })
+      .returning({ id: jugadores.id });
+    const [apo] = await db
+      .insert(apoderados)
+      .values({ rut: generarRutFicticio(), origen: "base_2026" })
+      .returning({ id: apoderados.id });
+    if (!s || !otra || !jug || !apo) throw new Error("sin filas");
+    await db.insert(fichasPrevias).values({ solicitud_id: s.id, jugador_id: jug.id, datos: { telefono: null } });
+    await db.insert(fichasPrevias).values({ solicitud_id: s.id, apoderado_id: apo.id, datos: { telefono: null } });
+    // Una segunda copia de la misma persona, aunque sea de otra solicitud, se rechaza.
+    await expect(
+      db.insert(fichasPrevias).values({ solicitud_id: otra.id, jugador_id: jug.id, datos: {} }),
+    ).rejects.toThrow();
+    // Exactamente una persona, que exista.
+    await expect(db.insert(fichasPrevias).values({ solicitud_id: s.id, datos: {} })).rejects.toThrow();
+    await expect(
+      db.insert(fichasPrevias).values({ solicitud_id: otra.id, jugador_id: jug.id, apoderado_id: apo.id, datos: {} }),
+    ).rejects.toThrow();
+    await expect(
+      db.insert(fichasPrevias).values({ solicitud_id: s.id, jugador_id: s.id, datos: {} }),
+    ).rejects.toThrow();
+    // Si se borra la persona, se borra su copia.
+    await db.delete(jugadores).where(eq(jugadores.id, jug.id));
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.jugador_id, jug.id))).toHaveLength(0);
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.apoderado_id, apo.id))).toHaveLength(1);
+  });
+
+  it("una solicitud de segundo apoderado no tiene titular", async () => {
+    const [origen] = await db
+      .insert(solicitudesRegistro)
+      .values({ consentimiento_en: new Date(), token_acceso_hash: hashToken(generarToken()) })
+      .returning({ id: solicitudesRegistro.id });
+    const [apo] = await db
+      .insert(apoderados)
+      .values({ rut: generarRutFicticio(), origen: "formulario" })
+      .returning({ id: apoderados.id });
+    const segunda = {
+      token_acceso_hash: hashToken(generarToken()),
+      tipo: "segundo_apoderado" as const,
+      solicitud_origen_id: origen?.id,
+    };
+    await expect(db.insert(solicitudesRegistro).values({ ...segunda, titular_apoderado_id: apo?.id })).rejects.toThrow();
+    await db.insert(solicitudesRegistro).values(segunda);
+  });
+
 });

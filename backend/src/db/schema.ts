@@ -13,6 +13,7 @@ import {
   customType,
   date,
   index,
+  jsonb,
   pgTable,
   primaryKey,
   smallint,
@@ -98,6 +99,18 @@ export const solicitudesRegistro = pgTable(
     revisada_en: timestamp("revisada_en", { withTimezone: true }),
     tipo: text("tipo", { enum: TIPOS_SOLICITUD }).notNull().default("formulario"),
     coincide_base: boolean("coincide_base").notNull().default(false),
+    /**
+     * Quién llenó el formulario: el apoderado, o el jugador adulto. Lo escribe S2 al recibir la
+     * solicitud; el panel lo muestra como titular y desde ahí busca a los hijos marcados "ya no
+     * está". Nulo en una solicitud de segundo apoderado (su apoderado tiene `solicitud_id`).
+     * Solo para el panel: nunca amplía lo que muestran las rutas públicas (`/familia`).
+     */
+    titular_apoderado_id: uuid("titular_apoderado_id").references((): AnyPgColumn => apoderados.id, {
+      onDelete: "restrict",
+    }),
+    titular_jugador_id: uuid("titular_jugador_id").references((): AnyPgColumn => jugadores.id, {
+      onDelete: "restrict",
+    }),
     /** Casos que Mony debe mirar antes de aprobar (`AVISOS_SOLICITUD`). */
     avisos: text("avisos", { enum: AVISOS_SOLICITUD })
       .array()
@@ -122,6 +135,14 @@ export const solicitudesRegistro = pgTable(
       sql.raw(`"tipo" = 'segundo_apoderado' OR "consentimiento_en" IS NOT NULL`),
     ),
     index("solicitudes_estado_idx").on(t.estado),
+    check(
+      "solicitudes_un_titular_check",
+      sql.raw(`num_nonnulls("titular_apoderado_id", "titular_jugador_id") <= 1`),
+    ),
+    check(
+      "solicitudes_segundo_sin_titular_check",
+      sql.raw(`"tipo" <> 'segundo_apoderado' OR num_nonnulls("titular_apoderado_id", "titular_jugador_id") = 0`),
+    ),
   ],
 );
 
@@ -324,5 +345,47 @@ export const sesiones = pgTable(
   (t) => [
     index("sesiones_usuario_idx").on(t.usuario_id),
     index("sesiones_expira_idx").on(t.expira_en),
+  ],
+);
+
+/**
+ * Cómo estaba la ficha de una persona que ya existía (un precargado de la base 2026) antes de que
+ * una solicitud la modificara. La escribe S2 en la misma transacción en que modifica la ficha, y
+ * solo si no hay ya una fila para esa persona: se guarda el estado original, antes de la primera
+ * solicitud. Si Mony rechaza a esa persona, S1 la deja como estaba con estos datos.
+ *
+ * `datos` guarda solo lo que el formulario puede cambiar, con los nombres de la base:
+ * - jugador: nombre, apellido, fecha_nacimiento, disciplina, categoria_id, numero_camiseta,
+ *   telefono, email, metodo_pago, foto_id, estado, solicitud_id, marcado_retiro_en;
+ * - apoderado: nombre, apellido, telefono, email, metodo_pago, foto_id, estado, solicitud_id.
+ * Nunca el RUT ni `credencial_token`. S1 restaura solo esas llaves.
+ *
+ * Dos solicitudes sobre la misma persona: mientras exista la copia de una solicitud, S2 no
+ * modifica la ficha de esa persona desde otra (así ninguna pisa los cambios de la otra). S1
+ * restaura y borra la copia solo al decidir a la persona desde la solicitud de la copia.
+ *
+ * Es una copia de datos personales: cada fila se borra en la misma transacción en que se decide
+ * a esa persona (aprobada: ya no hace falta; rechazada: después de restaurar), y se borra sola
+ * si se borra la persona (CASCADE).
+ */
+export const fichasPrevias = pgTable(
+  "fichas_previas",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** La solicitud que modificó la ficha y escribió esta copia. */
+    solicitud_id: uuid("solicitud_id")
+      .notNull()
+      .references(() => solicitudesRegistro.id, { onDelete: "restrict" }),
+    jugador_id: uuid("jugador_id").references(() => jugadores.id, { onDelete: "cascade" }),
+    apoderado_id: uuid("apoderado_id").references(() => apoderados.id, { onDelete: "cascade" }),
+    datos: jsonb("datos").notNull(),
+    creado_en: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // A lo más una copia por persona: la del estado original.
+    unique("fichas_previas_jugador_key").on(t.jugador_id),
+    unique("fichas_previas_apoderado_key").on(t.apoderado_id),
+    check("fichas_previas_una_persona_check", sql.raw(`num_nonnulls("jugador_id", "apoderado_id") = 1`)),
+    index("fichas_previas_solicitud_idx").on(t.solicitud_id),
   ],
 );
