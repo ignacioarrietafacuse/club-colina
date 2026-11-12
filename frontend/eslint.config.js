@@ -6,8 +6,7 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  // _lovable/ es solo referencia visual para la Ola 1 y no se compila.
-  { ignores: ["dist", "src/routeTree.gen.ts", "src/pages/panel/_lovable"] },
+  { ignores: ["dist", "src/routeTree.gen.ts"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
