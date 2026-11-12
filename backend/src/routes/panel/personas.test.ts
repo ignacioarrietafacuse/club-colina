@@ -1,7 +1,8 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { FOTO_MAX_BYTES, generarRutFicticio } from "@club-colina/shared";
-import { apoderados, categorias, entrenadores, fotos, jugadores } from "../../db/schema";
+import { apoderados, categorias, entrenadores, fotos, jugadores, solicitudesRegistro } from "../../db/schema";
+import { generarToken, hashToken } from "../../lib/tokens";
 import { dbTest, JPEG_PRUEBA, PNG_PRUEBA } from "../../test/db";
 import {
   appConSesion,
@@ -11,7 +12,7 @@ import {
   fotoPrueba,
   multipart,
   vincular,
-} from "./prueba";
+} from "./prueba.test-utils";
 
 const { db, cerrar } = dbTest();
 afterAll(cerrar);
@@ -363,5 +364,164 @@ describe("fotos y credenciales", () => {
     expect(r.json().estado).toBe("activo");
     expect(r.json().credencial_token).not.toBe("a".repeat(43));
     await app.close();
+  });
+});
+
+describe("casos que pidió la revisión", () => {
+  it("un categoria_id fuera de smallint es 400 o lista vacía, nunca 500", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const id = await crearJugador(db);
+    let r = await app.inject({ method: "GET", url: "/api/panel/jugadores?categoria_id=40000", cookies });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual([]);
+    r = await app.inject({ method: "PATCH", url: `/api/panel/jugadores/${id}`, cookies, payload: { categoria_id: 40000 } });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error.codigo).toBe("validacion");
+    await app.close();
+  });
+
+  it("filtros por rama y categoría de jugadores, y por estado de apoderados", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const apellido = `Rama${Date.now()}`;
+    const u14 = await categoria("voleibol", "U14");
+    const voley = await crearJugador(db, { apellido, categoria_id: u14 });
+    const basket = await crearJugador(db, { apellido, disciplina: "basketball", fecha_nacimiento: "2015-02-02" });
+    const ids = async (q: string) =>
+      (await app.inject({ method: "GET", url: `/api/panel/jugadores?q=${apellido}&${q}`, cookies })).json().map((j: { id: string }) => j.id);
+    expect(await ids("disciplina=voleibol")).toEqual([voley]);
+    expect(await ids("disciplina=basketball")).toEqual([basket]);
+    expect(await ids(`categoria_id=${u14}`)).toEqual([voley]);
+
+    const activo = await crearApoderado(db, { apellido, estado: "activo", foto_id: await fotoPrueba(db), credencial_token: generarToken() });
+    const precargado = await crearApoderado(db, { apellido });
+    const apos = async (q: string) =>
+      (await app.inject({ method: "GET", url: `/api/panel/apoderados?q=${apellido}&${q}`, cookies })).json().map((a: { id: string }) => a.id);
+    expect(await apos("estado=activo")).toEqual([activo]);
+    expect(await apos("estado=precargado")).toEqual([precargado]);
+    await app.close();
+  });
+
+  it("el buscador trata _ como texto", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const apellido = `Guion${Date.now()}`;
+    await crearJugador(db, { apellido: `${apellido}x` });
+    const r = await app.inject({ method: "GET", url: `/api/panel/jugadores?q=${apellido}_`, cookies });
+    expect(r.json()).toEqual([]);
+    await app.close();
+  });
+
+  it("dashboard: solicitudes pendientes y entrenadores activos", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const antes = (await app.inject({ method: "GET", url: "/api/panel/dashboard", cookies })).json();
+    await db.insert(solicitudesRegistro).values({ token_acceso_hash: hashToken(generarToken()), consentimiento_en: new Date() });
+    await db.insert(entrenadores).values({
+      nombre: "E", apellido: "F", rut: generarRutFicticio(), telefono: "912345678", disciplina: "voleibol",
+      foto_id: await fotoPrueba(db), credencial_token: generarToken(),
+    });
+    const despues = (await app.inject({ method: "GET", url: "/api/panel/dashboard", cookies })).json();
+    expect(despues.solicitudes_pendientes).toBe(antes.solicitudes_pendientes + 1);
+    expect(despues.entrenadores_activos).toBe(antes.entrenadores_activos + 1);
+    await app.close();
+  });
+
+  it("apoderados: 409 por RUT repetido y 422 si un activo queda incompleto; un rechazado no se activa", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const rut = generarRutFicticio();
+    await crearApoderado(db, { rut });
+    const activo = await crearApoderado(db, { estado: "activo", foto_id: await fotoPrueba(db), credencial_token: generarToken() });
+    const patch = (payload: object) => app.inject({ method: "PATCH", url: `/api/panel/apoderados/${activo}`, cookies, payload });
+    expect((await patch({ rut })).statusCode).toBe(409);
+    expect((await patch({ telefono: null })).statusCode).toBe(422);
+    const rechazado = await crearApoderado(db, { estado: "rechazado", foto_id: await fotoPrueba(db) });
+    expect((await app.inject({ method: "POST", url: `/api/panel/apoderados/${rechazado}/activar`, cookies })).statusCode).toBe(409);
+    await app.close();
+  });
+
+  it("un adulto con su único apoderado inactivo necesita su propio teléfono", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const adulto = await crearJugador(db, { fecha_nacimiento: "2000-01-01", telefono: null, numero_camiseta: "9", foto_id: await fotoPrueba(db) });
+    const apo = await crearApoderado(db, { estado: "inactivo" });
+    await vincular(db, adulto, apo, { estado: "activo" });
+    const r = await app.inject({ method: "POST", url: `/api/panel/jugadores/${adulto}/activar`, cookies });
+    expect(r.statusCode).toBe(422);
+    expect(r.json().error.mensaje).toContain("telefono");
+    await app.close();
+  });
+
+  it("entrenadores: detalle, 404, 409 por RUT repetido, foto y regenerar token", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const rut = generarRutFicticio();
+    const crear = async (r: string) => {
+      const [e] = await db.insert(entrenadores).values({
+        nombre: "E", apellido: "F", rut: r, telefono: "912345678", disciplina: "voleibol",
+        foto_id: await fotoPrueba(db), credencial_token: generarToken(),
+      }).returning({ id: entrenadores.id });
+      if (!e) throw new Error("sin entrenador");
+      return e.id;
+    };
+    const uno = await crear(rut);
+    const dos = await crear(generarRutFicticio());
+    expect((await app.inject({ method: "GET", url: `/api/panel/entrenadores/${uno}`, cookies })).json().rut).toBe(rut);
+    expect((await app.inject({ method: "GET", url: "/api/panel/entrenadores/00000000-0000-4000-8000-000000000000", cookies })).statusCode).toBe(404);
+    expect((await app.inject({ method: "PATCH", url: `/api/panel/entrenadores/${dos}`, cookies, payload: { rut } })).statusCode).toBe(409);
+    const foto = await app.inject({ method: "POST", url: `/api/panel/entrenadores/${uno}/foto`, cookies, ...multipart([{ nombre: "foto", archivo: PNG_PRUEBA }]) });
+    expect(foto.statusCode).toBe(200);
+    const leida = await app.inject({ method: "GET", url: `/api/panel/entrenadores/${uno}/foto`, cookies });
+    expect(leida.headers["content-type"]).toBe("image/png");
+    const r = await app.inject({ method: "POST", url: `/api/panel/entrenadores/${uno}/regenerar-token`, cookies });
+    expect(r.json().credencial_token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    await app.close();
+  });
+
+  it("regenerar token de un apoderado activo, y un multipart con dos fotos es 400", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const viejo = generarToken();
+    const apo = await crearApoderado(db, { estado: "activo", foto_id: await fotoPrueba(db), credencial_token: viejo });
+    const r = await app.inject({ method: "POST", url: `/api/panel/apoderados/${apo}/regenerar-token`, cookies });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().credencial_token).not.toBe(viejo);
+    const dos = await app.inject({
+      method: "POST",
+      url: `/api/panel/apoderados/${apo}/foto`,
+      cookies,
+      ...multipart([{ nombre: "foto", archivo: JPEG_PRUEBA }, { nombre: "foto", archivo: PNG_PRUEBA }]),
+    });
+    expect(dos.statusCode).toBe(400);
+    expect(dos.json().error.codigo).toBe("archivo_invalido");
+    await app.close();
+  });
+
+  it("las rutas de detalle y edición también niegan sin sesión", async () => {
+    const { app } = await appConSesion(db);
+    const apo = await crearApoderado(db);
+    for (const [method, url] of [
+      ["GET", `/api/panel/apoderados/${apo}`],
+      ["PATCH", `/api/panel/apoderados/${apo}`],
+      ["GET", "/api/panel/entrenadores/00000000-0000-4000-8000-000000000000"],
+      ["PATCH", "/api/panel/entrenadores/00000000-0000-4000-8000-000000000000"],
+    ] as const) {
+      expect((await app.inject({ method, url, payload: method === "GET" ? undefined : {} })).statusCode).toBe(401);
+    }
+    await app.close();
+  });
+
+  it("activar deja en el log quién lo hizo, sin el token", async () => {
+    const { PassThrough } = await import("node:stream");
+    const lineas: string[] = [];
+    const salida = new PassThrough();
+    salida.on("data", (c: Buffer) => lineas.push(c.toString()));
+    const { cookies } = await appConSesion(db);
+    const { construirApp } = await import("../../app");
+    const { configTest } = await import("../../test/db");
+    const app = await construirApp({ config: configTest({ LOG_LEVEL: "info" }), db, logStream: salida });
+    const apo = await crearApoderado(db, { foto_id: await fotoPrueba(db) });
+    const r = await app.inject({ method: "POST", url: `/api/panel/apoderados/${apo}/activar`, cookies });
+    expect(r.statusCode).toBe(200);
+    await app.close();
+    const log = lineas.join("");
+    expect(log).toContain('"accion":"activar"');
+    expect(log).toContain(`"persona_id":"${apo}"`);
+    expect(log).toContain('"usuario_id":"');
+    expect(log).not.toContain(r.json().credencial_token);
   });
 });

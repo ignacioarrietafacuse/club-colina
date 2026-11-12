@@ -19,7 +19,7 @@ import {
   regenerarTokenResponse,
   tipoPersona,
 } from "@club-colina/shared";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { noEncontrado } from "../../lib/errores";
 import { respuesta, validarEntrada } from "../../lib/validar";
@@ -123,16 +123,26 @@ export async function rutasPersonas(app: FastifyInstance) {
     await cambiarFoto(db, tipo, id, foto);
     return respuesta(fotoSubidaResponse, { tiene_foto: true });
   });
+  // Quién tocó una credencial queda en el log: ids y la acción, nunca el token.
+  const registrar = (request: FastifyRequest, accion: string, tipo: string, id: string) =>
+    request.log.info({ accion, tipo, persona_id: id, usuario_id: request.usuarioPanel?.id }, "panel: credencial");
+
   app.post("/:tipo/:id/regenerar-token", async (request) => {
     const { tipo, id } = tipoDe(request.params);
-    return respuesta(regenerarTokenResponse, { credencial_token: await regenerarToken(db, tipo, id) });
+    const credencial_token = await regenerarToken(db, tipo, id);
+    registrar(request, "regenerar-token", tipo, id);
+    return respuesta(regenerarTokenResponse, { credencial_token });
   });
   app.post("/:tipo/:id/activar", async (request) => {
     const { tipo, id } = tipoDe(request.params);
-    return respuesta(cambioEstadoResponse, await activar(db, tipo, id));
+    const resultado = await activar(db, tipo, id);
+    registrar(request, "activar", tipo, id);
+    return respuesta(cambioEstadoResponse, resultado);
   });
   app.post("/:tipo/:id/desactivar", async (request) => {
     const { tipo, id } = tipoDe(request.params);
-    return respuesta(cambioEstadoResponse, await desactivar(db, tipo, id));
+    const resultado = await desactivar(db, tipo, id);
+    registrar(request, "desactivar", tipo, id);
+    return respuesta(cambioEstadoResponse, resultado);
   });
 }

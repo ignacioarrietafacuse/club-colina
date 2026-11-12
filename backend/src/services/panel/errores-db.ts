@@ -19,6 +19,7 @@ export function codigoPostgres(error: unknown): string | undefined {
  * - 23505 (único): el RUT (o el token) ya existe → 409 `conflicto`.
  * - 23514 (CHECK): la ficha quedaría incompleta para su estado → 422 `requisitos_incompletos`.
  * - 23503 (llave foránea): apunta a algo que no existe (una categoría) → 400 `validacion`.
+ * - 22003 (fuera de rango): un número que no cabe en la columna → 400 `validacion`.
  * Cualquier otro error sigue su camino (500).
  */
 export async function conRestricciones<T>(fn: () => Promise<T>): Promise<T> {
@@ -31,6 +32,7 @@ export async function conRestricciones<T>(fn: () => Promise<T>): Promise<T> {
       throw new ErrorApi(422, "requisitos_incompletos", "La ficha quedaría incompleta para su estado");
     }
     if (codigo === "23503") throw new ErrorApi(400, "validacion", "Datos inválidos: referencia inexistente");
+    if (codigo === "22003") throw new ErrorApi(400, "validacion", "Datos inválidos: número fuera de rango");
     throw error;
   }
 }

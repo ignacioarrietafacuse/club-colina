@@ -22,6 +22,7 @@ import {
   hoyEnChile,
   nombreCompleto,
   requisitosJugador,
+  type CategoriaRegla,
 } from "./reglas";
 
 type JugadorResumen = z.input<typeof jugadorResumen>;
@@ -41,11 +42,34 @@ function textoRut(q: string): string {
 
 const fechaHora = (d: Date) => d.toISOString();
 
+/** Máximo de un smallint de Postgres (`categorias.id`). */
+const SMALLINT_MAX = 32767;
+
 // ---------------------------------------------------------------------------
 // Jugadores
 // ---------------------------------------------------------------------------
 
-const tieneApoderado = sql<boolean>`exists (select 1 from ${jugadorApoderado} where ${jugadorApoderado.jugador_id} = ${jugadores.id})`;
+/**
+ * Si el jugador tiene un apoderado vigente: un vínculo con un apoderado que no está rechazado ni
+ * inactivo. Un apoderado rechazado o dado de baja no sirve de contacto, así que entonces el
+ * jugador adulto necesita su propio teléfono.
+ */
+// Escrito con alias explícitos: drizzle no califica las columnas cuando la consulta tiene una
+// sola tabla, y en la subconsulta "estado" o "id" serían ambiguos.
+export const tieneApoderadoVigente = sql<boolean>`exists (select 1 from jugador_apoderado ja inner join apoderados a on a.id = ja.apoderado_id where ja.jugador_id = ${sql.raw('"jugadores"."id"')} and a.estado not in ('rechazado', 'inactivo'))`;
+
+/** Las categorías, para calcular la que corresponde por año. Son una decena de filas. */
+export function cargarCategorias(db: Ejecutor): Promise<CategoriaRegla[]> {
+  return db
+    .select({
+      id: categorias.id,
+      disciplina: categorias.disciplina,
+      anio_desde: categorias.anio_desde,
+      anio_hasta: categorias.anio_hasta,
+      se_calcula: categorias.se_calcula,
+    })
+    .from(categorias);
+}
 
 const columnasJugador = {
   id: jugadores.id,
@@ -71,7 +95,7 @@ const columnasJugador = {
   solicitud_id: jugadores.solicitud_id,
   creado_en: jugadores.creado_en,
   actualizado_en: jugadores.actualizado_en,
-  tiene_apoderado: tieneApoderado,
+  tiene_apoderado: tieneApoderadoVigente,
 };
 
 type FilaJugador = Awaited<ReturnType<typeof seleccionarJugadores>>[number];
@@ -84,7 +108,7 @@ function seleccionarJugadores(db: Ejecutor, donde?: SQL) {
     .orderBy(asc(jugadores.apellido), asc(jugadores.nombre), asc(jugadores.id));
 }
 
-function resumenJugador(f: FilaJugador, hoy: string): JugadorResumen {
+function resumenJugador(f: FilaJugador, cats: readonly CategoriaRegla[], hoy: string): JugadorResumen {
   return {
     id: f.id,
     nombre: f.nombre,
@@ -96,7 +120,7 @@ function resumenJugador(f: FilaJugador, hoy: string): JugadorResumen {
     estado: f.estado,
     origen: f.origen,
     tiene_foto: f.foto_id !== null,
-    faltan_datos: faltantesJugador(f, f.tiene_apoderado, hoy).length > 0,
+    faltan_datos: faltantesJugador(f, f.tiene_apoderado, cats, hoy).length > 0,
     marcado_retiro_en: f.marcado_retiro_en ? fechaHora(f.marcado_retiro_en) : null,
   };
 }
@@ -108,7 +132,11 @@ export async function listarJugadores(
   const condiciones: SQL[] = [];
   if (filtros.estado) condiciones.push(eq(jugadores.estado, filtros.estado));
   if (filtros.disciplina) condiciones.push(eq(jugadores.disciplina, filtros.disciplina));
-  if (filtros.categoria_id !== undefined) condiciones.push(eq(jugadores.categoria_id, filtros.categoria_id));
+  if (filtros.categoria_id !== undefined) {
+    // categorias.id es smallint: un número más grande no existe (y Postgres respondería 22003).
+    if (filtros.categoria_id > SMALLINT_MAX) return [];
+    condiciones.push(eq(jugadores.categoria_id, filtros.categoria_id));
+  }
   if (filtros.sin_numero === true) condiciones.push(eq(jugadores.numero_camiseta, NUMERO_SIN_ASIGNAR));
   if (filtros.sin_numero === false) {
     condiciones.push(sql`${jugadores.numero_camiseta} is distinct from ${NUMERO_SIN_ASIGNAR}`);
@@ -121,10 +149,11 @@ export async function listarJugadores(
     if (busqueda) condiciones.push(busqueda);
   }
   const hoy = hoyEnChile();
+  const cats = await cargarCategorias(db);
   const filas = await seleccionarJugadores(db, and(...condiciones));
   // "Faltan datos" depende de la edad y de los vínculos: se calcula acá. Son unos cientos de filas.
   return filas
-    .map((f) => resumenJugador(f, hoy))
+    .map((f) => resumenJugador(f, cats, hoy))
     .filter((j) => filtros.faltan_datos === undefined || j.faltan_datos === filtros.faltan_datos);
 }
 
@@ -144,8 +173,9 @@ export async function detalleJugador(db: Ejecutor, id: string): Promise<JugadorD
     .where(eq(jugadorApoderado.jugador_id, id))
     .orderBy(asc(jugadorApoderado.creado_en), asc(apoderados.id));
   const hoy = hoyEnChile();
+  const cats = await cargarCategorias(db);
   return {
-    ...resumenJugador(f, hoy),
+    ...resumenJugador(f, cats, hoy),
     fecha_nacimiento: f.fecha_nacimiento,
     edad: calcularEdad(f.fecha_nacimiento, hoy),
     postula_beca: f.postula_beca,
@@ -157,7 +187,7 @@ export async function detalleJugador(db: Ejecutor, id: string): Promise<JugadorD
     metodo_pago: f.metodo_pago,
     credencial_token: f.credencial_token,
     solicitud_id: f.solicitud_id,
-    faltantes: faltantesJugador(f, f.tiene_apoderado, hoy),
+    faltantes: faltantesJugador(f, f.tiene_apoderado, cats, hoy),
     apoderados: vinculos.map((v) => ({
       id: v.id,
       nombre_completo: nombreCompleto(v.nombre, v.apellido),
@@ -171,6 +201,7 @@ export async function detalleJugador(db: Ejecutor, id: string): Promise<JugadorD
 
 /** La categoría tiene que ser de la misma rama que el jugador. */
 export async function verificarCategoria(db: Ejecutor, categoriaId: number, disciplina: string): Promise<void> {
+  if (categoriaId > SMALLINT_MAX) throw new ErrorApi(400, "validacion", "Datos inválidos: categoria_id");
   const [c] = await db
     .select({ disciplina: categorias.disciplina })
     .from(categorias)
@@ -203,7 +234,7 @@ export async function editarJugador(
     // activo no puede quedar con menos de lo que se le exigió para activarlo.
     const [despues] = await seleccionarJugadores(tx, eq(jugadores.id, id));
     if (despues?.estado === "activo") {
-      const faltan = requisitosJugador(faltantesJugador(despues, despues.tiene_apoderado));
+      const faltan = requisitosJugador(faltantesJugador(despues, despues.tiene_apoderado, await cargarCategorias(tx)));
       if (faltan.length > 0) {
         throw new ErrorApi(422, "requisitos_incompletos", `Faltan datos: ${faltan.join(", ")}`);
       }

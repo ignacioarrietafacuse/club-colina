@@ -1,17 +1,16 @@
 /**
- * Ayudas para los tests del panel. Todo ficticio: RUT con `generarRutFicticio()`, nombres
+ * Ayudas para los tests del panel. Solo la importan los `*.test.ts`: nunca el código del servidor. Todo ficticio: RUT con `generarRutFicticio()`, nombres
  * inventados e imágenes sintéticas de 8x8.
  */
 import { COOKIE_SESION, generarRutFicticio } from "@club-colina/shared";
 import { construirApp } from "../../app";
 import type { Db } from "../../db/cliente";
-import { apoderados, jugadorApoderado, jugadores } from "../../db/schema";
+import { apoderados, jugadorApoderado, jugadores, usuarios } from "../../db/schema";
 import { guardarFoto } from "../../lib/fotos";
 import { generarToken } from "../../lib/tokens";
 import { configTest, JPEG_PRUEBA } from "../../test/db";
 import { crearSesion } from "../../services/panel/sesiones";
 import { crearUsuario } from "../../services/panel/usuarios";
-import { usuarios } from "../../db/schema";
 import { eq } from "drizzle-orm";
 
 let n = 0;

@@ -1,11 +1,12 @@
 import type { cambioEstadoResponse, TIPOS_PERSONA } from "@club-colina/shared";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { z } from "zod";
 import type { Ejecutor } from "../../db/cliente";
-import { apoderados, entrenadores, jugadorApoderado, jugadores } from "../../db/schema";
+import { apoderados, entrenadores, jugadores } from "../../db/schema";
 import { ErrorApi, noEncontrado } from "../../lib/errores";
 import { borrarFoto, guardarFoto, leerFoto } from "../../lib/fotos";
 import { generarToken } from "../../lib/tokens";
+import { cargarCategorias, tieneApoderadoVigente } from "./personas";
 import { faltantesApoderado, faltantesJugador, requisitosJugador } from "./reglas";
 
 export type TipoPersona = (typeof TIPOS_PERSONA)[number];
@@ -20,6 +21,11 @@ const conflicto = (mensaje: string) => new ErrorApi(409, "conflicto", mensaje);
 
 export function incompleto(faltantes: readonly string[]): ErrorApi {
   return new ErrorApi(422, "requisitos_incompletos", `Faltan datos: ${faltantes.join(", ")}`);
+}
+
+/** 404 si la persona no existe. */
+async function exigirExistencia(db: Ejecutor, tipo: TipoPersona, id: string): Promise<void> {
+  await fotoIdDe(db, tipo, id);
 }
 
 // ---------------------------------------------------------------------------
@@ -83,7 +89,7 @@ export async function regenerarToken(db: Ejecutor, tipo: TipoPersona, id: string
             .where(and(eq(entrenadores.id, id), eq(entrenadores.estado, "activo")))
             .returning({ id: entrenadores.id });
   if (filas.length === 0) {
-    await fotoIdDe(db, tipo, id); // 404 si no existe
+    await exigirExistencia(db, tipo, id);
     throw conflicto("Solo una persona activa tiene credencial");
   }
   return token;
@@ -107,14 +113,15 @@ export async function activar(db: Ejecutor, tipo: TipoPersona, id: string): Prom
           numero_camiseta: jugadores.numero_camiseta,
           telefono: jugadores.telefono,
           foto_id: jugadores.foto_id,
-          tiene_apoderado: sql<boolean>`exists (select 1 from ${jugadorApoderado} where ${jugadorApoderado.jugador_id} = ${jugadores.id})`,
+          disciplina: jugadores.disciplina,
+          tiene_apoderado: tieneApoderadoVigente,
         })
         .from(jugadores)
         .where(eq(jugadores.id, id))
         .for("update");
       if (!j) throw noEncontrado();
       if (!ACTIVABLES.has(j.estado)) throw conflicto("Solo se activa a un precargado o a un inactivo");
-      const faltan = requisitosJugador(faltantesJugador(j, j.tiene_apoderado));
+      const faltan = requisitosJugador(faltantesJugador(j, j.tiene_apoderado, await cargarCategorias(tx)));
       if (faltan.length > 0) throw incompleto(faltan);
       await tx.update(jugadores).set({ estado: "activo", credencial_token: token }).where(eq(jugadores.id, id));
     } else if (tipo === "apoderados") {
