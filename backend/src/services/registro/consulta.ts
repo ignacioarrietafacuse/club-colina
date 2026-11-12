@@ -1,0 +1,176 @@
+import type { Disciplina, RutLookupResponse } from "@club-colina/shared";
+import { and, asc, eq, gte, lte } from "drizzle-orm";
+import type { Ejecutor } from "../../db/cliente";
+import { apoderados, categorias, jugadorApoderado, jugadores } from "../../db/schema";
+
+type FaltanteApoderado = "nombre" | "apellido" | "telefono" | "foto";
+type FaltanteJugador =
+  | "nombre"
+  | "apellido"
+  | "fecha_nacimiento"
+  | "categoria"
+  | "numero_camiseta"
+  | "telefono"
+  | "foto";
+
+export type Apoderado = typeof apoderados.$inferSelect;
+export type Jugador = typeof jugadores.$inferSelect;
+
+/** Se muestra cuando un hijo precargado no tiene nombre en la base (el contrato pide texto). */
+export const SIN_NOMBRE = "(sin nombre)";
+
+export function primerNombre(nombre: string | null): string {
+  return nombre?.trim().split(/\s+/)[0] || SIN_NOMBRE;
+}
+
+export function nombreCompleto(p: { nombre: string | null; apellido: string | null }): string {
+  return [p.nombre, p.apellido].filter((v) => v).join(" ");
+}
+
+/** Fecha de hoy (`AAAA-MM-DD`) en Chile. */
+function hoyEnChile(ahora: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago" }).format(ahora);
+}
+
+/** Edad cumplida a hoy, a partir de `AAAA-MM-DD`. */
+export function edad(fechaNacimiento: string, ahora = new Date()): number {
+  const [a, m, d] = fechaNacimiento.split("-").map(Number);
+  const [ha, hm, hd] = hoyEnChile(ahora).split("-").map(Number);
+  if (!a || !m || !d || !ha || !hm || !hd) return 0;
+  const yaCumplio = hm > m || (hm === m && hd >= d);
+  return ha - a - (yaCumplio ? 0 : 1);
+}
+
+export const EDAD_ADULTO = 18;
+
+/**
+ * Jugador adulto según la base. Si la fecha falta (o era errónea y quedó vacía) no se puede
+ * saber: se le deja seguir como adulto y la fecha que escriba se vuelve a revisar al enviar.
+ */
+export function esAdulto(j: Pick<Jugador, "fecha_nacimiento">): boolean {
+  return j.fecha_nacimiento === null || edad(j.fecha_nacimiento) >= EDAD_ADULTO;
+}
+
+/**
+ * Categoría por año de nacimiento (solo las que `se_calcula`). Nula si el año no calza con
+ * ninguna o calza con más de una: en ese caso el formulario la pregunta.
+ */
+export async function calcularCategoria(
+  db: Ejecutor,
+  disciplina: Disciplina,
+  fechaNacimiento: string | null,
+): Promise<number | null> {
+  if (fechaNacimiento === null) return null;
+  const anio = Number(fechaNacimiento.slice(0, 4));
+  const filas = await db
+    .select({ id: categorias.id })
+    .from(categorias)
+    .where(
+      and(
+        eq(categorias.disciplina, disciplina),
+        eq(categorias.se_calcula, true),
+        lte(categorias.anio_desde, anio),
+        gte(categorias.anio_hasta, anio),
+      ),
+    );
+  return filas.length === 1 && filas[0] ? filas[0].id : null;
+}
+
+/** Ya pasó por el formulario o por el panel: no es un precargado que falta completar. */
+export function yaRegistrado(p: { estado: string }): boolean {
+  return p.estado !== "precargado";
+}
+
+export function faltantesApoderado(a: Apoderado): FaltanteApoderado[] {
+  const f: FaltanteApoderado[] = [];
+  if (a.nombre === null) f.push("nombre");
+  if (a.apellido === null) f.push("apellido");
+  if (a.telefono === null) f.push("telefono");
+  if (a.foto_id === null) f.push("foto");
+  return f;
+}
+
+/** Lo que falta en la ficha de un jugador. El teléfono solo se pide al jugador adulto. */
+export async function faltantesJugador(
+  db: Ejecutor,
+  j: Jugador,
+  opciones: { adulto: boolean },
+): Promise<FaltanteJugador[]> {
+  const f: FaltanteJugador[] = [];
+  if (j.nombre === null) f.push("nombre");
+  if (j.apellido === null) f.push("apellido");
+  if (j.fecha_nacimiento === null) f.push("fecha_nacimiento");
+  if (j.categoria_id === null && (await calcularCategoria(db, j.disciplina, j.fecha_nacimiento)) === null) {
+    f.push("categoria");
+  }
+  if (j.numero_camiseta === null) f.push("numero_camiseta");
+  if (opciones.adulto && j.telefono === null) f.push("telefono");
+  if (j.foto_id === null) f.push("foto");
+  return f;
+}
+
+/**
+ * Hijos del apoderado, en el orden que fija el contrato: todos sus vínculos, sin filtrar por
+ * estado, por `jugador_apoderado.creado_en, jugador_id`. La posición en esta lista es lo único
+ * que identifica a un hijo precargado entre la consulta de RUT y la solicitud.
+ */
+export async function hijosDeApoderado(db: Ejecutor, apoderadoId: string) {
+  const filas = await db
+    .select({ jugador: jugadores, vinculo: jugadorApoderado })
+    .from(jugadorApoderado)
+    .innerJoin(jugadores, eq(jugadores.id, jugadorApoderado.jugador_id))
+    .where(eq(jugadorApoderado.apoderado_id, apoderadoId))
+    .orderBy(asc(jugadorApoderado.creado_en), asc(jugadorApoderado.jugador_id));
+  return filas.map((f, posicion) => ({ posicion, ...f }));
+}
+
+export async function apoderadoPorRut(db: Ejecutor, rut: string): Promise<Apoderado | null> {
+  const [a] = await db.select().from(apoderados).where(eq(apoderados.rut, rut));
+  return a ?? null;
+}
+
+export async function jugadorPorRut(db: Ejecutor, rut: string): Promise<Jugador | null> {
+  const [j] = await db.select().from(jugadores).where(eq(jugadores.rut, rut));
+  return j ?? null;
+}
+
+/**
+ * Consulta de RUT del formulario. Responde solo si está en la base y qué falta; nunca los datos
+ * guardados ni ids. Si el RUT es apoderado y jugador a la vez, se trata como apoderado. La tabla
+ * `entrenadores` no se mira: los entrenadores no usan el formulario.
+ */
+export async function consultarRut(db: Ejecutor, rut: string): Promise<RutLookupResponse> {
+  const apoderado = await apoderadoPorRut(db, rut);
+  if (apoderado) {
+    const registrado = yaRegistrado(apoderado);
+    const hijos = await hijosDeApoderado(db, apoderado.id);
+    return {
+      encontrado: true,
+      tipo: "apoderado",
+      ya_registrado: registrado,
+      faltantes: registrado ? [] : faltantesApoderado(apoderado),
+      hijos: await Promise.all(
+        hijos.map(async ({ posicion, jugador }) => ({
+          posicion,
+          primer_nombre: primerNombre(jugador.nombre),
+          ya_registrado: yaRegistrado(jugador),
+          faltantes: yaRegistrado(jugador) ? [] : await faltantesJugador(db, jugador, { adulto: false }),
+        })),
+      ),
+    };
+  }
+  const jugador = await jugadorPorRut(db, rut);
+  if (jugador) {
+    const adulto = esAdulto(jugador);
+    const registrado = yaRegistrado(jugador);
+    return {
+      encontrado: true,
+      tipo: "jugador",
+      primer_nombre: primerNombre(jugador.nombre),
+      adulto,
+      ya_registrado: registrado,
+      faltantes: registrado ? [] : await faltantesJugador(db, jugador, { adulto }),
+    };
+  }
+  return { encontrado: false };
+}
