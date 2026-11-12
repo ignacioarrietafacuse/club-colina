@@ -146,6 +146,10 @@ export function camposTitular(t: Titular): Campos {
   // solo los faltantes terminaba siempre en 400.
   if (t.tipo === "jugador_adulto") return campos(TODO_ADULTO);
   const faltantes: readonly CampoPersona[] = t.lookup.faltantes;
+  // Al apoderado precargado el teléfono se le pide siempre, aunque la base lo tenga: el servidor
+  // lo exige para compararlo con el de la base y avisarle a Mony si no coincide.
+  if (t.tipo === "apoderado" && !faltantes.includes("telefono"))
+    return campos([...faltantes, "telefono"]);
   return campos(faltantes);
 }
 
