@@ -98,9 +98,13 @@ lo pide.
 - **Fotos en Postgres**, tabla `fotos` aparte; las fichas apuntan con `foto_id`. Usar
   `backend/src/lib/fotos.ts` (`guardarFoto`, `leerFoto`, `borrarFoto`). No hay volumen de fotos.
 - **`numero_camiseta` es texto** (`^[0-9]{1,2}$`): "0" y "00" son distintos. "99" = sin número asignado.
-- **Consulta de RUT (S2):** nunca devuelve ids. Los hijos precargados van con `posicion`: todos
-  los vínculos del apoderado en `jugador_apoderado`, sin filtrar por estado, ordenados por
-  `jugador_apoderado.creado_en, jugador_id`. La solicitud los nombra con `ref.precargado` y el
+- **Consulta de RUT (S2):** nunca devuelve ids. Los hijos precargados van con `posicion`: los
+  vínculos del apoderado en `jugador_apoderado`, sin filtrar por estado, ordenados por
+  `jugador_apoderado.creado_en, jugador_id`. Se ocultan los vínculos pendientes que creó una
+  solicitud hacia un hijo que no llegó en esa misma solicitud (un jugador que ya existía, nombrado
+  por RUT); aparece cuando Mony aprueba el vínculo. Un jugador que no es adulto con certeza (menor,
+  o sin fecha en la base) responde igual que un RUT desconocido (`encontrado: false`): si su apoderado lo nombra por RUT, el formulario pide todo
+  y el servidor completa solo lo que falta. La solicitud los nombra con `ref.precargado` y el
   `primer_nombre` que vio; al recibirla, el servidor recalcula la lista desde el RUT de quien llena
   y responde 409 `conflicto` si la posición no existe o el nombre no coincide. Ignora la tabla `entrenadores`. Si un RUT es apoderado y
   jugador adulto a la vez, el formulario lo trata como apoderado; Mony completa la parte
