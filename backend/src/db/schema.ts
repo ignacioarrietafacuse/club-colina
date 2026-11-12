@@ -147,6 +147,8 @@ export const apoderados = pgTable(
         `"estado" <> 'activo' OR ("nombre" IS NOT NULL AND "apellido" IS NOT NULL AND "telefono" IS NOT NULL AND "foto_id" IS NOT NULL AND "credencial_token" IS NOT NULL)`,
       ),
     ),
+    // Revocación garantizada por la base: solo una persona activa tiene credencial vigente.
+    check("apoderados_token_solo_activo_check", sql.raw(`"estado" = 'activo' OR "credencial_token" IS NULL`)),
     index("apoderados_estado_idx").on(t.estado),
     index("apoderados_solicitud_idx").on(t.solicitud_id),
   ],
@@ -205,6 +207,8 @@ export const jugadores = pgTable(
         `"estado" <> 'activo' OR ("nombre" IS NOT NULL AND "apellido" IS NOT NULL AND "fecha_nacimiento" IS NOT NULL AND "numero_camiseta" IS NOT NULL AND "foto_id" IS NOT NULL AND "credencial_token" IS NOT NULL)`,
       ),
     ),
+    // Revocación garantizada por la base: solo una persona activa tiene credencial vigente.
+    check("jugadores_token_solo_activo_check", sql.raw(`"estado" = 'activo' OR "credencial_token" IS NULL`)),
     index("jugadores_estado_idx").on(t.estado),
     index("jugadores_categoria_idx").on(t.categoria_id),
     index("jugadores_solicitud_idx").on(t.solicitud_id),
@@ -256,6 +260,10 @@ export const entrenadores = pgTable(
     check(
       "entrenadores_activo_token_check",
       sql.raw(`"estado" <> 'activo' OR "credencial_token" IS NOT NULL`),
+    ),
+    check(
+      "entrenadores_token_solo_activo_check",
+      sql.raw(`"estado" = 'activo' OR "credencial_token" IS NULL`),
     ),
   ],
 );

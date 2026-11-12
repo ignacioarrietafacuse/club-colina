@@ -4,6 +4,8 @@ import { construirApp } from "./app";
 import { LIMITES } from "./lib/limite-intentos";
 import { configTest, dbTest, JPEG_PRUEBA } from "./test/db";
 import { generarToken } from "./lib/tokens";
+import { generarRutFicticio } from "@club-colina/shared";
+import { jugadores } from "./db/schema";
 
 const { db, cerrar } = dbTest();
 afterAll(cerrar);
@@ -31,7 +33,7 @@ describe("app", () => {
 
   it("lo desconocido es un 404 genérico con el formato del contrato", async () => {
     const app = await construirApp({ config: configTest(), db });
-    for (const url of ["/api/nada", "/api/panel/jugadores", "/api/public/credencial/abc"]) {
+    for (const url of ["/api/nada", "/api/public/credencial/abc"]) {
       const r = await app.inject({ method: "GET", url });
       expect(r.statusCode).toBe(404);
       expect(r.json()).toEqual({ error: { codigo: "no_encontrado", mensaje: "No encontrado" } });
@@ -144,5 +146,51 @@ describe("app", () => {
     expect(mala.statusCode).toBe(400);
     expect(mala.json().error.codigo).toBe("archivo_invalido");
     await app.close();
+  });
+
+  it("todo /api/panel niega sin sesión, también lo que no existe", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    for (const [method, url] of [
+      ["GET", "/api/panel/jugadores"],
+      ["GET", "/api/panel/dashboard"],
+      ["POST", "/api/panel/jugadores/x/activar"],
+      ["GET", "/api/panel/no-existe"],
+    ] as const) {
+      const r = await app.inject({ method, url });
+      expect(r.statusCode).toBe(401);
+      expect(r.json().error.codigo).toBe("no_autenticado");
+    }
+    await app.close();
+  });
+
+  it("toda respuesta lleva nosniff", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const r = await app.inject({ method: "GET", url: "/api/health" });
+    expect(r.headers["x-content-type-options"]).toBe("nosniff");
+    await app.close();
+  });
+
+  it("un error de base no deja datos personales en el log", async () => {
+    const salida = new PassThrough();
+    const lineas: string[] = [];
+    salida.on("data", (c: Buffer) => lineas.push(c.toString()));
+    const app = await construirApp({ config: configTest({ LOG_LEVEL: "trace" }), db, logStream: salida });
+    const rut = generarRutFicticio(901);
+    const telefono = "934567812";
+    app.get("/api/prueba-duplicado", async () => {
+      const fila = { rut, telefono, disciplina: "voleibol" as const, origen: "formulario" as const };
+      await db.insert(jugadores).values(fila);
+      await db.insert(jugadores).values(fila);
+      return { ok: true };
+    });
+    const r = await app.inject({ method: "GET", url: "/api/prueba-duplicado" });
+    await app.close();
+    expect(r.statusCode).toBe(500);
+    const log = lineas.join("");
+    expect(log).toContain("23505");
+    expect(log).toContain("jugadores_rut_unique");
+    expect(log).not.toContain(rut);
+    expect(log).not.toContain(telefono);
+    expect(log).not.toContain("params");
   });
 });

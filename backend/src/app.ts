@@ -4,7 +4,7 @@ import { FOTO_MAX_BYTES, FOTOS_MAX_POR_SOLICITUD } from "@club-colina/shared";
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import type { Config } from "./config";
 import type { Db } from "./db/cliente";
-import { ErrorApi, manejarError } from "./lib/errores";
+import { ErrorApi, manejarError, resumirError } from "./lib/errores";
 import { registrarLimiteIntentos } from "./lib/limite-intentos";
 import { serializarRequest } from "./lib/logs";
 import { rutasAuth } from "./routes/auth";
@@ -34,7 +34,7 @@ const METODOS_QUE_MODIFICAN = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 export async function construirApp({ config, db, logStream }: OpcionesApp): Promise<FastifyInstance> {
   const logger: OpcionesLogger = {
     level: config.LOG_LEVEL,
-    serializers: { req: serializarRequest },
+    serializers: { req: serializarRequest, err: resumirError },
     ...(logStream ? { stream: logStream } : {}),
   };
 
@@ -63,6 +63,11 @@ export async function construirApp({ config, db, logStream }: OpcionesApp): Prom
     if (origin !== undefined && !origenes.has(origin)) {
       throw new ErrorApi(403, "origen_no_permitido", "Origen no permitido");
     }
+  });
+
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply.header("x-content-type-options", "nosniff");
+    return payload;
   });
 
   await app.register(cookie);

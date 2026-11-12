@@ -21,7 +21,8 @@ CREATE TABLE "apoderados" (
 	CONSTRAINT "apoderados_metodo_pago_check" CHECK ("metodo_pago" IN ('forpay_mensual', 'transferencia_anual', 'tarjeta_credito_anual')),
 	CONSTRAINT "apoderados_estado_check" CHECK ("estado" IN ('precargado', 'pendiente', 'activo', 'rechazado', 'inactivo')),
 	CONSTRAINT "apoderados_origen_check" CHECK ("origen" IN ('base_2026', 'formulario')),
-	CONSTRAINT "apoderados_activo_completo_check" CHECK ("estado" <> 'activo' OR ("nombre" IS NOT NULL AND "apellido" IS NOT NULL AND "telefono" IS NOT NULL AND "foto_id" IS NOT NULL AND "credencial_token" IS NOT NULL))
+	CONSTRAINT "apoderados_activo_completo_check" CHECK ("estado" <> 'activo' OR ("nombre" IS NOT NULL AND "apellido" IS NOT NULL AND "telefono" IS NOT NULL AND "foto_id" IS NOT NULL AND "credencial_token" IS NOT NULL)),
+	CONSTRAINT "apoderados_token_solo_activo_check" CHECK ("estado" = 'activo' OR "credencial_token" IS NULL)
 );
 --> statement-breakpoint
 CREATE TABLE "categorias" (
@@ -54,7 +55,8 @@ CREATE TABLE "entrenadores" (
 	CONSTRAINT "entrenadores_telefono_check" CHECK ("telefono" ~ '^[0-9]{9}$'),
 	CONSTRAINT "entrenadores_disciplina_check" CHECK ("disciplina" IN ('basketball', 'voleibol')),
 	CONSTRAINT "entrenadores_estado_check" CHECK ("estado" IN ('activo', 'inactivo')),
-	CONSTRAINT "entrenadores_activo_token_check" CHECK ("estado" <> 'activo' OR "credencial_token" IS NOT NULL)
+	CONSTRAINT "entrenadores_activo_token_check" CHECK ("estado" <> 'activo' OR "credencial_token" IS NOT NULL),
+	CONSTRAINT "entrenadores_token_solo_activo_check" CHECK ("estado" = 'activo' OR "credencial_token" IS NULL)
 );
 --> statement-breakpoint
 CREATE TABLE "fotos" (
@@ -111,7 +113,8 @@ CREATE TABLE "jugadores" (
 	CONSTRAINT "jugadores_metodo_pago_check" CHECK ("metodo_pago" IN ('forpay_mensual', 'transferencia_anual', 'tarjeta_credito_anual')),
 	CONSTRAINT "jugadores_estado_check" CHECK ("estado" IN ('precargado', 'pendiente', 'activo', 'rechazado', 'inactivo')),
 	CONSTRAINT "jugadores_origen_check" CHECK ("origen" IN ('base_2026', 'formulario')),
-	CONSTRAINT "jugadores_activo_completo_check" CHECK ("estado" <> 'activo' OR ("nombre" IS NOT NULL AND "apellido" IS NOT NULL AND "fecha_nacimiento" IS NOT NULL AND "numero_camiseta" IS NOT NULL AND "foto_id" IS NOT NULL AND "credencial_token" IS NOT NULL))
+	CONSTRAINT "jugadores_activo_completo_check" CHECK ("estado" <> 'activo' OR ("nombre" IS NOT NULL AND "apellido" IS NOT NULL AND "fecha_nacimiento" IS NOT NULL AND "numero_camiseta" IS NOT NULL AND "foto_id" IS NOT NULL AND "credencial_token" IS NOT NULL)),
+	CONSTRAINT "jugadores_token_solo_activo_check" CHECK ("estado" = 'activo' OR "credencial_token" IS NULL)
 );
 --> statement-breakpoint
 CREATE TABLE "sesiones" (

@@ -1,10 +1,11 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Rechaza secretos, planillas e imágenes fuera de los recursos del frontend
 # (ver docs/flujo-de-trabajo.md, "Las rejas" y "Datos reales").
+set -u
 estado=0
-archivos=$(git diff --cached --name-only --diff-filter=ACMR)
-for f in $archivos; do
-  base=$(basename "$f")
+
+while IFS= read -r -d '' f; do
+  base=$(basename -- "$f")
   minus=$(printf '%s' "$f" | tr '[:upper:]' '[:lower:]')
   case "$base" in
     .env.example) ;;
@@ -28,5 +29,19 @@ for f in $archivos; do
       esac
       ;;
   esac
-done
+done < <(git diff --cached --name-only -z --diff-filter=ACMR)
+
+# Contenido: URLs de base de datos con contraseña hacia algo que no sea localhost, y
+# asignaciones de tokens de las plataformas con un valor.
+agregadas=$(git diff --cached -U0 --diff-filter=ACMR | grep -E '^\+' | grep -vE '^\+\+\+ ')
+if printf '%s\n' "$agregadas" | grep -E 'postgres(ql)?://[^[:space:]/:@]+:[^[:space:]/@]+@' \
+  | grep -vqE '@(localhost|127\.0\.0\.1|\[::1\])[:/]'; then
+  echo "pre-commit: hay una URL de base de datos con contraseña que no es localhost." >&2
+  estado=1
+fi
+if printf '%s\n' "$agregadas" | grep -qE '(RAILWAY_TOKEN|VERCEL_TOKEN|RAILWAY_API_TOKEN)[[:space:]]*[=:][[:space:]]*["'\'']?[A-Za-z0-9_-]{16,}'; then
+  echo "pre-commit: parece haber un token de Railway o Vercel en el cambio." >&2
+  estado=1
+fi
+
 exit $estado

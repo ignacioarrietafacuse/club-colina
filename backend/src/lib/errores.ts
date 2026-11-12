@@ -14,10 +14,47 @@ export class ErrorApi extends Error {
   }
 }
 
+/** Rutas de los campos con problemas, sin sus valores. */
+export function camposConError(error: ZodError): string[] {
+  return [...new Set(error.issues.map((i) => i.path.join(".") || "(raíz)"))];
+}
+
 export const noEncontrado = () => new ErrorApi(404, "no_encontrado", "No encontrado");
 
 function responder(reply: FastifyReply, status: number, codigo: CodigoError, mensaje: string) {
   return reply.status(status).send({ error: { codigo, mensaje } });
+}
+
+function campoTexto(objeto: unknown, clave: string): string | undefined {
+  if (typeof objeto !== "object" || objeto === null || !(clave in objeto)) return undefined;
+  const valor: unknown = Reflect.get(objeto, clave);
+  return typeof valor === "string" ? valor : undefined;
+}
+
+/**
+ * Lo único que va al log de un error. Nunca el mensaje, los parámetros ni el `detail` de
+ * Postgres: drizzle pone en el mensaje la consulta con todos sus parámetros (RUT, teléfonos,
+ * tokens, bytes de fotos) y Postgres repite valores en `detail` ("Key (rut)=(...)").
+ */
+export function resumirError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return { type: typeof error, message: "(omitido)", stack: "" };
+  }
+  const causa: unknown = "cause" in error ? error.cause : undefined;
+  const origen = typeof causa === "object" && causa !== null ? causa : error;
+  return {
+    type: error.name,
+    message: "(omitido)",
+    // Solo las líneas "at ...": la primera línea del stack repite el mensaje.
+    stack: (error.stack ?? "")
+      .split("\n")
+      .filter((linea) => linea.trimStart().startsWith("at "))
+      .slice(0, 15)
+      .join("\n"),
+    codigo: campoTexto(origen, "code") ?? campoTexto(error, "code"),
+    restriccion: campoTexto(origen, "constraint_name"),
+    tabla: campoTexto(origen, "table_name"),
+  };
 }
 
 function esErrorFastify(error: unknown): error is FastifyError {
@@ -32,9 +69,11 @@ export function manejarError(error: unknown, request: FastifyRequest, reply: Fas
   if (error instanceof ErrorApi) {
     return responder(reply, error.status, error.codigo, error.message);
   }
+  // Un ZodError suelto no es culpa del cliente (la entrada se valida con validarEntrada,
+  // que lanza ErrorApi 400): es una respuesta o un dato interno que no cumple el contrato.
   if (error instanceof ZodError) {
-    const campos = [...new Set(error.issues.map((i) => i.path.join(".") || "(raíz)"))];
-    return responder(reply, 400, "validacion", `Datos inválidos: ${campos.join(", ")}`);
+    request.log.error({ err: error, campos: camposConError(error) }, "dato interno fuera de contrato");
+    return responder(reply, 500, "error_interno", "Error interno");
   }
   if (esErrorFastify(error)) {
     const status = error.statusCode ?? 500;

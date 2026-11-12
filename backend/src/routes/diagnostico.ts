@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { validarEntrada } from "../lib/validar";
 import { ErrorApi, noEncontrado } from "../lib/errores";
 import { borrarFoto, guardarFoto, leerFoto } from "../lib/fotos";
 import { LIMITES } from "../lib/limite-intentos";
@@ -31,14 +32,14 @@ export async function rutasDiagnostico(app: FastifyInstance, opciones: { token: 
   });
 
   app.get("/api/diagnostico/foto/:id", { config, onRequest: verificar }, async (request, reply) => {
-    const { id } = params.parse(request.params);
+    const { id } = validarEntrada(params, request.params);
     const foto = await leerFoto(app.db, id);
     if (!foto) throw noEncontrado();
     return reply.header("cache-control", "no-store").type(foto.mime).send(foto.bytes);
   });
 
   app.delete("/api/diagnostico/foto/:id", { config, onRequest: verificar }, async (request, reply) => {
-    const { id } = params.parse(request.params);
+    const { id } = validarEntrada(params, request.params);
     if (!(await borrarFoto(app.db, id))) throw noEncontrado();
     return reply.status(204).send();
   });

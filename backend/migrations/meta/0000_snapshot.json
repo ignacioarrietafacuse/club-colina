@@ -1,5 +1,5 @@
 {
-  "id": "ace22bdc-e3d2-4034-919b-32c692d42a3b",
+  "id": "47d5fae0-6416-4e15-9dfa-057ed287c486",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -203,6 +203,10 @@
         "apoderados_activo_completo_check": {
           "name": "apoderados_activo_completo_check",
           "value": "\"estado\" <> 'activo' OR (\"nombre\" IS NOT NULL AND \"apellido\" IS NOT NULL AND \"telefono\" IS NOT NULL AND \"foto_id\" IS NOT NULL AND \"credencial_token\" IS NOT NULL)"
+        },
+        "apoderados_token_solo_activo_check": {
+          "name": "apoderados_token_solo_activo_check",
+          "value": "\"estado\" = 'activo' OR \"credencial_token\" IS NULL"
         }
       },
       "isRLSEnabled": false
@@ -415,6 +419,10 @@
         "entrenadores_activo_token_check": {
           "name": "entrenadores_activo_token_check",
           "value": "\"estado\" <> 'activo' OR \"credencial_token\" IS NOT NULL"
+        },
+        "entrenadores_token_solo_activo_check": {
+          "name": "entrenadores_token_solo_activo_check",
+          "value": "\"estado\" = 'activo' OR \"credencial_token\" IS NULL"
         }
       },
       "isRLSEnabled": false
@@ -866,6 +874,10 @@
         "jugadores_activo_completo_check": {
           "name": "jugadores_activo_completo_check",
           "value": "\"estado\" <> 'activo' OR (\"nombre\" IS NOT NULL AND \"apellido\" IS NOT NULL AND \"fecha_nacimiento\" IS NOT NULL AND \"numero_camiseta\" IS NOT NULL AND \"foto_id\" IS NOT NULL AND \"credencial_token\" IS NOT NULL)"
+        },
+        "jugadores_token_solo_activo_check": {
+          "name": "jugadores_token_solo_activo_check",
+          "value": "\"estado\" = 'activo' OR \"credencial_token\" IS NULL"
         }
       },
       "isRLSEnabled": false

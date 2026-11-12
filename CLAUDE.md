@@ -61,6 +61,12 @@ Las CLI de Railway y Vercel están como devDependencies de la raíz: se usan sie
 
 Las migraciones se generan desde `backend/src/db/schema.ts` con
 `pnpm --filter @club-colina/backend db:generar`. Una migración aplicada nunca se edita.
+Railway las aplica solas al desplegar: una migración que borra, renombra o cambia tipos
+necesita respaldo manual y el OK de Ignacio, y lleva la línea
+`-- destructiva-aprobada: AAAA-MM-DD`; sin ella el test `migraciones.test.ts` frena el PR.
+
+Los tests del backend usan `TEST_DATABASE_URL` (nunca `DATABASE_URL`) y vacían esa base
+entera: tiene que estar en localhost y llamarse `*_test`.
 
 ## Ola 1: propiedad de carpetas
 
@@ -105,8 +111,19 @@ lo pide.
   activa con `config: { rateLimit: LIMITES.x }`.
 - **Escrituras:** el backend rechaza POST/PUT/PATCH/DELETE con un `Origin` que no sea
   `PUBLIC_BASE_URL` u `ORIGENES_PERMITIDOS` (las vistas previas de Vercel quedan en solo lectura).
-- **Errores:** lanzar `ErrorApi` (`backend/src/lib/errores.ts`); validar con los esquemas
-  de `shared/` (`esquema.parse(...)`): un `ZodError` se responde solo como 400 `validacion`.
+- **Entrada:** se valida con `validarEntrada(esquema, datos)` (`backend/src/lib/validar.ts`),
+  que responde 400 `validacion` con los nombres de los campos. Un `ZodError` suelto es un
+  error del servidor (500).
+- **Respuestas:** toda respuesta se arma con `respuesta(esquemaResponse, datos)`, que pasa
+  por el contrato y descarta cualquier campo que no esté ahí. Obligatorio en `/api/public`.
+- **Errores:** lanzar `ErrorApi` (`backend/src/lib/errores.ts`). El logger nunca registra el
+  mensaje de un error (drizzle mete ahí los parámetros de la consulta): solo tipo, código
+  SQLSTATE, restricción, tabla y stack (`resumirError`).
+- **Panel cerrado por defecto:** `rutasPanel` responde 401 a todo `/api/panel/*` y
+  `guardaPanel` manda a `/login`. S1 y S4 los reemplazan por la verificación real de sesión,
+  sin dejar ninguna ruta afuera.
+- **Fotos:** `guardarFoto` borra los metadatos (EXIF, GPS, XMP, comentarios) antes de guardar.
+  Al servirlas: `Cache-Control: private, no-store` (el backend ya agrega `nosniff`).
 - **Scripts que escriben:** llaman a `verificarHostDestino()` (`backend/src/lib/guarda-host.ts`)
   antes de conectarse.
 - **Datos de prueba:** siempre ficticios, con `generarRutFicticio()` de `shared/`.
