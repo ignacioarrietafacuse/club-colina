@@ -43,7 +43,9 @@ describe("app", () => {
       url: "/api/public/solicitudes",
       headers: { origin: "https://panel.ejemplo.test" },
     });
-    expect(propio.statusCode).toBe(404);
+    // Pasa la reja de origen; la ruta responde 400 porque el pedido no es multipart.
+    expect(propio.statusCode).toBe(400);
+    expect(propio.json().error.codigo).toBe("validacion");
     await app.close();
   });
 
