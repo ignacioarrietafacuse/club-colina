@@ -35,6 +35,26 @@ describe("POST /api/public/rut-lookup", () => {
     await app.close();
   });
 
+  it("sin cuerpo o sin rut es 400", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    for (const payload of [{}, { otro: 1 }]) {
+      const r = await app.inject({ method: "POST", url: API.public.rutLookup, payload });
+      expect(r.statusCode).toBe(400);
+      expect(r.json().error.codigo).toBe("validacion");
+    }
+    await app.close();
+  });
+
+  it("un hijo sin nombre en la base sale con el texto fijo", async () => {
+    const apoderado = await crearApoderado(db);
+    const hijo = await crearJugador(db, { nombre: null });
+    await vincular(db, hijo.id, apoderado.id);
+    const app = await construirApp({ config: configTest(), db });
+    const r = await consultar(app, apoderado.rut);
+    expect(r.json().hijos[0]).toMatchObject({ primer_nombre: "(sin nombre)", faltantes: ["nombre", "numero_camiseta", "foto"] });
+    await app.close();
+  });
+
   it("un RUT que no está responde solo encontrado: false", async () => {
     const app = await construirApp({ config: configTest(), db });
     const r = await consultar(app, generarRutFicticio(77));

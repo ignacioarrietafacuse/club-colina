@@ -7,8 +7,8 @@ import { consultarRut } from "../../services/registro/consulta";
 /** POST /api/public/rut-lookup — si el RUT está en la base y qué falta, sin datos ni ids. */
 export async function rutasRutLookup(app: FastifyInstance) {
   app.post("/rut-lookup", { config: { rateLimit: LIMITES.rutLookup } }, async (request, reply) => {
-    const { rut } = validarEntrada(rutLookupRequest, request.body);
     reply.header("cache-control", "no-store");
+    const { rut } = validarEntrada(rutLookupRequest, request.body);
     return respuesta(rutLookupResponse, await consultarRut(app.db, rut));
   });
 }

@@ -15,6 +15,9 @@ export function rutNuevo(): string {
 
 /** Vacía las tablas de personas y solicitudes. Las categorías (seed) se conservan. */
 export async function vaciarRegistro(db: Ejecutor) {
+  // Guarda propia: este archivo vive junto al código, así que no confía en quien lo llama.
+  const [fila] = await db.execute<{ base: string }>(sql`select current_database() as base`);
+  if (!fila?.base.endsWith("_test")) throw new Error("vaciarRegistro solo corre sobre una base *_test");
   await db.execute(
     sql`truncate jugador_apoderado, jugadores, apoderados, entrenadores, solicitudes_registro, fotos, sesiones, usuarios cascade`,
   );
