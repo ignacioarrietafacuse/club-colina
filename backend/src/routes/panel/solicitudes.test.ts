@@ -1035,3 +1035,44 @@ describe("solicitudes: fotos al restaurar, propia y topes", () => {
     await app.close();
   });
 });
+
+describe("solicitudes: paga_mensualidad de un vínculo de la base", () => {
+  async function enviar(app: Awaited<ReturnType<typeof appConSesion>>["app"], rut: string | undefined, paga: boolean, ip: string) {
+    const form = new FormData();
+    form.append(
+      "datos",
+      JSON.stringify({
+        rut,
+        tipo: "apoderado",
+        consentimiento: true,
+        foto: "titular",
+        paga_mensualidad: paga,
+        hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, numero_camiseta: "7", foto: "h0" }],
+      }),
+    );
+    for (const clave of ["titular", "h0"]) {
+      form.append(`foto_${clave}`, new Blob([new Uint8Array(JPEG_PRUEBA)], { type: "image/jpeg" }), `${clave}.jpg`);
+    }
+    return app.inject({ method: "POST", url: API.public.solicitudes, payload: form, headers: { "x-real-ip": ip } });
+  }
+
+  it("rechazar al titular devuelve el valor que tenía el vínculo de la base", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const titular = await crearApoderado(db, { nombre: "Rosa", apellido: "Ficticia", telefono: "911111111" });
+    const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: null });
+    await db.insert(jugadorApoderado).values({ jugador_id: hijo, apoderado_id: titular, estado: "activo", paga_mensualidad: true });
+    const rut = (await estadoA(titular))?.rut;
+    expect((await enviar(app, rut, false, "198.51.100.80")).statusCode).toBe(201);
+    expect((await vinculo(hijo, titular))?.paga_mensualidad).toBe(false);
+    // La forma que comparten S1 y S2: el valor anterior por jugador, en la copia del titular.
+    const [copia] = await db.select().from(fichasPrevias).where(eq(fichasPrevias.apoderado_id, titular));
+    expect(copia?.datos).toMatchObject({ vinculos_paga: { [hijo]: true } });
+    const [s] = await db.select().from(solicitudesRegistro).where(eq(solicitudesRegistro.titular_apoderado_id, titular));
+    if (!s) throw new Error("sin solicitud");
+    const r = await app.inject({ method: "POST", url: API.panel.rechazar(s.id), cookies, payload: {} });
+    expect(r.statusCode).toBe(200);
+    expect(await vinculo(hijo, titular)).toMatchObject({ paga_mensualidad: true, estado: "activo" });
+    expect(await estadoA(titular)).toMatchObject({ estado: "precargado" });
+    await app.close();
+  });
+});
