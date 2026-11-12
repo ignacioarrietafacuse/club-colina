@@ -45,8 +45,9 @@ export const DATOS_VACIOS: DatosPersona = {
 
 /**
  * Qué se le pregunta a una persona. La categoría se pregunta solo cuando el servidor dice que
- * falta (`faltantes` de un precargado): a una persona nueva el servidor se la calcula por año
- * de nacimiento, y si no calza, la completa Mony al aprobar.
+ * falta (`faltantes` de un apoderado o hijo precargado): a una persona nueva, y al jugador adulto
+ * precargado (que llena el formulario completo), el servidor se la calcula por año de
+ * nacimiento, y si no calza, la completa Mony al aprobar.
  */
 export interface Campos {
   pedir: ReadonlySet<CampoPersona>;
