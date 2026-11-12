@@ -55,14 +55,14 @@ export async function rutasAuth(app: FastifyInstance) {
         throw new ErrorApi(401, "credenciales_invalidas", "Usuario o contraseña incorrectos");
       }
       const { token, expira } = await crearSesion(app.db, encontrado.id);
-      ponerCookieSesion(request, reply, token, expira);
+      ponerCookieSesion(reply, token, expira);
       return respuesta(loginResponse, { usuario: encontrado });
     },
   );
 
   app.post("/logout", async (request, reply) => {
     await borrarSesion(app.db, request.cookies[COOKIE_SESION]);
-    borrarCookieSesion(request, reply);
+    borrarCookieSesion(reply);
     return reply.status(204).send();
   });
 

@@ -76,7 +76,7 @@ export function categoriaCalculada(
  * el formulario (S2):
  * - La categoría falta solo si está vacía y no se puede calcular por el año.
  * - El teléfono se exige a un jugador adulto, o de edad desconocida, que no tiene un apoderado
- *   vigente: es su propio contacto.
+ *   vigente (activo, ver `tieneApoderadoVigente`): es su propio contacto.
  * Un campo falta cuando es null (como en el SQL de los filtros).
  */
 export function faltantesJugador(

@@ -31,10 +31,12 @@ import type { Ejecutor } from "../../db/cliente";
 import {
   apoderados,
   fichasPrevias,
+  fotos,
   jugadorApoderado,
   jugadores,
   solicitudesRegistro,
 } from "../../db/schema";
+import { CANDADO_SOLICITUDES } from "../../lib/candados";
 import { ErrorApi, noEncontrado } from "../../lib/errores";
 import { borrarFoto } from "../../lib/fotos";
 import { generarToken, hashToken } from "../../lib/tokens";
@@ -51,6 +53,15 @@ const fechaHora = (d: Date | null) => (d ? d.toISOString() : null);
 const conflicto = (mensaje: string) => new ErrorApi(409, "conflicto", mensaje);
 const fueraDeLaSolicitud = () =>
   conflicto("Esa persona o vínculo no está pendiente en esta solicitud: se decide desde su propia solicitud");
+
+/**
+ * El mismo candado que toma S2 al recibir una solicitud: aprobar y rechazar restauran o borran
+ * `fichas_previas`, y una solicitud en paralelo no puede copiar una ficha a medio restaurar. Va
+ * primero en la transacción, antes de bloquear filas, en el mismo orden que S2.
+ */
+async function tomarCandado(tx: Ejecutor): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(${CANDADO_SOLICITUDES})`);
+}
 
 async function filaSolicitud(db: Ejecutor, id: string, bloquear = false): Promise<Fila> {
   const consulta = db.select().from(solicitudesRegistro).where(eq(solicitudesRegistro.id, id));
@@ -360,55 +371,15 @@ export async function aprobarSolicitud(
   pedido: z.output<typeof aprobarRequest>,
 ): Promise<void> {
   await db.transaction(async (tx) => {
+    await tomarCandado(tx);
     const s = await filaSolicitud(tx, id, true);
     const m = await miembros(tx, s);
     const propiosJ = new Set(m.propiosJ);
     const propiosA = new Set(m.propiosA);
     const cats = await cargarCategorias(tx);
 
-    for (const pj of pedido.jugadores) {
-      if (!propiosJ.has(pj.id)) throw fueraDeLaSolicitud();
-      const [j] = await tx
-        .select({
-          estado: jugadores.estado,
-          disciplina: jugadores.disciplina,
-          nombre: jugadores.nombre,
-          apellido: jugadores.apellido,
-          fecha_nacimiento: jugadores.fecha_nacimiento,
-          telefono: jugadores.telefono,
-          foto_id: jugadores.foto_id,
-          marcado_retiro_en: jugadores.marcado_retiro_en,
-          tiene_apoderado: tieneApoderadoVigente,
-        })
-        .from(jugadores)
-        .where(eq(jugadores.id, pj.id))
-        .for("update");
-      if (!j || j.estado !== "pendiente") throw fueraDeLaSolicitud();
-      if (j.marcado_retiro_en !== null) {
-        throw conflicto(MENSAJE_MARCADO);
-      }
-      if (pj.categoria_id !== null) await verificarCategoria(tx, pj.categoria_id, j.disciplina);
-      const faltan = requisitosJugador(
-        faltantesJugador({ ...j, categoria_id: pj.categoria_id, numero_camiseta: pj.numero_camiseta }, j.tiene_apoderado, cats),
-      );
-      if (faltan.length > 0) throw incompleto(faltan);
-      await conRestricciones(() =>
-        tx
-          .update(jugadores)
-          .set({
-            categoria_id: pj.categoria_id,
-            numero_camiseta: pj.numero_camiseta,
-            beca_mensualidad_pct: pj.beca_mensualidad_pct,
-            beca_torneos_pct: pj.beca_torneos_pct,
-            beca_campus_pct: pj.beca_campus_pct,
-            ...(pj.metodo_pago ? { metodo_pago: pj.metodo_pago } : {}),
-            estado: "activo",
-            credencial_token: generarToken(),
-          })
-          .where(eq(jugadores.id, pj.id)),
-      );
-    }
-
+    // Los apoderados van primero: un apoderado aprobado en este mismo pedido ya cuenta como
+    // contacto del jugador adulto (solo cuenta uno activo).
     for (const pa of pedido.apoderados) {
       if (!propiosA.has(pa.id)) throw fueraDeLaSolicitud();
       const [a] = await tx
@@ -434,6 +405,55 @@ export async function aprobarSolicitud(
             credencial_token: generarToken(),
           })
           .where(eq(apoderados.id, pa.id)),
+      );
+    }
+
+    for (const pj of pedido.jugadores) {
+      if (!propiosJ.has(pj.id)) throw fueraDeLaSolicitud();
+      const [j] = await tx
+        .select({
+          estado: jugadores.estado,
+          disciplina: jugadores.disciplina,
+          nombre: jugadores.nombre,
+          apellido: jugadores.apellido,
+          fecha_nacimiento: jugadores.fecha_nacimiento,
+          telefono: jugadores.telefono,
+          foto_id: jugadores.foto_id,
+          marcado_retiro_en: jugadores.marcado_retiro_en,
+          tiene_apoderado: tieneApoderadoVigente,
+        })
+        .from(jugadores)
+        .where(eq(jugadores.id, pj.id))
+        .for("update");
+      if (!j || j.estado !== "pendiente") throw fueraDeLaSolicitud();
+      if (j.marcado_retiro_en !== null) {
+        throw conflicto(MENSAJE_MARCADO);
+      }
+      if (pj.categoria_id !== null) await verificarCategoria(tx, pj.categoria_id, j.disciplina);
+      // Un vínculo listado en este pedido puede darle contacto: se confirma al final.
+      const contactoEnPedido = pedido.vinculos.some((v) => v.jugador_id === pj.id);
+      const faltan = requisitosJugador(
+        faltantesJugador(
+          { ...j, categoria_id: pj.categoria_id, numero_camiseta: pj.numero_camiseta },
+          j.tiene_apoderado || contactoEnPedido,
+          cats,
+        ),
+      );
+      if (faltan.length > 0) throw incompleto(faltan);
+      await conRestricciones(() =>
+        tx
+          .update(jugadores)
+          .set({
+            categoria_id: pj.categoria_id,
+            numero_camiseta: pj.numero_camiseta,
+            beca_mensualidad_pct: pj.beca_mensualidad_pct,
+            beca_torneos_pct: pj.beca_torneos_pct,
+            beca_campus_pct: pj.beca_campus_pct,
+            ...(pj.metodo_pago ? { metodo_pago: pj.metodo_pago } : {}),
+            estado: "activo",
+            credencial_token: generarToken(),
+          })
+          .where(eq(jugadores.id, pj.id)),
       );
     }
 
@@ -472,6 +492,27 @@ export async function aprobarSolicitud(
 
     const aprobadosJ = pedido.jugadores.map((j) => j.id);
     const aprobadosA = pedido.apoderados.map((a) => a.id);
+    // Con los vínculos ya decididos: cada jugador aprobado tiene que cumplir de verdad (un adulto
+    // sin teléfono, con un apoderado activo y un vínculo activo). Si no, no se aprueba nada.
+    for (const jugadorId of aprobadosJ) {
+      const [j] = await tx
+        .select({
+          nombre: jugadores.nombre,
+          apellido: jugadores.apellido,
+          fecha_nacimiento: jugadores.fecha_nacimiento,
+          categoria_id: jugadores.categoria_id,
+          numero_camiseta: jugadores.numero_camiseta,
+          telefono: jugadores.telefono,
+          foto_id: jugadores.foto_id,
+          disciplina: jugadores.disciplina,
+          tiene_apoderado: tieneApoderadoVigente,
+        })
+        .from(jugadores)
+        .where(eq(jugadores.id, jugadorId));
+      if (!j) throw noEncontrado();
+      const faltan = requisitosJugador(faltantesJugador(j, j.tiene_apoderado, cats));
+      if (faltan.length > 0) throw incompleto(faltan);
+    }
     await borrarFichasPrevias(tx, "jugador", aprobadosJ);
     await borrarFichasPrevias(tx, "apoderado", aprobadosA);
     await cerrarSiCorresponde(tx, id);
@@ -512,6 +553,16 @@ const previoApoderado = previoJugador.pick({
   estado: true,
   solicitud_id: true,
 });
+
+/**
+ * La foto de la copia puede haberse borrado después (Mony la cambió en el panel con
+ * `cambiarFoto`): entonces la ficha vuelve sin foto en vez de apuntar a una que no existe.
+ */
+async function fotoVigente(tx: Ejecutor, fotoId: string | null | undefined): Promise<{ foto_id?: string | null }> {
+  if (fotoId === undefined || fotoId === null) return {};
+  const [f] = await tx.select({ id: fotos.id }).from(fotos).where(eq(fotos.id, fotoId));
+  return f ? {} : { foto_id: null };
+}
 
 /**
  * Rechaza a una persona. Si ya existía antes de la solicitud (hay ficha previa), vuelve a como
@@ -564,11 +615,13 @@ async function rechazarPersona(
   }
   if (tipo === "jugador") {
     const d = previoJugador.parse(previa.datos);
+    // La fecha de "ya no está" va en la copia como texto ISO: vuelve a ser fecha.
     const { marcado_retiro_en, ...resto } = d;
     await tx
       .update(jugadores)
       .set({
         ...resto,
+        ...(await fotoVigente(tx, d.foto_id)),
         ...(marcado_retiro_en !== undefined
           ? { marcado_retiro_en: marcado_retiro_en === null ? null : new Date(marcado_retiro_en) }
           : {}),
@@ -582,6 +635,7 @@ async function rechazarPersona(
       .update(apoderados)
       .set({
         ...d,
+        ...(await fotoVigente(tx, d.foto_id)),
         estado: "precargado",
         credencial_token: null,
       })
@@ -592,10 +646,14 @@ async function rechazarPersona(
 }
 
 /**
- * Rechaza a las personas indicadas (propias de la solicitud y pendientes), o a todas las propias
- * pendientes. Se borran los vínculos que esta solicitud (o su origen) creó para ellas, también si
- * ya estaban activos: no queda ninguno hacia alguien rechazado. Sin `personas`, también se borran
- * los vínculos pendientes hacia personas de otras solicitudes.
+ * Rechaza a las personas y los vínculos indicados, o, si no viene ninguno de los dos, todo lo
+ * pendiente de la solicitud.
+ * - Personas: propias de la solicitud y pendientes. Se borran los vínculos que esta solicitud (o
+ *   su origen) creó para ellas, también si ya estaban activos: no queda ninguno hacia alguien
+ *   rechazado.
+ * - Vínculos: pendientes y de esta solicitud. Se borran; sus personas siguen como estaban.
+ * - Sin nada indicado, también se borran los vínculos pendientes hacia personas de otras
+ *   solicitudes.
  */
 export async function rechazarSolicitud(
   db: Ejecutor,
@@ -603,13 +661,16 @@ export async function rechazarSolicitud(
   pedido: z.output<typeof rechazarRequest>,
 ): Promise<void> {
   await db.transaction(async (tx) => {
+    await tomarCandado(tx);
     const s = await filaSolicitud(tx, id, true);
     const m = await miembros(tx, s);
+    const parcial = pedido.personas !== undefined || pedido.vinculos !== undefined;
     let candidatosJ: string[];
     let candidatosA: string[];
-    if (pedido.personas) {
-      candidatosJ = unicos(pedido.personas.filter((p) => p.rol === "jugador").map((p) => p.id));
-      candidatosA = unicos(pedido.personas.filter((p) => p.rol === "apoderado").map((p) => p.id));
+    if (parcial) {
+      const personas = pedido.personas ?? [];
+      candidatosJ = unicos(personas.filter((p) => p.rol === "jugador").map((p) => p.id));
+      candidatosA = unicos(personas.filter((p) => p.rol === "apoderado").map((p) => p.id));
       if (candidatosJ.some((j) => !m.propiosJ.includes(j)) || candidatosA.some((a) => !m.propiosA.includes(a))) {
         throw fueraDeLaSolicitud();
       }
@@ -637,7 +698,14 @@ export async function rechazarSolicitud(
               .where(and(inArray(apoderados.id, candidatosA), eq(apoderados.estado, "pendiente")))
               .for("update")
           ).map((f) => f.id);
-    if (pedido.personas && rechJ.length + rechA.length !== candidatosJ.length + candidatosA.length) {
+    if (parcial && rechJ.length + rechA.length !== candidatosJ.length + candidatosA.length) {
+      throw fueraDeLaSolicitud();
+    }
+    const pendientesDeEsta = new Set(
+      m.vinculos.filter((v) => v.estado === "pendiente").map((v) => `${v.jugador_id}|${v.apoderado_id}`),
+    );
+    const vinculosPedidos = pedido.vinculos ?? [];
+    if (vinculosPedidos.some((v) => !pendientesDeEsta.has(`${v.jugador_id}|${v.apoderado_id}`))) {
       throw fueraDeLaSolicitud();
     }
 
@@ -655,11 +723,41 @@ export async function rechazarSolicitud(
     if (haciaRechazados) {
       await tx.delete(jugadorApoderado).where(and(inArray(jugadorApoderado.solicitud_id, familia), haciaRechazados));
     }
-    if (!pedido.personas) {
+    // Un vínculo de esta solicitud (en una de segundo apoderado, también el que creó su origen
+    // hacia él): se borra solo si sigue pendiente.
+    for (const v of vinculosPedidos) {
+      await tx
+        .delete(jugadorApoderado)
+        .where(
+          and(
+            eq(jugadorApoderado.jugador_id, v.jugador_id),
+            eq(jugadorApoderado.apoderado_id, v.apoderado_id),
+            eq(jugadorApoderado.estado, "pendiente"),
+            inArray(jugadorApoderado.solicitud_id, familia),
+          ),
+        );
+    }
+    if (!parcial) {
       await tx
         .delete(jugadorApoderado)
         .where(and(eq(jugadorApoderado.solicitud_id, s.id), eq(jugadorApoderado.estado, "pendiente")));
     }
+
+    // Quien era de la solicitud solo por un vínculo que se acaba de borrar (un precargado que ella
+    // completó, sin solicitud_id) ya no se podría decidir desde ninguna: vuelve a como estaba.
+    const despues = await miembros(tx, s);
+    const arrastrados = async (antes: string[], ahora: string[], ya: string[], tabla: typeof jugadores | typeof apoderados) => {
+      const sueltos = antes.filter((x) => !ahora.includes(x) && !ya.includes(x));
+      if (sueltos.length === 0) return [];
+      const filas = await tx
+        .select({ id: tabla.id })
+        .from(tabla)
+        .where(and(inArray(tabla.id, sueltos), eq(tabla.estado, "pendiente")))
+        .for("update");
+      return filas.map((f) => f.id);
+    };
+    rechJ.push(...(await arrastrados(m.propiosJ, despues.propiosJ, rechJ, jugadores)));
+    rechA.push(...(await arrastrados(m.propiosA, despues.propiosA, rechA, apoderados)));
 
     for (const j of rechJ) await rechazarPersona(tx, s.id, "jugador", j);
     for (const a of rechA) await rechazarPersona(tx, s.id, "apoderado", a);

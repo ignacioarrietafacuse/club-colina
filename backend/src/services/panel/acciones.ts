@@ -1,8 +1,8 @@
 import type { cambioEstadoResponse, TIPOS_PERSONA } from "@club-colina/shared";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { z } from "zod";
 import type { Ejecutor } from "../../db/cliente";
-import { apoderados, entrenadores, jugadores } from "../../db/schema";
+import { apoderados, entrenadores, jugadorApoderado, jugadores } from "../../db/schema";
 import { ErrorApi, noEncontrado } from "../../lib/errores";
 import { borrarFoto, guardarFoto, leerFoto } from "../../lib/fotos";
 import { generarToken } from "../../lib/tokens";
@@ -112,6 +112,36 @@ export async function regenerarToken(db: Ejecutor, tipo: TipoPersona, id: string
 }
 
 /**
+ * Al activar a un precargado, sus vínculos de la base 2026 (`solicitud_id` nulo) que sigan
+ * pendientes pasan a activos si el otro extremo ya está activo. Un vínculo que creó una solicitud
+ * no se toca: se decide desde esa solicitud. La importación ya los escribe activos; esto cubre un
+ * vínculo de la base que haya quedado pendiente.
+ */
+async function activarVinculosDeLaBase(tx: Ejecutor, rol: "jugador" | "apoderado", id: string): Promise<void> {
+  const otroActivo =
+    rol === "jugador"
+      ? inArray(
+          jugadorApoderado.apoderado_id,
+          tx.select({ id: apoderados.id }).from(apoderados).where(eq(apoderados.estado, "activo")),
+        )
+      : inArray(
+          jugadorApoderado.jugador_id,
+          tx.select({ id: jugadores.id }).from(jugadores).where(eq(jugadores.estado, "activo")),
+        );
+  await tx
+    .update(jugadorApoderado)
+    .set({ estado: "activo" })
+    .where(
+      and(
+        eq(rol === "jugador" ? jugadorApoderado.jugador_id : jugadorApoderado.apoderado_id, id),
+        isNull(jugadorApoderado.solicitud_id),
+        eq(jugadorApoderado.estado, "pendiente"),
+        otroActivo,
+      ),
+    );
+}
+
+/**
  * Activa a un precargado que Mony completó en el panel, o reactiva a un inactivo. Exige lo mismo
  * que la aprobación y genera un `credencial_token` nuevo.
  */
@@ -131,7 +161,6 @@ export async function activar(db: Ejecutor, tipo: TipoPersona, id: string): Prom
           foto_id: jugadores.foto_id,
           marcado_retiro_en: jugadores.marcado_retiro_en,
           disciplina: jugadores.disciplina,
-          tiene_apoderado: tieneApoderadoVigente,
         })
         .from(jugadores)
         .where(eq(jugadores.id, id))
@@ -139,7 +168,11 @@ export async function activar(db: Ejecutor, tipo: TipoPersona, id: string): Prom
       if (!j) throw noEncontrado();
       if (!ACTIVABLES.has(j.estado)) throw conflicto("Solo se activa a un precargado o a un inactivo");
       if (j.marcado_retiro_en !== null) throw conflicto(MENSAJE_MARCADO);
-      const faltan = requisitosJugador(faltantesJugador(j, j.tiene_apoderado, await cargarCategorias(tx)));
+      // Primero sus vínculos de la base: uno con un apoderado activo ya cuenta como contacto. Si
+      // después falta algo, la transacción se deshace entera.
+      if (j.estado === "precargado") await activarVinculosDeLaBase(tx, "jugador", id);
+      const [contacto] = await tx.select({ si: tieneApoderadoVigente }).from(jugadores).where(eq(jugadores.id, id));
+      const faltan = requisitosJugador(faltantesJugador(j, contacto?.si ?? false, await cargarCategorias(tx)));
       if (faltan.length > 0) throw incompleto(faltan);
       await tx.update(jugadores).set({ estado: "activo", credencial_token: token }).where(eq(jugadores.id, id));
     } else if (tipo === "apoderados") {
@@ -159,6 +192,7 @@ export async function activar(db: Ejecutor, tipo: TipoPersona, id: string): Prom
       const faltan = faltantesApoderado(a);
       if (faltan.length > 0) throw incompleto(faltan);
       await tx.update(apoderados).set({ estado: "activo", credencial_token: token }).where(eq(apoderados.id, id));
+      if (a.estado === "precargado") await activarVinculosDeLaBase(tx, "apoderado", id);
     } else {
       const [e] = await tx
         .select({ estado: entrenadores.estado })

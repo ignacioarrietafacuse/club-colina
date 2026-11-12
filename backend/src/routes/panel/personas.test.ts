@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
-import { FOTO_MAX_BYTES, generarRutFicticio } from "@club-colina/shared";
-import { apoderados, categorias, entrenadores, fotos, jugadores, solicitudesRegistro } from "../../db/schema";
+import { and, eq } from "drizzle-orm";
+import { API, FOTO_MAX_BYTES, generarRutFicticio } from "@club-colina/shared";
+import { apoderados, categorias, entrenadores, fotos, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
 import { generarToken, hashToken } from "../../lib/tokens";
 import { dbTest, JPEG_PRUEBA, PNG_PRUEBA } from "../../test/db";
 import {
@@ -41,6 +41,7 @@ describe("panel: sin sesión todo niega", () => {
       ["POST", `/api/panel/jugadores/${id}/activar`],
       ["POST", `/api/panel/jugadores/${id}/desactivar`],
       ["POST", `/api/panel/jugadores/${id}/regenerar-token`],
+      ["DELETE", API.panel.marcaRetiro(id)],
     ] as const) {
       const r = await app.inject({ method, url, payload: method === "GET" ? undefined : {} });
       expect(r.statusCode, `${method} ${url}`).toBe(401);
@@ -122,10 +123,25 @@ describe("jugadores", () => {
     // Adulto sin apoderado: le falta su teléfono.
     expect(sinApoderado.faltantes).toEqual(["categoria", "numero_camiseta", "telefono", "foto"]);
     await vincular(db, id, apo, { paga_mensualidad: true });
+    // Solo un apoderado activo es contacto: precargado o pendiente, el adulto sigue necesitando
+    // su teléfono (decisión de Ignacio, 2026-11-12).
+    for (const estado of ["precargado", "pendiente"] as const) {
+      await db.update(apoderados).set({ estado }).where(eq(apoderados.id, apo));
+      r = await app.inject({ method: "GET", url: `/api/panel/jugadores/${id}`, cookies });
+      expect(r.json().faltantes).toEqual(["categoria", "numero_camiseta", "telefono", "foto"]);
+    }
+    await db
+      .update(apoderados)
+      .set({ estado: "activo", foto_id: await fotoPrueba(db), credencial_token: generarToken() })
+      .where(eq(apoderados.id, apo));
+    // Apoderado activo, pero el vínculo sin aprobar: tampoco cuenta.
+    r = await app.inject({ method: "GET", url: `/api/panel/jugadores/${id}`, cookies });
+    expect(r.json().faltantes).toEqual(["categoria", "numero_camiseta", "telefono", "foto"]);
+    await db.update(jugadorApoderado).set({ estado: "activo" }).where(eq(jugadorApoderado.jugador_id, id));
     r = await app.inject({ method: "GET", url: `/api/panel/jugadores/${id}`, cookies });
     expect(r.json().faltantes).toEqual(["categoria", "numero_camiseta", "foto"]);
     expect(r.json().apoderados).toEqual([
-      { id: apo, nombre_completo: "Ana Prueba", paga_mensualidad: true, estado_vinculo: "pendiente" },
+      { id: apo, nombre_completo: "Ana Prueba", paga_mensualidad: true, estado_vinculo: "activo" },
     ]);
     for (const url of ["/api/panel/jugadores/00000000-0000-4000-8000-000000000000", "/api/panel/jugadores/no-es-uuid"]) {
       expect((await app.inject({ method: "GET", url, cookies })).statusCode).toBe(404);
@@ -333,6 +349,51 @@ describe("fotos y credenciales", () => {
     expect((await accion("activar", pendiente)).statusCode).toBe(409);
     expect((await accion("desactivar", pendiente)).statusCode).toBe(409);
     expect((await accion("activar", "00000000-0000-4000-8000-000000000000")).statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("activar a un precargado activa sus vínculos de la base cuyo otro extremo ya está activo", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const listo = async () => ({ foto_id: await fotoPrueba(db) });
+    const j = await crearJugador(db, { numero_camiseta: "5", ...(await listo()) });
+    const apoActivo = await crearApoderado(db, { estado: "activo", credencial_token: generarToken(), ...(await listo()) });
+    const apoPrecargado = await crearApoderado(db, await listo());
+    const apoDeSolicitud = await crearApoderado(db, { estado: "activo", credencial_token: generarToken(), ...(await listo()) });
+    const s = await db
+      .insert(solicitudesRegistro)
+      .values({ token_acceso_hash: hashToken(generarToken()), consentimiento_en: new Date() })
+      .returning({ id: solicitudesRegistro.id });
+    await vincular(db, j, apoActivo, { estado: "pendiente" });
+    await vincular(db, j, apoPrecargado, { estado: "pendiente" });
+    await db.insert(jugadorApoderado).values({ jugador_id: j, apoderado_id: apoDeSolicitud, solicitud_id: s[0]?.id });
+    const estadoVinculo = async (a: string) =>
+      (
+        await db
+          .select({ estado: jugadorApoderado.estado })
+          .from(jugadorApoderado)
+          .where(and(eq(jugadorApoderado.jugador_id, j), eq(jugadorApoderado.apoderado_id, a)))
+      )[0]?.estado;
+
+    expect((await app.inject({ method: "POST", url: API.panel.activar("jugadores", j), cookies })).statusCode).toBe(200);
+    expect(await estadoVinculo(apoActivo)).toBe("activo");
+    // El otro extremo no está activo: espera.
+    expect(await estadoVinculo(apoPrecargado)).toBe("pendiente");
+    // Un vínculo que creó una solicitud se decide desde esa solicitud.
+    expect(await estadoVinculo(apoDeSolicitud)).toBe("pendiente");
+
+    // Al activar al apoderado precargado, su vínculo con el jugador (ya activo) se activa.
+    expect((await app.inject({ method: "POST", url: API.panel.activar("apoderados", apoPrecargado), cookies })).statusCode).toBe(200);
+    expect(await estadoVinculo(apoPrecargado)).toBe("activo");
+
+    // Reactivar a un inactivo no toca vínculos: solo el paso de precargado a activo.
+    const inactivo = await crearJugador(db, { numero_camiseta: "6", estado: "inactivo", ...(await listo()) });
+    await vincular(db, inactivo, apoActivo, { estado: "pendiente" });
+    expect((await app.inject({ method: "POST", url: API.panel.activar("jugadores", inactivo), cookies })).statusCode).toBe(200);
+    const [v] = await db
+      .select({ estado: jugadorApoderado.estado })
+      .from(jugadorApoderado)
+      .where(and(eq(jugadorApoderado.jugador_id, inactivo), eq(jugadorApoderado.apoderado_id, apoActivo)));
+    expect(v?.estado).toBe("pendiente");
     await app.close();
   });
 
