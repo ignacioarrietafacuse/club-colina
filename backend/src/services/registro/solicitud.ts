@@ -166,6 +166,7 @@ class Proceso {
       .where("jugador" in p ? eq(fichasPrevias.jugador_id, p.jugador.id) : eq(fichasPrevias.apoderado_id, p.apoderado.id));
     if (!copia || copia.solicitud_id === this.solicitudId) return false;
     this.conCopiaAjena.add(copia.solicitud_id);
+    this.avisos.add("cambios_bloqueados_por_otra_solicitud");
     return true;
   }
 
@@ -586,6 +587,7 @@ class Proceso {
       } else if (cantidad === 0) {
         // Hijo precargado sin apoderado en la base: se le pide solo lo que falta (diseño, "Carga
         // inicial"). La ficha queda pendiente; la solicitud sigue sin ser suya.
+        this.avisos.add("hijo_precargado_completado_por_rut");
         const completado = await this.completarJugador(jugador, h, p, new Faltantes());
         await this.completarExistente(jugador, completado, {});
       }

@@ -155,8 +155,12 @@ describe("GET /api/public/familia/:token", () => {
         (p: { rol: string }) => p.rol === "jugador",
       )?.credencial_token;
     expect(await qr()).toBe(credencial);
-    await db.update(apoderados).set({ estado: "inactivo" }).where(eq(apoderados.id, titular.id));
-    expect(await qr()).toBeUndefined();
+    // Solo pendiente y activo cuentan; cualquier otro estado (también precargado, si S1 restaura
+    // la ficha al rechazar) no entrega el QR.
+    for (const estado of ["inactivo", "rechazado", "precargado"] as const) {
+      await db.update(apoderados).set({ estado }).where(eq(apoderados.id, titular.id));
+      expect(await qr()).toBeUndefined();
+    }
     await db.update(apoderados).set({ estado: "pendiente" }).where(eq(apoderados.id, titular.id));
     expect(await qr()).toBe(credencial);
     await db.delete(jugadorApoderado).where(eq(jugadorApoderado.jugador_id, hijo.id));

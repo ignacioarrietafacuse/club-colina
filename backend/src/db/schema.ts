@@ -103,7 +103,8 @@ export const solicitudesRegistro = pgTable(
      * Quién llenó el formulario: el apoderado, o el jugador adulto. Lo escribe S2 al recibir la
      * solicitud; el panel lo muestra como titular y desde ahí busca a los hijos marcados "ya no
      * está". Nulo en una solicitud de segundo apoderado (su apoderado tiene `solicitud_id`).
-     * Solo para el panel: nunca amplía lo que muestran las rutas públicas (`/familia`).
+     * `/familia` lo usa para restringir, nunca para ampliar: el QR de un hijo sale solo si tiene un
+     * vínculo activo con este titular y el titular está pendiente o activo. Nulo = sin QR de hijos.
      */
     titular_apoderado_id: uuid("titular_apoderado_id").references((): AnyPgColumn => apoderados.id, {
       onDelete: "restrict",
