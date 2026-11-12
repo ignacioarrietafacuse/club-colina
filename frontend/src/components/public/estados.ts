@@ -1,5 +1,5 @@
 import { token as esquemaToken } from "@club-colina/shared";
-import type { CredencialResponse } from "@club-colina/shared";
+import type { CompletarResponse, CredencialResponse } from "@club-colina/shared";
 import { statusDe } from "./api";
 import type { EstadoCredencial } from "./Credencial";
 
@@ -48,4 +48,19 @@ export function estadoDesdeConsulta(c: {
     fotoUrl: c.fotoUrl,
     verificadaEn: new Date(c.actualizadaEn),
   };
+}
+
+/** Título de `/completar` según dónde va el segundo apoderado: subir la foto, en revisión o activo. */
+export function tituloCompletar(d: CompletarResponse | undefined): string {
+  if (d?.credencial_token) return "Tu credencial";
+  if (d?.foto_subida) return "Tu registro";
+  return "Sube tu foto";
+}
+
+/**
+ * Si `/completar` ya no pide la foto: la subió por el link, o el club ya lo activó (por ejemplo,
+ * completó la foto desde el panel). En ese caso se muestra su estado y, si está activo, su QR.
+ */
+export function completarTermino(d: CompletarResponse): boolean {
+  return d.foto_subida || d.credencial_token !== undefined;
 }

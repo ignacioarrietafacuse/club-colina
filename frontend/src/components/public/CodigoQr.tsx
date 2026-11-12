@@ -3,11 +3,9 @@ import { nombreArchivoQr, qrCredencial } from "./qr";
 
 /** QR de una credencial activa, con botón para descargarlo en PNG. */
 export function CodigoQr({
-  baseUrl,
   credencialToken,
   nombreCompleto,
 }: {
-  baseUrl: string;
   credencialToken: string;
   nombreCompleto: string;
 }) {
@@ -18,14 +16,14 @@ export function CodigoQr({
     let vigente = true;
     setPng(null);
     setFallo(false);
-    qrCredencial(baseUrl, credencialToken).then(
+    qrCredencial(credencialToken).then(
       (url) => vigente && setPng(url),
       () => vigente && setFallo(true),
     );
     return () => {
       vigente = false;
     };
-  }, [baseUrl, credencialToken]);
+  }, [credencialToken]);
 
   if (fallo) return <p className="text-sm text-destructive">No pudimos dibujar el código QR.</p>;
   if (!png) return <div className="aspect-square w-48 animate-pulse rounded-lg bg-muted" />;
