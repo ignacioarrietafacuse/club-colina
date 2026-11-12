@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Outlet, useNavigate, useRouteContext } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { AppShell } from "@/components/panel/AppShell";
-import { cerrarSesion, olvidarSesion, vigilarSesion } from "./sesion";
+import { CLAVE_SESION, cerrarSesion, olvidarSesion, vigilarSesion } from "./sesion";
 
 export function PanelLayout() {
   const { usuario } = useRouteContext({ from: "/_panel" });
@@ -13,8 +13,10 @@ export function PanelLayout() {
   useEffect(
     () =>
       vigilarSesion(queryClient, () => {
-        // Primero se sale de las páginas del panel, para que nada vuelva a pedir datos.
-        void navigate({ to: "/login" }).then(() => olvidarSesion(queryClient));
+        // La sesión guardada se borra ya (la guarda no deja pasar con ella); el resto, al salir
+        // de las páginas del panel, para que nada vuelva a pedir datos. Aunque navegar falle.
+        queryClient.removeQueries({ queryKey: CLAVE_SESION });
+        void navigate({ to: "/login" }).finally(() => olvidarSesion(queryClient));
       }),
     [queryClient, navigate],
   );
@@ -31,7 +33,7 @@ export function PanelLayout() {
       saliendo={salir.isPending}
       errorSalir={
         salir.isError
-          ? "No se pudo cerrar la sesión. Vuelve a intentarlo o cierra el navegador."
+          ? "No se pudo cerrar la sesión: sigue abierta. Vuelve a intentarlo."
           : undefined
       }
     >

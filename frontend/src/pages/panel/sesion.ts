@@ -4,7 +4,10 @@ import { api, ErrorApi, reintentar } from "@/lib/api";
 
 /** Clave de TanStack Query del usuario con sesión. */
 export const CLAVE_SESION = ["sesion"] as const;
-/** Toda consulta del panel lleva una clave que empieza así. */
+/**
+ * Toda consulta del panel lleva una clave que empieza así: es lo que le aplica `reintentar`
+ * (un 401 cierra la sesión al primer intento). Una clave sin este prefijo reintentaría el 401.
+ */
 export const PREFIJO_PANEL = "panel";
 
 /**
