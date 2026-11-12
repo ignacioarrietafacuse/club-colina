@@ -141,6 +141,9 @@ export function camposTitular(t: Titular): Campos {
   // Ya registrado: solo agrega hijos y otro apoderado; sus datos no se piden ni se cambian.
   if (t.lookup.ya_registrado) return campos([]);
   const faltantes: readonly CampoPersona[] = t.lookup.faltantes;
+  // Al apoderado precargado el teléfono se le pide siempre, aunque la base lo tenga: el servidor
+  // lo exige para compararlo con el de la base y avisarle a Mony si no coincide.
+  if (t.tipo === "apoderado" && !faltantes.includes("telefono")) return campos([...faltantes, "telefono"]);
   return campos(faltantes);
 }
 

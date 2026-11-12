@@ -240,13 +240,18 @@ class Proceso {
     return c?.id ?? null;
   }
 
-  /** Teléfono: se completa si falta; si la base ya tiene uno, no se cambia y se avisa si difiere. */
+  /**
+   * Teléfono: se exige siempre. Si falta en la base, se completa; si la base ya tiene uno, no se
+   * cambia y se avisa si difiere. Exigirlo aunque la base lo tenga es lo que hace que el aviso
+   * dependa del servidor y no de lo que el cliente decida mandar (revisión de seguridad, Ola 2).
+   */
   private telefono(actual: string | null, faltan: Faltantes, campo: string): string | undefined {
+    const enviado = faltan.exigir(this.datos.telefono, campo);
     if (actual === null) {
       this.avisos.add("sin_telefono_en_base");
-      return faltan.exigir(this.datos.telefono, campo);
+      return enviado;
     }
-    if (this.datos.telefono !== undefined && this.datos.telefono !== actual) {
+    if (enviado !== undefined && enviado !== actual) {
       this.avisos.add("telefono_distinto_base");
     }
     return undefined;

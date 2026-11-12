@@ -100,7 +100,8 @@ describe("inicio según la consulta del RUT", () => {
   it("apoderado precargado: trae a sus hijos por posición", () => {
     const f = formulario(iniciarFormulario(RUT, apoderadoBase));
     expect(f.hijos.map((h) => h.clave)).toEqual(["p0", "p1", "p2"]);
-    expect([...camposTitular(f.titular).pedir]).toEqual(["foto"]);
+    // Falta solo la foto; el teléfono se pide igual para compararlo con el de la base.
+    expect([...camposTitular(f.titular).pedir]).toEqual(["foto", "telefono"]);
   });
 });
 
@@ -296,6 +297,8 @@ describe("armado de la solicitud", () => {
   it("apoderado precargado: refs por posición, solo lo que falta, ya no está y otro apoderado", () => {
     const f = formulario(iniciarFormulario(RUT, apoderadoBase));
     f.foto = foto();
+    // El teléfono se pide siempre al precargado, aunque la base lo tenga.
+    f.datos.telefono = "923456789";
     f.paga_mensualidad = true;
     const [ana, beto, caro] = tresHijos(f);
     ana.foto = foto();
@@ -334,6 +337,7 @@ describe("armado de la solicitud", () => {
       rut: RUT,
       tipo: "apoderado",
       consentimiento: true,
+      telefono: "923456789",
       foto: "titular",
       paga_mensualidad: true,
       hijos: [
