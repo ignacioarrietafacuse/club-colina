@@ -329,7 +329,8 @@ describe("POST /api/public/solicitudes", () => {
     const j = await jugadorRut(huerfano.rut);
     expect(j).toMatchObject({ nombre: "Tomás Andrés", numero_camiseta: "9", estado: "pendiente", solicitud_id: null });
     expect(j.foto_id).not.toBeNull();
-    expect((await solicitudes())[0]?.avisos).toEqual([]);
+    // Mony confirma que el hijo es de esta familia: nadie más lo tenía en la base.
+    expect((await solicitudes())[0]?.avisos).toEqual(["hijo_precargado_completado_por_rut"]);
     // Quien lo nombró no ve su nombre en la consulta de RUT hasta que Mony aprueba el vínculo.
     const consulta = await app.inject({ method: "POST", url: API.public.rutLookup, payload: { rut: rutTitular } });
     expect(consulta.json().hijos).toEqual([]);
@@ -672,6 +673,8 @@ describe("POST /api/public/solicitudes", () => {
       );
       expect(r.statusCode).toBe(201);
       const [s] = await solicitudes();
+      // Las copias son de la propia solicitud: no hay cambios bloqueados.
+      expect(s?.avisos).not.toContain("cambios_bloqueados_por_otra_solicitud");
       const copias = await db.select().from(fichasPrevias);
       expect(copias).toHaveLength(2);
       const deApoderado = copias.find((c) => c.apoderado_id === titular.id);
@@ -723,6 +726,30 @@ describe("POST /api/public/solicitudes", () => {
       const copias = await db.select().from(fichasPrevias);
       expect(copias.map((c) => c.jugador_id).sort()).toEqual([adulto.id, huerfano.id].sort());
       for (const c of copias) expect(c.datos).toMatchObject({ estado: "precargado", numero_camiseta: null });
+      expect((await solicitudes()).map((s) => s.avisos)).toEqual([["sin_telefono_en_base"], ["hijo_precargado_completado_por_rut"]]);
+      await app.close();
+    });
+
+    it("un hijo sin apoderado con copia de otra solicitud, nombrado por RUT: no se completa ni se avisa como completado", async () => {
+      const mama = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+      const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: null });
+      await vincular(db, hijo.id, mama.id);
+      const app = await construirApp({ config: configTest(), db });
+      // La mamá lo marca "ya no está" (copia de su solicitud) y Mony corta ese vínculo.
+      const marca = await enviar(app, {
+        rut: mama.rut,
+        tipo: "apoderado",
+        consentimiento: true,
+        hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
+      });
+      expect(marca.statusCode).toBe(201);
+      await db.delete(jugadorApoderado).where(eq(jugadorApoderado.jugador_id, hijo.id));
+      const r = await enviar(app, { ...apoderadoNuevo(rutNuevo()), hijos: [hijoNuevo(hijo.rut)] }, { titular: JPEG_PRUEBA, h0: JPEG_PRUEBA });
+      expect(r.statusCode).toBe(201);
+      expect(await jugadorRut(hijo.rut)).toMatchObject({ numero_camiseta: null, foto_id: null, estado: "precargado" });
+      const [s1, s2] = await solicitudes();
+      expect(s2?.avisos).toEqual(["cambios_bloqueados_por_otra_solicitud"]);
+      expect(s1?.avisos).toContain("hay_solicitud_posterior");
       await app.close();
     });
 
@@ -750,6 +777,8 @@ describe("POST /api/public/solicitudes", () => {
       const [s1, s2] = await solicitudes();
       expect(s1?.avisos).toContain("hay_solicitud_posterior");
       expect(s2?.avisos).not.toContain("hijo_marcado_ya_no_esta");
+      expect(s2?.avisos).toContain("cambios_bloqueados_por_otra_solicitud");
+      expect(s1?.avisos).not.toContain("cambios_bloqueados_por_otra_solicitud");
       await app.close();
     });
 
@@ -772,6 +801,8 @@ describe("POST /api/public/solicitudes", () => {
       const [s1, s2] = await solicitudes();
       expect(s1?.avisos).toContain("hay_solicitud_posterior");
       expect(s2?.avisos).not.toContain("hijo_marcado_ya_no_esta");
+      expect(s2?.avisos).toContain("cambios_bloqueados_por_otra_solicitud");
+      expect(s1?.avisos).not.toContain("cambios_bloqueados_por_otra_solicitud");
       const copias = await db.select().from(fichasPrevias);
       expect(copias.filter((c) => c.jugador_id === hijo.id)).toEqual([expect.objectContaining({ solicitud_id: s1?.id })]);
       await app.close();
@@ -789,7 +820,7 @@ describe("POST /api/public/solicitudes", () => {
         hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
       });
       expect(r.statusCode).toBe(201);
-      expect((await solicitudes())[0]?.avisos).toContain("hijo_marcado_ya_no_esta");
+      expect((await solicitudes())[0]?.avisos).toEqual(["hijo_marcado_ya_no_esta"]);
       expect((await db.select().from(fichasPrevias)).filter((c) => c.jugador_id === hijo.id)).toEqual([]);
       await app.close();
     });
@@ -846,6 +877,9 @@ describe("POST /api/public/solicitudes", () => {
       const [s1, s2] = await solicitudes();
       expect(s1?.avisos).toContain("hay_solicitud_posterior");
       expect(s2?.avisos).not.toContain("hay_solicitud_posterior");
+      // Mony ve en la segunda que sus datos no se aplicaron por la otra.
+      expect(s2?.avisos).toContain("cambios_bloqueados_por_otra_solicitud");
+      expect(s1?.avisos).not.toContain("cambios_bloqueados_por_otra_solicitud");
       // La del hijo es una sola, la de la primera; cada titular precargado tiene la suya.
       const copias = await db.select().from(fichasPrevias);
       expect(copias.filter((c) => c.jugador_id === hijo.id)).toEqual([expect.objectContaining({ solicitud_id: s1?.id })]);
