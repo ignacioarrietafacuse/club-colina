@@ -25,6 +25,10 @@ export const LIMITE_LOGIN_IP = { max: 20, timeWindow: "15 minutes" } as const;
  */
 export async function rutasAuth(app: FastifyInstance) {
   app.decorateRequest("usuarioPanel", undefined);
+  // /me y el login devuelven datos de la sesión: sin caché, como el panel.
+  app.addHook("onSend", async (_request, reply) => {
+    reply.header("cache-control", "private, no-store");
+  });
   await prepararHashFalso();
   // `@fastify/rate-limit` marca la petición como contada en el primer límite que corre, así que
   // un segundo `config.rateLimit` (o `app.rateLimit()`) en la misma ruta no contaría nunca.

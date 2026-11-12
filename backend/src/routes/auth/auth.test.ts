@@ -46,6 +46,7 @@ describe("login y sesiones", () => {
     const usuario = await usuarioNuevo();
     const r = await login(app, usuario);
     expect(r.statusCode).toBe(200);
+    expect(r.headers["cache-control"]).toBe("private, no-store");
     expect(r.json()).toEqual({ usuario: { id: expect.any(String), nombre: "Usuaria Prueba" } });
     const c = r.cookies.find((x) => x.name === COOKIE_SESION);
     expect(c?.httpOnly).toBe(true);

@@ -60,7 +60,9 @@ describe("dashboard y categorías", () => {
     await crearJugadorActivo(db);
     await crearJugador(db);
     await crearApoderado(db);
-    const despues = (await app.inject({ method: "GET", url: "/api/panel/dashboard", cookies })).json();
+    const r = await app.inject({ method: "GET", url: "/api/panel/dashboard", cookies });
+    expect(r.headers["cache-control"]).toBe("private, no-store");
+    const despues = r.json();
     expect(despues.jugadores_activos).toBe(antes.jugadores_activos + 1);
     expect(despues.precargados_sin_registrar.jugadores).toBe(antes.precargados_sin_registrar.jugadores + 1);
     expect(despues.precargados_sin_registrar.apoderados).toBe(antes.precargados_sin_registrar.apoderados + 1);

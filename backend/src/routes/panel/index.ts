@@ -14,6 +14,11 @@ import { rutasSolicitudes } from "./solicitudes";
 export async function rutasPanel(app: FastifyInstance) {
   app.decorateRequest("usuarioPanel", undefined);
   app.addHook("onRequest", exigirSesion);
+  // Todo lo del panel lleva datos personales (RUT, teléfonos, credenciales): que ningún caché lo
+  // guarde. Una ruta que ya fijó su propio Cache-Control (la foto) lo conserva.
+  app.addHook("onSend", async (_request, reply) => {
+    if (!reply.hasHeader("cache-control")) reply.header("cache-control", "private, no-store");
+  });
   app.setNotFoundHandler((_request, reply) =>
     reply.status(404).send({ error: { codigo: "no_encontrado", mensaje: "No encontrado" } }),
   );
