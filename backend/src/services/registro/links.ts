@@ -29,7 +29,12 @@ async function solicitudPorToken(db: Ejecutor, token: string, tipo: "formulario"
   return s ?? null;
 }
 
-const APODERADO_DADO_DE_BAJA = new Set(["inactivo", "rechazado"]);
+/**
+ * Estados en que el titular apoderado sigue contando para /familia. Es una lista de permitidos, no
+ * de excluidos: un estado nuevo, o un titular que volvió a `precargado` (ficha restaurada al
+ * rechazar), no entrega QR de hijos hasta que alguien lo agregue acá a propósito.
+ */
+const TITULAR_VIGENTE = new Set<string>(["pendiente", "activo"]);
 
 type Persona = { id: string; nombre: string | null; apellido: string | null; estado: string; credencial_token: string | null };
 
@@ -49,8 +54,8 @@ function nombreVisible(p: Persona): string {
  *
  * El titular es quien llenó el formulario (`titular_apoderado_id` o `titular_jugador_id`). El QR
  * de un hijo se entrega solo si está activo y tiene un vínculo activo con ese titular, y el titular
- * no está inactivo ni rechazado: si Mony corta el vínculo o lo da de baja, el link deja de
- * mostrarlo. El jugador adulto titular ve su propio QR.
+ * está pendiente o activo (`TITULAR_VIGENTE`): si Mony corta el vínculo o lo da de baja, el link
+ * deja de mostrarlo. El jugador adulto titular ve su propio QR.
  *
  * Una solicitud sin titular guardado (anterior a la columna) no entrega ningún QR ni hijos por
  * vínculo: ante la duda, no mostrar. Mony puede generarle un link nuevo, pero el titular queda nulo.
@@ -79,14 +84,14 @@ export async function verFamilia(db: Db, token: string): Promise<FamiliaResponse
     .where(eq(apoderados.solicitud_id, s.id))
     .orderBy(asc(apoderados.creado_en), asc(apoderados.id));
 
-  // El titular apoderado cuenta mientras no esté dado de baja.
+  // El titular apoderado cuenta solo en un estado permitido.
   let titularApoderado: string | null = null;
   if (s.titular_apoderado_id !== null) {
     const [t] = await db
       .select({ id: apoderados.id, estado: apoderados.estado })
       .from(apoderados)
       .where(eq(apoderados.id, s.titular_apoderado_id));
-    if (t && !APODERADO_DADO_DE_BAJA.has(t.estado)) titularApoderado = t.id;
+    if (t && TITULAR_VIGENTE.has(t.estado)) titularApoderado = t.id;
   }
 
   // Hijos que llegaron por un vínculo de esta solicitud con el titular, ya aprobado por Mony.
