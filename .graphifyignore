@@ -58,3 +58,8 @@ package.json
 # graphify-estandar:fin
 frontend/public/
 backend/migrations/
+# Los tsconfig*.json: graphify indexa su «extends» como nodo de referencia, y `extract`
+# fusiona las referencias repetidas entre paquetes (backend/ y shared/ extienden
+# ../tsconfig.base.json) mientras `update` no, así que los grafos divergen (G3). Son
+# configuración, no código.
+tsconfig*.json
