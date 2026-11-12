@@ -135,6 +135,8 @@ function FichaJugador({
         }
       />
 
+      {j.marcado_retiro_en && <MarcaRetiro jugadorId={j.id} />}
+
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="card-surface p-5">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -335,6 +337,55 @@ function FichaJugador({
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Un jugador marcado «ya no está en el club» por un apoderado: Mony confirma el retiro dejándolo
+ * inactivo (en la credencial) o quita la marca si sigue. Quitarla no rehace la ficha: no se pierde
+ * lo que esté escribiendo.
+ */
+function MarcaRetiro({ jugadorId }: { jugadorId: string }) {
+  const queryClient = useQueryClient();
+  const [confirmar, setConfirmar] = useState(false);
+  const quitar = useMutation({
+    mutationFn: () => api.panel.quitarMarcaRetiro(jugadorId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["panel"] }),
+  });
+  return (
+    <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg bg-warning/15 px-4 py-3 text-sm">
+      <span className="flex-1">
+        Un apoderado indicó que ya no está en el club. Para confirmar el retiro, desactívalo en la
+        credencial. Si sigue en el club, quita la marca.
+      </span>
+      {quitar.error && (
+        <span className="w-full text-destructive">{mensajeDeError(quitar.error)}</span>
+      )}
+      {confirmar ? (
+        <>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={quitar.isPending}
+            onClick={() => setConfirmar(false)}
+          >
+            Cancelar
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={quitar.isPending}
+            onClick={() => quitar.mutate()}
+          >
+            {quitar.isPending ? "Quitando…" : "Confirmar: sigue en el club"}
+          </Button>
+        </>
+      ) : (
+        <Button size="sm" variant="outline" onClick={() => setConfirmar(true)}>
+          Quitar la marca
+        </Button>
+      )}
     </div>
   );
 }
