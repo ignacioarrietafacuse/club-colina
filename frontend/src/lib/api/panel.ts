@@ -81,7 +81,7 @@ export function editarJugador(id: string, datos: JugadorPatch) {
 
 /** Quita la marca «ya no está en el club» (Mony confirma que sigue). Devuelve la ficha. */
 export function quitarMarcaRetiro(id: string) {
-  return pedir(`${API.panel.jugador(id)}/marca-retiro`, jugadorDetalle, { metodo: "DELETE" });
+  return pedir(API.panel.marcaRetiro(id), jugadorDetalle, { metodo: "DELETE" });
 }
 // --- Apoderados -------------------------------------------------------------
 
