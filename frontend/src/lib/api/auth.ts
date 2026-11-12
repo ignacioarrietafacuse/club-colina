@@ -17,7 +17,7 @@ export function logout() {
   return pedirSinRespuesta(API.auth.logout, { metodo: "POST" });
 }
 
-/** Cambia la clave del usuario con sesión; el servidor cierra sus otras sesiones. */
+/** Cambia la clave del usuario con sesión; el servidor cierra todas sus sesiones y deja una cookie nueva para esta. */
 export function cambiarClave(datos: CambiarClaveRequest) {
   return pedirSinRespuesta(API.auth.cambiarClave, { metodo: "POST", json: datos });
 }

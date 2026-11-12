@@ -367,7 +367,7 @@ export const CLAVE_MIN = 12;
  * distinta de la actual. Si la actual no coincide: 400 `credenciales_invalidas`. Al cambiarla se
  * cierran todas las sesiones del usuario, se abre una nueva para quien la cambió (cookie nueva: la
  * anterior deja de servir, por si alguien la había copiado) y se apaga `debe_cambiar_clave`.
- * Responde 204. Con límite de intentos por usuario.
+ * Responde 204. Con límite de intentos por sesión (5 cada 15 minutos; ver `LIMITES.cambiarClave`).
  */
 export const cambiarClaveRequest = z
   .object({
