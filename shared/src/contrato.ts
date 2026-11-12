@@ -62,7 +62,8 @@ export const AVISOS_SOLICITUD = [
   "hijo_precargado_completado_por_rut",
   /**
    * Otra solicitud pendiente ya había modificado a una persona de esta (tiene su ficha previa):
-   * esta solo la vinculó, sin cambiar sus datos. La otra recibe `hay_solicitud_posterior`.
+   * esta no modificó su ficha (ni la completó ni la marcó "ya no está"); a lo más la vinculó. La
+   * otra recibe `hay_solicitud_posterior`.
    */
   "cambios_bloqueados_por_otra_solicitud",
 ] as const;

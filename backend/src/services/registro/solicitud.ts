@@ -461,13 +461,13 @@ class Proceso {
     };
   }
 
-  /** Aplica lo completado a un jugador que ya existía, si `copiaPrevia` lo permite. */
+  /** Aplica lo completado a un jugador que ya existía, si `copiaPrevia` lo permite (devuelve si lo hizo). */
   private async completarExistente(
     j: Jugador,
     completado: Awaited<ReturnType<Proceso["completarJugador"]>>,
     extra: { solicitud_id?: string },
-  ) {
-    if (!(await this.copiaPrevia({ jugador: j }))) return;
+  ): Promise<boolean> {
+    if (!(await this.copiaPrevia({ jugador: j }))) return false;
     await this.tx
       .update(jugadores)
       .set({
@@ -477,6 +477,7 @@ class Proceso {
         ...extra,
       })
       .where(eq(jugadores.id, j.id));
+    return true;
   }
 
   // -------------------------------------------------------------------------
@@ -587,9 +588,11 @@ class Proceso {
       } else if (cantidad === 0) {
         // Hijo precargado sin apoderado en la base: se le pide solo lo que falta (diseño, "Carga
         // inicial"). La ficha queda pendiente; la solicitud sigue sin ser suya.
-        this.avisos.add("hijo_precargado_completado_por_rut");
         const completado = await this.completarJugador(jugador, h, p, new Faltantes());
-        await this.completarExistente(jugador, completado, {});
+        // El aviso va solo si se aplicó: con copia de otra solicitud queda el de cambios bloqueados.
+        if (await this.completarExistente(jugador, completado, {})) {
+          this.avisos.add("hijo_precargado_completado_por_rut");
+        }
       }
       await this.vincular(jugador.id, titular.id, paga);
       resueltos.push(jugador.id);
