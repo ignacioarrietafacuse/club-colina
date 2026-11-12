@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
- * Las migraciones se aplican solas en producción al desplegar. Una que borra, renombra o
+ * Las migraciones se aplican solas en producción: el backend las corre al arrancar. Una que borra, renombra o
  * cambia tipos necesita respaldo manual y el OK de Ignacio (docs/flujo-de-trabajo.md), y
  * tiene que decirlo con una línea `-- destructiva-aprobada: AAAA-MM-DD` que el revisor
  * comprueba contra el chat. Sin esa línea, este test frena el PR.

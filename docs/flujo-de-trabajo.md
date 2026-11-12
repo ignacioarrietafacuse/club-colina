@@ -107,7 +107,7 @@ GitHub no ofrece protección de ramas en repos privados del plan Free, así que 
 Reglas:
 
 1. **Fusionar de a un PR a la vez.** Fusiona, espera el verde del despliegue, y recién entonces el siguiente. Con varias sesiones en paralelo, cada una hace `git fetch` y revisa que no haya un despliegue en curso antes de fusionar.
-2. **Railway espera al chequeo** (opción "Wait for CI") y corre las migraciones antes de levantar la versión nueva. Si la migración falla, la versión nueva no sale.
+2. **Railway espera al chequeo** (opción "Wait for CI"). **El backend aplica las migraciones pendientes al arrancar**, antes de escuchar el puerto (`backend/src/server.ts`). Si una falla, el proceso termina con error, el healthcheck (`/api/health`) no pasa y Railway mantiene la versión anterior. No depende de ninguna configuración de Railway: con una sola instancia es seguro, y un candado de Postgres evita que dos arranques superpuestos migren a la vez.
 3. **Frontend y backend se publican por separado**, así que por unos minutos conviven versiones distintas. Los cambios a la API son compatibles hacia atrás: agregar antes que quitar.
 4. **Mirar después de publicar.** Un despliegue en verde no prueba que funcione: el agente abre la pantalla real o llama al endpoint y dice qué comprobó.
 5. **Lo que se cambia a mano en producción queda escrito.** El código se cambia siempre por el repo. Las variables de entorno se cambian en la plataforma, y por eso se anotan en `.env.example` y en el PR.
@@ -226,7 +226,7 @@ Además de lo que dice `roadmap-etapa1.md`:
 
 **Configuración en las plataformas.** La hace la sesión de la Ola 0 con las herramientas que tenga; lo que no pueda hacer desde la sesión se lo deja a Ignacio como lista, con el paso exacto:
 - GitHub: borrar ramas automáticamente al fusionar; permitir solo acciones de GitHub y verificadas.
-- Railway: "Wait for CI", comando de migración previo al despliegue, y respaldos diario y semanal en el volumen de Postgres.
+- Railway: despliegue automático desde `main`, "Wait for CI", healthcheck en `/api/health`, y respaldos diario y semanal en el volumen de Postgres. Las migraciones no se configuran en Railway: las corre el backend al arrancar.
 - Vercel: confirmar que solo `main` publica a producción.
 
 ## Bitácora de decisiones
@@ -251,3 +251,4 @@ Cada decisión sobre cómo se trabaja se anota acá, con fecha y razón, en el m
 | 2026-11-12 | Sin login ni escrituras desde las vistas previas de Vercel; el panel se prueba en local | Las vistas previas corren código no fusionado contra producción. El backend rechaza toda escritura cuyo `Origin` no sea la URL de producción |
 | 2026-11-12 | Los links privados (`token_acceso` y `/completar`) se guardan como hash; reenviar genera uno nuevo y anula el anterior | Una copia de la base no abre ningún link. `credencial_token` queda en claro porque hay que dibujar el QR |
 | 2026-11-12 | `rut-lookup` no devuelve ids, `/familia` muestra solo a las personas de esa solicitud y el panel marca los casos sospechosos | Quien conoce un RUT ajeno no puede llegar a datos ni personas que no envió |
+| 2026-11-12 | Las migraciones las corre el backend al arrancar, no la configuración de Railway (`railway.json` se borró) | Railway dejó de leer `railway.json` en servicios nuevos y su reemplazo es otra herramienta más. Arrancar migrando funciona en cualquier plataforma, y si falla la versión nueva no levanta |
