@@ -235,6 +235,8 @@ Además de lo que dice `roadmap-etapa1.md`:
 - Railway, "Wait for CI": la opción no aparece en el panel del servicio. Requiere que `ci.yml` corra en `push` a `main` (ya corre) y que la app de Railway en GitHub tenga permiso para leer los checks. Mientras tanto, Railway despliega al fusionar sin esperar al CI; el CI del PR ya pasó antes de fusionar.
 - El logo del club: hoy hay uno provisorio de solo texto ("Club Colina").
 - El build de Railway compila también el frontend: Railpack corre el `build` de la raíz (`pnpm -r build`). Por eso el servicio `club-colina` necesita variables del frontend (hoy `VITE_PUBLIC_BASE_URL`, sin la cual el build falla). Debería compilar solo `backend/` y `shared/`. No se arregla todavía.
+- `VITE_PUBLIC_BASE_URL` (la dirección que va en los QR) vive en cuatro lugares: Vercel Production, Vercel Preview, Railway (`club-colina`) y `.github/workflows/ci.yml`. En la Ola 3 se cambia en los cuatro a `https://panel.clubcolina.cl`. Ninguna variable secreta lleva el prefijo `VITE_`: Vite la mete en el bundle público.
+- Antes de repartir QR: las páginas públicas (S5) todavía arman los QR y los links privados con `window.location.origin` (`FamiliaPage`, `RegistroPage`, `components/public/qr.ts`). Tienen que pasar a `urlQrCredencial` de `frontend/src/lib/credencial.ts`.
 
 ## Bitácora de decisiones
 

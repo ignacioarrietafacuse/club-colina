@@ -14,7 +14,10 @@ export const BASE_PUBLICA_LOCAL = "http://localhost:5173";
  * Valida y normaliza la dirección: solo origen (sin ruta, consulta ni barra final), https salvo
  * localhost. Devuelve `null` si no sirve.
  */
-export function normalizarBasePublica(valor: string | undefined): string | null {
+export function normalizarBasePublica(
+  valor: string | undefined,
+  { permitirLocal = true }: { permitirLocal?: boolean } = {},
+): string | null {
   if (!valor) return null;
   let url: URL;
   try {
@@ -23,6 +26,7 @@ export function normalizarBasePublica(valor: string | undefined): string | null 
     return null;
   }
   const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (local && !permitirLocal) return null;
   if (url.protocol !== "https:" && !(local && url.protocol === "http:")) return null;
   if (url.username || url.password || url.search || url.hash) return null;
   if (url.pathname !== "/" && url.pathname !== "") return null;
@@ -31,14 +35,19 @@ export function normalizarBasePublica(valor: string | undefined): string | null 
 
 /**
  * Para `vite.config.ts`: en un build la variable es obligatoria y válida (si no, el build
- * falla); con el servidor de desarrollo, sin variable se usa localhost.
+ * falla); con el servidor de desarrollo, sin variable se usa localhost. Con `exigirPublica`
+ * (el build de Vercel, que es el que se publica) tampoco sirve localhost.
  */
-export function basePublicaParaVite(valor: string | undefined, esBuild: boolean): string {
-  const base = normalizarBasePublica(valor);
+export function basePublicaParaVite(
+  valor: string | undefined,
+  { esBuild, exigirPublica = false }: { esBuild: boolean; exigirPublica?: boolean },
+): string {
+  const base = normalizarBasePublica(valor, { permitirLocal: !exigirPublica });
   if (base) return base;
   if (!esBuild && !valor) return BASE_PUBLICA_LOCAL;
   throw new Error(
     `${VARIABLE_BASE_PUBLICA} ${valor ? "no es válida" : "no está definida"}: tiene que ser el ` +
+      (exigirPublica ? "origen público (no localhost) " : "") +
       "origen público del sitio con https (por ejemplo https://club-colina.vercel.app). " +
       "Va grabada en los QR; el build no sigue sin ella.",
   );

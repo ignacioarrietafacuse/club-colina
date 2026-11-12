@@ -28,15 +28,32 @@ describe("dirección pública del QR", () => {
   });
 
   it("un build sin la variable falla", () => {
-    expect(() => basePublicaParaVite(undefined, true)).toThrow(/no está definida/);
-    expect(() => basePublicaParaVite("http://club-colina.vercel.app", true)).toThrow(
+    expect(() => basePublicaParaVite(undefined, { esBuild: true })).toThrow(/no está definida/);
+    expect(() => basePublicaParaVite("http://club-colina.vercel.app", { esBuild: true })).toThrow(
       /no es válida/,
     );
   });
 
+  it("el build que se publica (Vercel) no acepta localhost", () => {
+    expect(() =>
+      basePublicaParaVite("http://localhost:5173", { esBuild: true, exigirPublica: true }),
+    ).toThrow(/no localhost/);
+    expect(
+      basePublicaParaVite("https://club-colina.vercel.app", { esBuild: true, exigirPublica: true }),
+    ).toBe("https://club-colina.vercel.app");
+    // Un build local (pnpm check) sí lo acepta.
+    expect(basePublicaParaVite("http://localhost:5173", { esBuild: true })).toBe(
+      "http://localhost:5173",
+    );
+  });
+
   it("el servidor de desarrollo sin variable usa localhost; con una inválida, falla igual", () => {
-    expect(basePublicaParaVite(undefined, false)).toBe("http://localhost:5173");
-    expect(() => basePublicaParaVite("ftp://x", false)).toThrow();
+    expect(basePublicaParaVite(undefined, { esBuild: false })).toBe("http://localhost:5173");
+    expect(() => basePublicaParaVite("ftp://x", { esBuild: false })).toThrow();
+  });
+
+  it("en los tests la variable tiene un valor ficticio (vitest.config.ts)", () => {
+    expect(urlQrCredencial(TOKEN)).toBe(`https://club-colina.test/c/${TOKEN}`);
   });
 
   it("arma la URL de la credencial con la base, no con el navegador", () => {
