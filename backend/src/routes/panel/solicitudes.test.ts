@@ -492,7 +492,8 @@ describe("solicitudes: rechazar vuelve a como estaba", () => {
         cookies,
         payload: { personas: [{ rol: "jugador", id: hijo }] },
       });
-    const fotoHijo = (await estadoJ(hijo))?.foto_id ?? "";
+    const fotoHijo = (await estadoJ(hijo))?.foto_id;
+    if (!fotoHijo) throw new Error("el hijo de la prueba no tiene foto");
     const r = await rechazarHijo();
     expect(r.statusCode).toBe(409);
     expect(r.json().error.mensaje).toMatch(/otra solicitud pendiente \(recibida el \d{2}-\d{2}-\d{4} \d{2}:\d{2}\)/);
@@ -556,7 +557,9 @@ describe("solicitudes: rechazar vuelve a como estaba", () => {
         cookies,
         payload: { personas: [{ rol: "apoderado", id: apo }] },
       });
-    expect((await rechazarApo()).statusCode).toBe(409);
+    const bloqueado = await rechazarApo();
+    expect(bloqueado.statusCode).toBe(409);
+    expect(bloqueado.json().error.mensaje).toMatch(/otra solicitud pendiente \(recibida el/);
     expect(await estadoA(apo)).toMatchObject({ estado: "pendiente" });
     // Decidida la otra, ya se puede.
     await db.update(solicitudesRegistro).set({ estado: "revisada", revisada_en: new Date() }).where(eq(solicitudesRegistro.id, otra.id));

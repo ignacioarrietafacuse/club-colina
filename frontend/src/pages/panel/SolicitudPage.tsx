@@ -45,6 +45,12 @@ import {
 
 export function SolicitudPage() {
   const { id } = useParams({ from: "/_panel/jugadores/solicitudes/$id" });
+  // Otra solicitud parte de cero: el estado de esta pantalla (por ejemplo, si se rechazó a alguien)
+  // no se arrastra a la siguiente.
+  return <PantallaSolicitud key={id} id={id} />;
+}
+
+function PantallaSolicitud({ id }: { id: string }) {
   const consulta = useQuery({
     queryKey: ["panel", "solicitud", id],
     queryFn: ({ signal }) => api.panel.solicitud(id, signal),

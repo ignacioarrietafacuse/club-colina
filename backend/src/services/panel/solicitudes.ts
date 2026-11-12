@@ -730,6 +730,7 @@ async function borrarNuevas(tx: Ejecutor, familia: string[], jugadoresIds: strin
         or(isNull(jugadorApoderado.solicitud_id), notInArray(jugadorApoderado.solicitud_id, familia)),
       ),
     )
+    .orderBy(asc(solicitudesRegistro.creada_en))
     .limit(1);
   const comoTitular = or(
     jugadoresIds.length > 0 ? inArray(solicitudesRegistro.titular_jugador_id, jugadoresIds) : undefined,
@@ -741,6 +742,7 @@ async function borrarNuevas(tx: Ejecutor, familia: string[], jugadoresIds: strin
     .where(
       and(comoTitular, eq(solicitudesRegistro.estado, "pendiente"), notInArray(solicitudesRegistro.id, familia)),
     )
+    .orderBy(asc(solicitudesRegistro.creada_en))
     .limit(1);
   if (ajeno && !ajeno.creada_en) {
     // Hoy no ocurre: todo vínculo hacia una persona del formulario lo crea una solicitud.
