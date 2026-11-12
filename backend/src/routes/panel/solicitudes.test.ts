@@ -30,6 +30,16 @@ async function nuevaSolicitud(extra: Partial<typeof solicitudesRegistro.$inferIn
 }
 
 /**
+ * Una foto como la guarda S2: en la misma transacción que la solicitud, así que con su mismo
+ * `creado_en`. Una foto más nueva es una que Mony subió después desde el panel.
+ */
+async function fotoDeLaSolicitud(s: { creada_en: Date }): Promise<string> {
+  const id = await fotoPrueba(db);
+  await db.update(fotos).set({ creado_en: s.creada_en }).where(eq(fotos.id, id));
+  return id;
+}
+
+/**
  * Una familia como la deja S2: apoderado nuevo (titular) con su hijo nuevo, los dos con
  * `solicitud_id`, y el vínculo entre ellos, todo con el mismo `creado_en` (una transacción).
  */
@@ -381,8 +391,8 @@ describe("solicitudes: rechazar vuelve a como estaba", () => {
         },
       },
     ]);
-    const fotoA = await fotoPrueba(db);
-    const fotoJ = await fotoPrueba(db);
+    const fotoA = await fotoDeLaSolicitud(s);
+    const fotoJ = await fotoDeLaSolicitud(s);
     await db
       .update(apoderados)
       .set({ nombre: "Impostor", telefono: "900000001", foto_id: fotoA, estado: "pendiente", solicitud_id: s.id })
@@ -441,7 +451,7 @@ describe("solicitudes: rechazar vuelve a como estaba", () => {
 
 describe("solicitudes: dos solicitudes sobre un precargado y casos sin copia", () => {
   /** Hijo precargado sin apoderado que la solicitud X completó (S2 lo deja pendiente sin solicitud). */
-  async function hijoCompletadoPor(x: { s: { id: string }; apo: string }) {
+  async function hijoCompletadoPor(x: { s: { id: string; creada_en: Date }; apo: string }) {
     const hijo = await crearJugador(db, { nombre: "Solo", numero_camiseta: null });
     await db.insert(fichasPrevias).values({
       solicitud_id: x.s.id,
@@ -450,7 +460,7 @@ describe("solicitudes: dos solicitudes sobre un precargado y casos sin copia", (
     });
     await db
       .update(jugadores)
-      .set({ numero_camiseta: "8", foto_id: await fotoPrueba(db), estado: "pendiente" })
+      .set({ numero_camiseta: "8", foto_id: await fotoDeLaSolicitud(x.s), estado: "pendiente" })
       .where(eq(jugadores.id, hijo));
     await db.insert(jugadorApoderado).values({ jugador_id: hijo, apoderado_id: x.apo, solicitud_id: x.s.id });
     return hijo;
@@ -555,7 +565,7 @@ describe("solicitudes: link", () => {
 });
 
 describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
-  it("restaura la copia como la escribe S2: la fecha de 'ya no está' vuelve a ser fecha y una foto borrada queda vacía", async () => {
+  it("restaura la copia como la escribe S2: la fecha de 'ya no está' vuelve a ser fecha y se conserva la foto que Mony cambió", async () => {
     const { app, cookies } = await appConSesion(db);
     const s = await nuevaSolicitud();
     const marcadoEn = new Date("2026-10-01T15:30:00.000Z");
@@ -592,11 +602,11 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
     const r = await app.inject({ method: "POST", url: `/api/panel/solicitudes/${s.id}/rechazar`, cookies, payload: {} });
     expect(r.statusCode).toBe(200);
     const despues = await estadoJ(hijo);
-    expect(despues).toMatchObject({ estado: "precargado", solicitud_id: null, numero_camiseta: antes.numero_camiseta, foto_id: null });
+    // La foto la cambió Mony después de la solicitud: se conserva (decisión de Ignacio, 2026-11-12).
+    expect(despues).toMatchObject({ estado: "precargado", solicitud_id: null, numero_camiseta: antes.numero_camiseta, foto_id: fotoMony });
     expect(despues?.marcado_retiro_en).toBeInstanceOf(Date);
     expect(despues?.marcado_retiro_en?.toISOString()).toBe(marcadoEn.toISOString());
-    // La foto que quedó de la solicitud (aquí, la de Mony) también se borra.
-    expect(await db.select().from(fotos).where(eq(fotos.id, fotoMony ?? ""))).toHaveLength(0);
+    expect(await db.select().from(fotos).where(eq(fotos.id, fotoMony ?? ""))).toHaveLength(1);
     expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.jugador_id, hijo))).toHaveLength(0);
     await app.close();
   });
@@ -655,7 +665,7 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
       jugador_id: hijo,
       datos: { foto_id: null, estado: "precargado", solicitud_id: null, marcado_retiro_en: null },
     });
-    const fotoS2 = await fotoPrueba(db);
+    const fotoS2 = await fotoDeLaSolicitud(s);
     await db.update(jugadores).set({ foto_id: fotoS2, estado: "pendiente" }).where(eq(jugadores.id, hijo));
     await db.insert(jugadorApoderado).values({ jugador_id: hijo, apoderado_id: apo, solicitud_id: s.id });
 
@@ -681,7 +691,7 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
       jugador_id: hijo2,
       datos: { foto_id: null, estado: "precargado", solicitud_id: null },
     });
-    await db.update(jugadores).set({ foto_id: await fotoPrueba(db), estado: "pendiente" }).where(eq(jugadores.id, hijo2));
+    await db.update(jugadores).set({ foto_id: await fotoDeLaSolicitud(otra.s), estado: "pendiente" }).where(eq(jugadores.id, hijo2));
     await db.insert(jugadorApoderado).values({ jugador_id: hijo2, apoderado_id: otra.apo, solicitud_id: otra.s.id });
     const r2 = await app.inject({
       method: "POST",
@@ -783,6 +793,148 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
     expect(r.statusCode).toBe(200);
     expect(await estadoJ(hijo)).toMatchObject({ estado: "activo" });
     expect((await vinculo(hijo, apo))?.estado).toBe("activo");
+    await app.close();
+  });
+});
+
+describe("solicitudes: fotos al restaurar, propia y topes", () => {
+  it.each([
+    ["sin cambios de Mony: se borran las fotos que trajo el formulario", false],
+    ["Mony cambió la foto del hijo en el panel: se conserva la suya", true],
+  ] as const)("de punta a punta con el formulario de S2, %s", async (_caso, monyCambia) => {
+    const { app, cookies } = await appConSesion(db);
+    // Precargados de la base, sin foto: el titular y su hijo, con su vínculo.
+    const titular = await crearApoderado(db, { nombre: "Rosa", apellido: "Ficticia", telefono: "911111111" });
+    const hijo = await crearJugador(db, { nombre: "Tomás Andrés", numero_camiseta: null });
+    await db.insert(jugadorApoderado).values({ jugador_id: hijo, apoderado_id: titular, estado: "activo" });
+    const rut = (await estadoA(titular))?.rut;
+    const antesA = await estadoA(titular);
+    const antesJ = await estadoJ(hijo);
+    const form = new FormData();
+    form.append(
+      "datos",
+      JSON.stringify({
+        rut,
+        tipo: "apoderado",
+        consentimiento: true,
+        nombre: "Rosa",
+        apellido: "Ficticia",
+        telefono: "911111111",
+        foto: "titular",
+        paga_mensualidad: false,
+        hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, numero_camiseta: "7", foto: "h0" }],
+      }),
+    );
+    for (const clave of ["titular", "h0"]) {
+      form.append(`foto_${clave}`, new Blob([new Uint8Array(JPEG_PRUEBA)], { type: "image/jpeg" }), `${clave}.jpg`);
+    }
+    const enviada = await app.inject({
+      method: "POST",
+      url: API.public.solicitudes,
+      payload: form,
+      headers: { "x-real-ip": "198.51.100.77" },
+    });
+    expect(enviada.statusCode).toBe(201);
+    const fotoTitularS2 = (await estadoA(titular))?.foto_id;
+    const fotoHijoS2 = (await estadoJ(hijo))?.foto_id;
+    expect(fotoTitularS2).toBeTruthy();
+    expect(fotoHijoS2).toBeTruthy();
+    const [s] = await db.select().from(solicitudesRegistro).where(eq(solicitudesRegistro.titular_apoderado_id, titular));
+    if (!s) throw new Error("sin solicitud");
+
+    let fotoMony: string | null | undefined = null;
+    if (monyCambia) {
+      const r = await app.inject({
+        method: "POST",
+        url: API.panel.foto("jugadores", hijo),
+        cookies,
+        ...multipart([{ nombre: "foto", archivo: JPEG_PRUEBA }]),
+      });
+      expect(r.statusCode).toBe(200);
+      fotoMony = (await estadoJ(hijo))?.foto_id;
+    }
+
+    const r = await app.inject({ method: "POST", url: API.panel.rechazar(s.id), cookies, payload: {} });
+    expect(r.statusCode).toBe(200);
+    const sinTiempos = <T extends { actualizado_en: Date }>(f: T | undefined) => f && { ...f, actualizado_en: null };
+    expect(sinTiempos(await estadoA(titular))).toEqual(sinTiempos(antesA));
+    expect(sinTiempos(await estadoJ(hijo))).toEqual(sinTiempos({ ...antesJ!, foto_id: fotoMony ?? null }));
+    const quedan = async (id: string | null | undefined) =>
+      (await db.select({ id: fotos.id }).from(fotos).where(eq(fotos.id, id ?? ""))).length;
+    // La foto que trajo la solicitud se borra siempre; la de Mony, nunca.
+    expect(await quedan(fotoTitularS2)).toBe(0);
+    expect(await quedan(fotoHijoS2)).toBe(0);
+    if (monyCambia) expect(await quedan(fotoMony)).toBe(1);
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.solicitud_id, s.id))).toHaveLength(0);
+    await app.close();
+  });
+
+  it("la copia con foto vuelve con su foto y se borra la que trajo la solicitud", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const s = await nuevaSolicitud();
+    const fotoBase = await fotoPrueba(db);
+    const apo = await crearApoderado(db, { foto_id: fotoBase });
+    await db.insert(fichasPrevias).values({
+      solicitud_id: s.id,
+      apoderado_id: apo,
+      datos: { foto_id: fotoBase, estado: "precargado", solicitud_id: null },
+    });
+    const fotoS2 = await fotoDeLaSolicitud(s);
+    await db.update(apoderados).set({ foto_id: fotoS2, estado: "pendiente", solicitud_id: s.id }).where(eq(apoderados.id, apo));
+    expect((await app.inject({ method: "POST", url: API.panel.rechazar(s.id), cookies, payload: {} })).statusCode).toBe(200);
+    expect(await estadoA(apo)).toMatchObject({ estado: "precargado", foto_id: fotoBase });
+    expect(await db.select().from(fotos).where(eq(fotos.id, fotoS2))).toHaveLength(0);
+    await app.close();
+  });
+
+  it("el detalle marca propia a quien se decide desde esta solicitud", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const x = await familia();
+    const y = await familia();
+    // Y nombra por RUT al hijo de X: en Y se muestra, pero se decide desde X.
+    await db.insert(jugadorApoderado).values({ jugador_id: x.hijo, apoderado_id: y.apo, solicitud_id: y.s.id });
+    const propias = async (id: string) => {
+      const d = (await app.inject({ method: "GET", url: API.panel.solicitud(id), cookies })).json();
+      return {
+        jugadores: Object.fromEntries(d.jugadores.map((j: { id: string; propia: boolean }) => [j.id, j.propia])),
+        apoderados: Object.fromEntries(d.apoderados.map((a: { id: string; propia: boolean }) => [a.id, a.propia])),
+      };
+    };
+    expect(await propias(y.s.id)).toEqual({
+      jugadores: { [y.hijo]: true, [x.hijo]: false },
+      apoderados: { [y.apo]: true },
+    });
+    expect(await propias(x.s.id)).toEqual({ jugadores: { [x.hijo]: true }, apoderados: { [x.apo]: true } });
+    // Ya activo, el titular sigue siendo de su solicitud; un titular que ya era activo de antes, no.
+    const z = await nuevaSolicitud();
+    const activo = await crearApoderado(db, { estado: "activo", credencial_token: generarToken(), foto_id: await fotoPrueba(db) });
+    await db.update(solicitudesRegistro).set({ titular_apoderado_id: activo }).where(eq(solicitudesRegistro.id, z.id));
+    expect((await propias(z.id)).apoderados).toEqual({ [activo]: false });
+    await app.close();
+  });
+
+  it("aprobar y rechazar aceptan hasta 50 por arreglo: más es 400 y no cambia nada", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo } = await familia();
+    const muchos = Array.from({ length: 51 }, () => ({ id: apo }));
+    const vinculos = Array.from({ length: 51 }, () => ({ jugador_id: apo, apoderado_id: apo }));
+    for (const [accion, payload] of [
+      ["aprobar", { apoderados: muchos }],
+      ["aprobar", { vinculos }],
+      ["rechazar", { vinculos }],
+      ["rechazar", { personas: muchos.map((m) => ({ rol: "apoderado", ...m })) }],
+    ] as const) {
+      const r = await app.inject({ method: "POST", url: `/api/panel/solicitudes/${s.id}/${accion}`, cookies, payload });
+      expect(r.statusCode, `${accion}`).toBe(400);
+      expect(r.json().error.codigo).toBe("validacion");
+    }
+    expect(await estadoA(apo)).toMatchObject({ estado: "pendiente" });
+    // 50 sí pasa la validación (y choca después: no son de la solicitud).
+    const cincuenta = Array.from({ length: 50 }, () => ({ jugador_id: apo, apoderado_id: apo }));
+    for (const accion of ["aprobar", "rechazar"] as const) {
+      const r = await app.inject({ method: "POST", url: `/api/panel/solicitudes/${s.id}/${accion}`, cookies, payload: { vinculos: cincuenta } });
+      expect(r.statusCode, accion).toBe(409);
+    }
     await app.close();
   });
 });
