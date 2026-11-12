@@ -150,7 +150,7 @@ export function Button({
   );
 }
 
-export function DisciplineBadge({ d }: { d: "basketball" | "volleyball" }) {
+export function DisciplineBadge({ d }: { d: "basketball" | "voleibol" }) {
   return d === "basketball" ? (
     <Badge tone="basket">🏀 Basketball</Badge>
   ) : (
@@ -170,7 +170,7 @@ export function Avatar({
 }: {
   name: string;
   size?: number;
-  discipline?: "basketball" | "volleyball";
+  discipline?: "basketball" | "voleibol";
 }) {
   const initials = name
     .split(" ")
@@ -188,7 +188,7 @@ export function Avatar({
   const g =
     discipline === "basketball"
       ? "from-primary to-accent"
-      : discipline === "volleyball"
+      : discipline === "voleibol"
         ? "from-primary to-secondary"
         : gradients[hash % gradients.length];
   return (

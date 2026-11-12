@@ -1,5 +1,5 @@
-import { PaginaVacia } from "@/components/PaginaVacia";
+import { SeccionPendiente } from "@/components/panel/Pendiente";
 
 export function UniformesPage() {
-  return <PaginaVacia titulo="Uniformes" />;
+  return <SeccionPendiente titulo="Uniformes" />;
 }

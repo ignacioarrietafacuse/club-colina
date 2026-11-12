@@ -10,5 +10,11 @@ import * as panel from "./panel";
 import * as publico from "./publico";
 
 export const api = { auth, panel, publico };
-export { ErrorApi, esErrorApi, mensajeDeError, type CodigoErrorCliente } from "./cliente";
+export {
+  ErrorApi,
+  esErrorApi,
+  mensajeDeError,
+  reintentar,
+  type CodigoErrorCliente,
+} from "./cliente";
 export type { FiltrosApoderados, FiltrosJugadores, FiltrosSolicitudes, TipoPersona } from "./panel";
