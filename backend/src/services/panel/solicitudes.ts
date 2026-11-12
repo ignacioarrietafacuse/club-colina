@@ -552,16 +552,21 @@ const previoJugador = z
     marcado_retiro_en: z.iso.datetime({ offset: true }).nullable(),
   })
   .partial();
-const previoApoderado = previoJugador.pick({
-  nombre: true,
-  apellido: true,
-  telefono: true,
-  email: true,
-  metodo_pago: true,
-  foto_id: true,
-  estado: true,
-  solicitud_id: true,
-});
+const previoApoderado = previoJugador
+  .pick({
+    nombre: true,
+    apellido: true,
+    telefono: true,
+    email: true,
+    metodo_pago: true,
+    foto_id: true,
+    estado: true,
+    solicitud_id: true,
+  })
+  .extend({
+    /** `paga_mensualidad` que tenían los vínculos de la base antes de la solicitud, por jugador. */
+    vinculos_paga: z.record(z.uuid(), z.boolean()).optional(),
+  });
 
 /**
  * Qué foto queda al restaurar (decisión de Ignacio, 2026-11-12): se borra solo la foto que trajo
@@ -658,7 +663,13 @@ async function rechazarPersona(
       })
       .where(eq(jugadores.id, personaId));
   } else {
-    const d = previoApoderado.parse(previa.datos);
+    const { vinculos_paga, ...d } = previoApoderado.parse(previa.datos);
+    for (const [jugadorId, paga] of Object.entries(vinculos_paga ?? {})) {
+      await tx
+        .update(jugadorApoderado)
+        .set({ paga_mensualidad: paga })
+        .where(and(eq(jugadorApoderado.jugador_id, jugadorId), eq(jugadorApoderado.apoderado_id, personaId)));
+    }
     await tx
       .update(apoderados)
       .set({

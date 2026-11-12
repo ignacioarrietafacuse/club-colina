@@ -387,9 +387,15 @@ function PasoTitular({
   const c = camposTitular(f.titular);
   return (
     <div className="space-y-5">
-      {f.titular.lookup !== null && (
-        <Aviso>Encontramos tu RUT en la base del club. Solo te preguntamos lo que falta.</Aviso>
-      )}
+      {f.titular.lookup !== null &&
+        (f.titular.tipo === "jugador_adulto" ? (
+          <Aviso>
+            Encontramos tu RUT en la base del club. Completa tus datos: lo que el club ya tiene no
+            se cambia.
+          </Aviso>
+        ) : (
+          <Aviso>Encontramos tu RUT en la base del club. Solo te preguntamos lo que falta.</Aviso>
+        ))}
       <CamposPersona
         c={c}
         datos={f.datos}
