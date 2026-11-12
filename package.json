@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@12.18.0",
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.12 <23"
   },
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
