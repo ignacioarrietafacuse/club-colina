@@ -113,8 +113,9 @@ lo pide.
   `credencial_token` nuevo.
 - **QR en el panel (S4):** se puede descargar en PNG para **cualquier persona activa**
   (jugador, apoderado o entrenador), no solo entrenadores. URL: `urlCredencial()` de `shared/`.
-- **Logs:** el logger censura el token de `/api/public/familia/:token`, `/completar/:token`
-  y `/credencial/:token` (`backend/src/lib/logs.ts`). No loguear params, cuerpos ni cabeceras.
+- **Logs:** el logger escribe el patrón de la ruta (`/api/public/familia/:token`), nunca la URL
+  ni su consulta (el buscador `?q=` lleva RUT y nombres), y un `{ err }` sin texto recibe un
+  mensaje fijo (`backend/src/lib/logs.ts`). No loguear params, query, cuerpos ni cabeceras.
 - **Límite de intentos:** `LIMITES` en `backend/src/lib/limite-intentos.ts`; cada ruta lo
   activa con `config: { rateLimit: LIMITES.x }`. La llave es `ipCliente()`: `x-club-colina-ip` solo
   si la petición trae el secreto del middleware de Vercel (`frontend/middleware.ts`, `PROXY_SECRETO`

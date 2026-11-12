@@ -3,7 +3,8 @@ import { afterAll, describe, expect, it } from "vitest";
 import { generarRutFicticio } from "@club-colina/shared";
 import { construirApp } from "../app";
 import { configTest, dbTest } from "../test/db";
-import { censurarUrl, rutaSinConsulta } from "./logs";
+import { censurarUrl, limpiarArgumentosDeLog, rutaSinConsulta } from "./logs";
+import { generarToken } from "./tokens";
 
 const { db, cerrar } = dbTest();
 afterAll(cerrar);
@@ -46,9 +47,69 @@ describe("logs sin la consulta de la URL", () => {
     const log = lineas.join("");
     expect(log).toContain('"url":"/api/prueba-busqueda"');
     expect(log).toContain('"url":"/api/prueba-busqueda-error"');
-    expect(log).toContain('"url":"/api/panel/jugadores"');
+    expect(log).toContain('"url":"(sin ruta)"');
     expect(log).toContain("error no controlado");
     expect(log).not.toContain("q=");
     for (const v of [...valores, cuerpo ?? "", "Florinda", "Inventad"]) expect(log).not.toContain(v);
+  });
+
+  it("se loguea el patrón de la ruta: ni tokens, ni URLs inventadas, ni 404 con texto", async () => {
+    const lineas: string[] = [];
+    const salida = new PassThrough();
+    salida.on("data", (c: Buffer) => lineas.push(c.toString()));
+    const app = await construirApp({ config: configTest({ LOG_LEVEL: "trace" }), db, logStream: salida });
+    app.get("/api/prueba-token/:token", async () => ({ ok: true }));
+    const token = generarToken();
+    await app.inject({ method: "GET", url: `/api/prueba-token/${token}?x=1` });
+    for (const url of [
+      `/api/public/%66amilia/${token}`,
+      `/api//public/familia/${token}`,
+      `/api/public/familia%2F${token}`,
+      "/api/panel/jugadores;q=MARCADOR",
+      "/api/panel/jugadores%3Fq=MARCADOR",
+      "/MARCADOR",
+    ]) {
+      await app.inject({ method: "GET", url });
+    }
+    await app.close();
+    const log = lineas.join("");
+    expect(log).toContain('"url":"/api/prueba-token/:token"');
+    expect(log).toContain('"url":"(sin ruta)"');
+    expect(log).not.toContain(token);
+    expect(log).not.toContain("MARCADOR");
+  });
+
+  it("responder dos veces no deja la URL con su consulta en el mensaje", async () => {
+    const lineas: string[] = [];
+    const salida = new PassThrough();
+    salida.on("data", (c: Buffer) => lineas.push(c.toString()));
+    const app = await construirApp({ config: configTest({ LOG_LEVEL: "trace" }), db, logStream: salida });
+    app.get("/api/prueba-doble", async (_request, reply) => {
+      await reply.send({ a: 1 });
+      return { b: 2 };
+    });
+    const rut = generarRutFicticio();
+    await app.inject({ method: "GET", url: `/api/prueba-doble?q=${rut}` });
+    await app.close();
+    const log = lineas.join("");
+    expect(log).toContain("FST_ERR_REP_ALREADY_SENT");
+    expect(log).not.toContain(rut);
+    expect(log).not.toContain("q=");
+  });
+
+  it("limpiarArgumentosDeLog: mensaje fijo para un err sin texto; los textos pierden consulta y tokens", () => {
+    const err = Object.assign(new Error("Failed query: select ... params: 12345678-5"), { code: "23505" });
+    const conErr: unknown[] = [{ err }];
+    limpiarArgumentosDeLog(conErr);
+    expect(conErr[1]).toBe("error 23505");
+    const token = generarToken();
+    const texto: unknown[] = [`Reply was already sent in "/api/public/familia/${token}?q=12345678-5" (GET)`];
+    limpiarArgumentosDeLog(texto);
+    expect(texto[0]).toContain('Reply was already sent in "/api/public/familia/[censurado]');
+    expect(texto[0]).not.toContain(token);
+    expect(texto[0]).not.toContain("12345678");
+    const objeto: unknown[] = [{ accion: "activar" }, "panel: credencial"];
+    limpiarArgumentosDeLog(objeto);
+    expect(objeto).toEqual([{ accion: "activar" }, "panel: credencial"]);
   });
 });
