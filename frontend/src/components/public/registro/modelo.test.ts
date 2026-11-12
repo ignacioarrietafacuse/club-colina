@@ -419,7 +419,7 @@ describe("pasos", () => {
     expect(pasosDe(f)).toEqual(["titular", "hijos", "otro", "confirmar"]);
   });
 
-  it("jugador adulto precargado sin faltantes: solo confirmar", () => {
+  it("jugador adulto precargado: se le pide el formulario completo, como exige el servidor", () => {
     const f = formulario(
       iniciarFormulario(RUT, {
         encontrado: true,
@@ -430,7 +430,10 @@ describe("pasos", () => {
         faltantes: [],
       }),
     );
-    expect(pasosDe(f)).toEqual(["confirmar"]);
+    expect(pasosDe(f)).toEqual(["titular", "confirmar"]);
+    expect([...camposTitular(f.titular).pedir].sort()).toEqual(
+      ["nombre", "apellido", "telefono", "fecha_nacimiento", "disciplina", "numero_camiseta", "foto"].sort(),
+    );
   });
 
   it("quitar un hijo lo saca también del otro apoderado; un precargado no se quita", () => {
