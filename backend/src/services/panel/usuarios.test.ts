@@ -84,11 +84,11 @@ describe("usuarios del panel (script crear-usuario)", () => {
     const rota = crearDb(urlTest(), { max: 1 });
     await rota.cerrar();
     const usuario = nombreUnico();
-    for (const promesa of [
-      crearUsuario(rota.db, { usuario, nombre: "Nombre Visible", password: "clave-de-prueba-123" }),
-      cambiarPassword(rota.db, { usuario, password: "clave-de-prueba-123" }),
+    for (const intento of [
+      () => crearUsuario(rota.db, { usuario, nombre: "Nombre Visible", password: "clave-de-prueba-123" }),
+      () => cambiarPassword(rota.db, { usuario, password: "clave-de-prueba-123" }),
     ]) {
-      const mensaje = await mensajeDe(promesa);
+      const mensaje = await mensajeDe(intento());
       expect(mensaje).toBe("Error al escribir en la base (detalle omitido).");
       expect(mensaje).not.toContain(usuario);
     }

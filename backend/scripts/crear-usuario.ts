@@ -61,7 +61,8 @@ async function main() {
   const nombre = argumento("--nombre");
   const cambiar = process.argv.includes("--cambiar");
   const reactivar = process.argv.includes("--reactivar");
-  if (!usuario || (!cambiar && !nombre) || (reactivar && !cambiar)) {
+  // --cambiar no toca el nombre: pasarlo igual sería creer que cambió.
+  if (!usuario || (!cambiar && !nombre) || (cambiar && nombre) || (reactivar && !cambiar)) {
     throw new ErrorDeUso(
       'Uso: crear-usuario.ts --usuario <usuario> --nombre "<nombre>" [--produccion]\n' +
         "     crear-usuario.ts --usuario <usuario> --cambiar [--reactivar] [--produccion]",
