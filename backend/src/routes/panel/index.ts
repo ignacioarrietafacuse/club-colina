@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { exigirSesion } from "../../services/panel/sesiones";
 import { rutasPersonas } from "./personas";
+import { rutasSolicitudes } from "./solicitudes";
 
 /**
  * Plugin `panel`, montado en /api/panel. Toda ruta de este plugin exige sesión: sin sesión, con
@@ -17,4 +18,5 @@ export async function rutasPanel(app: FastifyInstance) {
     reply.status(404).send({ error: { codigo: "no_encontrado", mensaje: "No encontrado" } }),
   );
   await app.register(rutasPersonas);
+  await app.register(rutasSolicitudes);
 }

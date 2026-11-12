@@ -23,7 +23,14 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { noEncontrado } from "../../lib/errores";
 import { respuesta, validarEntrada } from "../../lib/validar";
-import { activar, cambiarFoto, desactivar, fotoDePersona, regenerarToken } from "../../services/panel/acciones";
+import {
+  activar,
+  cambiarFoto,
+  desactivar,
+  fotoDePersona,
+  quitarMarcaRetiro,
+  regenerarToken,
+} from "../../services/panel/acciones";
 import { listarCategorias, resumenDashboard } from "../../services/panel/dashboard";
 import {
   crearEntrenador,
@@ -74,6 +81,13 @@ export async function rutasPersonas(app: FastifyInstance) {
   app.patch("/jugadores/:id", async (request) => {
     const id = idDe(request.params);
     await editarJugador(db, id, validarEntrada(jugadorPatch, request.body ?? {}));
+    return respuesta(jugadorDetalle, await detalleJugador(db, id));
+  });
+  /** Quitar la marca "ya no está en el club" (Mony confirma que sigue). Responde la ficha. */
+  app.delete("/jugadores/:id/marca-retiro", async (request) => {
+    const id = idDe(request.params);
+    await quitarMarcaRetiro(db, id);
+    request.log.info({ accion: "quitar-marca-retiro", persona_id: id, usuario_id: request.usuarioPanel?.id }, "panel: ficha");
     return respuesta(jugadorDetalle, await detalleJugador(db, id));
   });
 
