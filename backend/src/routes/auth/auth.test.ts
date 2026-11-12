@@ -316,7 +316,7 @@ describe("cambiar clave", () => {
     await app.close();
   });
 
-  it("límite de intentos por usuario: el sexto en 15 minutos es 429, aunque cambie la IP", async () => {
+  it("límite de intentos por sesión: el sexto en 15 minutos es 429, aunque cambie la IP; otra sesión del mismo usuario sigue pudiendo", async () => {
     const app = await construirApp({ config: configTest(), db });
     const usuario = await usuarioNuevo();
     const token = cookieDe(await login(app, usuario));
@@ -333,6 +333,9 @@ describe("cambiar clave", () => {
     }
     expect(codigos.slice(0, LIMITES.cambiarClave.max)).toEqual(Array(LIMITES.cambiarClave.max).fill(400));
     expect(codigos.at(-1)).toBe(429);
+    // Quien gastó los intentos (una sesión robada) no le bloquea al dueño el cambio desde la suya.
+    const duena = cookieDe(await login(app, usuario, PASSWORD, "198.51.100.60"));
+    expect((await cambiar(app, duena, { clave_actual: PASSWORD, clave_nueva: NUEVA })).statusCode).toBe(204);
     await app.close();
   });
 

@@ -128,7 +128,8 @@ describe("clave temporal en medio de la sesión", () => {
       await fallar(new ErrorApi(403, "origen_no_permitido", "x"));
       expect(alDebeCambiar).not.toHaveBeenCalled();
       await fallar(new ErrorApi(403, "debe_cambiar_clave", "x"));
-      expect(alDebeCambiar).toHaveBeenCalled();
+      await fallar(new ErrorApi(403, "debe_cambiar_clave", "x"));
+      expect(alDebeCambiar).toHaveBeenCalledTimes(1);
       expect(alVencer).not.toHaveBeenCalled();
       dejar();
     })();

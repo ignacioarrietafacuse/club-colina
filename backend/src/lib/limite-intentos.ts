@@ -1,7 +1,8 @@
 import { isIP } from "node:net";
 import rateLimit from "@fastify/rate-limit";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { tokensIguales } from "./tokens";
+import { COOKIE_SESION } from "@club-colina/shared";
+import { hashToken, tokensIguales } from "./tokens";
 
 /** Cabeceras que agrega el middleware de Vercel (frontend/middleware.ts). */
 export const CABECERA_PROXY = "x-club-colina-proxy";
@@ -87,14 +88,19 @@ export const LIMITES = {
     keyGenerator: (request: FastifyRequest) => `${usuarioDe(request.body)}|${ipCliente(request)}`,
   },
   /**
-   * Cambiar la clave: con sesión, así que la llave es el usuario (no la IP), después de
-   * `exigirSesion`. Frena a quien tenga una sesión robada y pruebe claves actuales.
+   * Cambiar la clave: con sesión (corre después de `exigirSesion`), así que la llave es la sesión,
+   * no la IP. Quien tenga una sesión robada prueba a lo más 5 claves actuales cada 15 minutos y no
+   * puede abrir otra sin la clave; y gastar esos intentos no le bloquea al dueño, desde su propia
+   * sesión, el cambio de clave que lo echaría.
    */
   cambiarClave: {
     max: 5,
     timeWindow: "15 minutes",
     hook: "preHandler",
-    keyGenerator: (request: FastifyRequest) => `cambiar-clave|${request.usuarioPanel?.id ?? ipCliente(request)}`,
+    keyGenerator: (request: FastifyRequest) => {
+      const token = request.cookies[COOKIE_SESION];
+      return `cambiar-clave|${token ? hashToken(token) : ipCliente(request)}`;
+    },
   },
 } as const;
 

@@ -51,12 +51,14 @@ export function vigilarSesion(
   alDebeCambiar?: () => void,
 ): () => void {
   let avisado = false;
+  let avisadoClave = false;
   const avisar = (error: unknown) => {
     if (avisado) return;
     if (esSesionVencida(error)) {
       avisado = true;
       alVencer();
-    } else if (alDebeCambiar && debeCambiarClave(error)) {
+    } else if (alDebeCambiar && !avisadoClave && debeCambiarClave(error)) {
+      avisadoClave = true;
       alDebeCambiar();
     }
   };
