@@ -1,0 +1,359 @@
+import { afterAll, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
+import { FOTO_MAX_BYTES, generarRutFicticio } from "@club-colina/shared";
+import { apoderados, categorias, entrenadores, fotos, jugadores } from "../../db/schema";
+import { dbTest, JPEG_PRUEBA, PNG_PRUEBA } from "../../test/db";
+import {
+  appConSesion,
+  crearApoderado,
+  crearJugador,
+  crearJugadorActivo,
+  fotoPrueba,
+  multipart,
+  vincular,
+} from "./prueba";
+
+const { db, cerrar } = dbTest();
+afterAll(cerrar);
+
+async function categoria(disciplina: "basketball" | "voleibol", nombre: string): Promise<number> {
+  const [c] = await db.select().from(categorias).where(eq(categorias.nombre, nombre));
+  if (!c || c.disciplina !== disciplina) throw new Error(`sin categoría ${nombre}`);
+  return c.id;
+}
+
+describe("panel: sin sesión todo niega", () => {
+  it("cada ruta nueva responde 401 sin cookie", async () => {
+    const { app } = await appConSesion(db);
+    const id = await crearJugador(db);
+    for (const [method, url] of [
+      ["GET", "/api/panel/dashboard"],
+      ["GET", "/api/panel/categorias"],
+      ["GET", "/api/panel/jugadores"],
+      ["GET", `/api/panel/jugadores/${id}`],
+      ["PATCH", `/api/panel/jugadores/${id}`],
+      ["GET", "/api/panel/apoderados"],
+      ["GET", "/api/panel/entrenadores"],
+      ["POST", "/api/panel/entrenadores"],
+      ["GET", `/api/panel/jugadores/${id}/foto`],
+      ["POST", `/api/panel/jugadores/${id}/foto`],
+      ["POST", `/api/panel/jugadores/${id}/activar`],
+      ["POST", `/api/panel/jugadores/${id}/desactivar`],
+      ["POST", `/api/panel/jugadores/${id}/regenerar-token`],
+    ] as const) {
+      const r = await app.inject({ method, url, payload: method === "GET" ? undefined : {} });
+      expect(r.statusCode, `${method} ${url}`).toBe(401);
+    }
+    // Y nada cambió.
+    const [j] = await db.select().from(jugadores).where(eq(jugadores.id, id));
+    expect(j?.estado).toBe("precargado");
+    await app.close();
+  });
+});
+
+describe("dashboard y categorías", () => {
+  it("cuenta lo real", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const antes = (await app.inject({ method: "GET", url: "/api/panel/dashboard", cookies })).json();
+    await crearJugadorActivo(db);
+    await crearJugador(db);
+    await crearApoderado(db);
+    const despues = (await app.inject({ method: "GET", url: "/api/panel/dashboard", cookies })).json();
+    expect(despues.jugadores_activos).toBe(antes.jugadores_activos + 1);
+    expect(despues.precargados_sin_registrar.jugadores).toBe(antes.precargados_sin_registrar.jugadores + 1);
+    expect(despues.precargados_sin_registrar.apoderados).toBe(antes.precargados_sin_registrar.apoderados + 1);
+    const cats = (await app.inject({ method: "GET", url: "/api/panel/categorias", cookies })).json();
+    expect(cats.length).toBeGreaterThanOrEqual(11);
+    expect(cats.find((c: { nombre: string }) => c.nombre === "U11 F").se_calcula).toBe(false);
+    await app.close();
+  });
+});
+
+describe("jugadores", () => {
+  it("lista con filtros: estado, sin número, faltan datos y búsqueda por RUT con puntos", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const apellido = `Filtro${Date.now()}`;
+    const rut = generarRutFicticio();
+    const activo = await crearJugadorActivo(db, {
+      apellido,
+      numero_camiseta: "99",
+      rut,
+      categoria_id: await categoria("voleibol", "U14"),
+    });
+    const precargado = await crearJugador(db, { apellido });
+    const listar = async (query: string): Promise<Array<{ id: string }>> =>
+      (await app.inject({ method: "GET", url: `/api/panel/jugadores?q=${apellido}&${query}`, cookies })).json();
+
+    expect((await listar("")).map((j) => j.id).sort()).toEqual([activo, precargado].sort());
+    expect((await listar("estado=activo")).map((j) => j.id)).toEqual([activo]);
+    expect((await listar("sin_numero=true")).map((j) => j.id)).toEqual([activo]);
+    expect((await listar("sin_numero=false")).map((j) => j.id)).toEqual([precargado]);
+    expect((await listar("faltan_datos=true")).map((j) => j.id)).toEqual([precargado]);
+    expect((await listar("faltan_datos=false")).map((j) => j.id)).toEqual([activo]);
+
+    const [cuerpo, dv] = rut.split("-");
+    const conPuntos = `${cuerpo?.slice(0, 2)}.${cuerpo?.slice(2, 5)}.${cuerpo?.slice(5)}-${dv}`;
+    const porRut = await app.inject({ method: "GET", url: `/api/panel/jugadores?q=${conPuntos}`, cookies });
+    expect(porRut.json().map((j: { id: string }) => j.id)).toEqual([activo]);
+
+    const malo = await app.inject({ method: "GET", url: "/api/panel/jugadores?estado=otro", cookies });
+    expect(malo.statusCode).toBe(400);
+    expect(malo.json().error.codigo).toBe("validacion");
+    await app.close();
+  });
+
+  it("el buscador trata % y _ como texto", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const r = await app.inject({ method: "GET", url: "/api/panel/jugadores?q=%25", cookies });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual([]);
+    await app.close();
+  });
+
+  it("detalle con edad, faltantes y apoderados; 404 si no existe o el id no es uuid", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const id = await crearJugador(db, { fecha_nacimiento: "2000-01-01", telefono: null });
+    const apo = await crearApoderado(db, { nombre: "Ana", apellido: "Prueba" });
+    let r = await app.inject({ method: "GET", url: `/api/panel/jugadores/${id}`, cookies });
+    expect(r.statusCode).toBe(200);
+    const sinApoderado = r.json();
+    expect(sinApoderado.edad).toBeGreaterThanOrEqual(26);
+    // Adulto sin apoderado: le falta su teléfono.
+    expect(sinApoderado.faltantes).toEqual(["categoria", "numero_camiseta", "telefono", "foto"]);
+    await vincular(db, id, apo, { paga_mensualidad: true });
+    r = await app.inject({ method: "GET", url: `/api/panel/jugadores/${id}`, cookies });
+    expect(r.json().faltantes).toEqual(["categoria", "numero_camiseta", "foto"]);
+    expect(r.json().apoderados).toEqual([
+      { id: apo, nombre_completo: "Ana Prueba", paga_mensualidad: true, estado_vinculo: "pendiente" },
+    ]);
+    for (const url of ["/api/panel/jugadores/00000000-0000-4000-8000-000000000000", "/api/panel/jugadores/no-es-uuid"]) {
+      expect((await app.inject({ method: "GET", url, cookies })).statusCode).toBe(404);
+    }
+    await app.close();
+  });
+
+  it("PATCH edita, valida la categoría contra la rama y traduce las restricciones", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const id = await crearJugador(db);
+    const u14 = await categoria("voleibol", "U14");
+    const u13 = await categoria("basketball", "U13");
+    const patch = (payload: object, jugador = id) =>
+      app.inject({ method: "PATCH", url: `/api/panel/jugadores/${jugador}`, cookies, payload });
+
+    let r = await patch({ numero_camiseta: "00", categoria_id: u14, beca_mensualidad_pct: 50, telefono: "+56 9 1234 5678" });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ numero_camiseta: "00", categoria_id: u14, beca_mensualidad_pct: 50, telefono: "912345678" });
+
+    // Categoría de otra rama, o cambiar de rama sin corregir la categoría: 400.
+    expect((await patch({ categoria_id: u13 })).statusCode).toBe(400);
+    expect((await patch({ disciplina: "basketball" })).statusCode).toBe(400);
+    expect((await patch({ disciplina: "basketball", categoria_id: u13 })).statusCode).toBe(200);
+    expect((await patch({ categoria_id: 32000 })).statusCode).toBe(400);
+    expect((await patch({ beca_torneos_pct: 101 })).statusCode).toBe(400);
+
+    // RUT repetido: 409.
+    const otro = generarRutFicticio();
+    await crearJugador(db, { rut: otro });
+    r = await patch({ rut: otro });
+    expect(r.statusCode).toBe(409);
+    expect(r.json().error.codigo).toBe("conflicto");
+    expect(r.body).not.toContain(otro);
+
+    // Dejar incompleto a un activo: 422.
+    const activo = await crearJugadorActivo(db);
+    r = await patch({ fecha_nacimiento: null }, activo);
+    expect(r.statusCode).toBe(422);
+    expect(r.json().error.codigo).toBe("requisitos_incompletos");
+
+    expect((await patch({ nombre: "X" }, "00000000-0000-4000-8000-000000000000")).statusCode).toBe(404);
+    await app.close();
+  });
+});
+
+describe("apoderados", () => {
+  it("lista con filtro de faltan datos, detalle con sus jugadores y PATCH", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const apellido = `Apo${Date.now()}`;
+    const completo = await crearApoderado(db, { apellido, foto_id: await fotoPrueba(db) });
+    const incompleto = await crearApoderado(db, { apellido, telefono: null });
+    const hijo = await crearJugador(db, { nombre: "Tomás", apellido: "Hijo" });
+    await vincular(db, hijo, completo, { estado: "activo" });
+
+    const lista = (q: string) =>
+      app.inject({ method: "GET", url: `/api/panel/apoderados?q=${apellido}${q}`, cookies });
+    expect((await lista("&faltan_datos=true")).json().map((a: { id: string }) => a.id)).toEqual([incompleto]);
+    expect((await lista("&faltan_datos=false")).json().map((a: { id: string }) => a.id)).toEqual([completo]);
+
+    const d = (await app.inject({ method: "GET", url: `/api/panel/apoderados/${completo}`, cookies })).json();
+    expect(d.faltantes).toEqual([]);
+    expect(d.jugadores).toEqual([{ id: hijo, nombre_completo: "Tomás Hijo", paga_mensualidad: false, estado_vinculo: "activo" }]);
+
+    const r = await app.inject({
+      method: "PATCH",
+      url: `/api/panel/apoderados/${incompleto}`,
+      cookies,
+      payload: { telefono: "987654321", email: "  Correo@Ejemplo.TEST ", metodo_pago: "forpay_mensual" },
+    });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ telefono: "987654321", email: "correo@ejemplo.test", faltantes: ["foto"] });
+    await app.close();
+  });
+});
+
+describe("entrenadores", () => {
+  it("se crean con foto, quedan activos con credencial; foto y datos son obligatorios", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const datos = { nombre: "Carla", apellido: "Entrenadora", rut: generarRutFicticio(), telefono: "911112222", disciplina: "basketball" };
+    const crear = (partes: Parameters<typeof multipart>[0]) =>
+      app.inject({ method: "POST", url: "/api/panel/entrenadores", cookies, ...multipart(partes) });
+
+    let r = await crear([{ nombre: "datos", valor: JSON.stringify(datos) }, { nombre: "foto", archivo: JPEG_PRUEBA }]);
+    expect(r.statusCode).toBe(201);
+    const e = r.json();
+    expect(e).toMatchObject({ nombre: "Carla", estado: "activo", tiene_foto: true });
+    expect(e.credencial_token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+    // Mismo RUT: 409, y no queda una foto huérfana.
+    const fotosAntes = (await db.select({ id: fotos.id }).from(fotos)).length;
+    r = await crear([{ nombre: "datos", valor: JSON.stringify(datos) }, { nombre: "foto", archivo: JPEG_PRUEBA }]);
+    expect(r.statusCode).toBe(409);
+    expect((await db.select({ id: fotos.id }).from(fotos)).length).toBe(fotosAntes);
+
+    const otro = { ...datos, rut: generarRutFicticio() };
+    r = await crear([{ nombre: "datos", valor: JSON.stringify(otro) }]);
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error.codigo).toBe("archivo_invalido");
+    r = await crear([{ nombre: "datos", valor: JSON.stringify(otro) }, { nombre: "foto", archivo: Buffer.from("no es imagen") }]);
+    expect(r.json().error.codigo).toBe("archivo_invalido");
+    r = await crear([{ nombre: "datos", valor: "{no json" }, { nombre: "foto", archivo: JPEG_PRUEBA }]);
+    expect(r.json().error.codigo).toBe("validacion");
+    r = await crear([
+      { nombre: "datos", valor: JSON.stringify(otro) },
+      { nombre: "foto", archivo: Buffer.alloc(FOTO_MAX_BYTES + 10, 0xff) },
+    ]);
+    expect(r.statusCode).toBe(413);
+    expect(r.json().error.codigo).toBe("archivo_invalido");
+    r = await app.inject({ method: "POST", url: "/api/panel/entrenadores", cookies, payload: otro });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error.codigo).toBe("archivo_invalido");
+    expect(await db.select().from(entrenadores).where(eq(entrenadores.rut, otro.rut))).toHaveLength(0);
+
+    r = await app.inject({ method: "PATCH", url: `/api/panel/entrenadores/${e.id}`, cookies, payload: { telefono: "933334444" } });
+    expect(r.json().telefono).toBe("933334444");
+    const lista = (await app.inject({ method: "GET", url: "/api/panel/entrenadores", cookies })).json();
+    expect(lista.some((x: { id: string }) => x.id === e.id)).toBe(true);
+    await app.close();
+  });
+});
+
+describe("fotos y credenciales", () => {
+  it("la foto se sirve sin caché y se puede cambiar; la anterior se borra", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const id = await crearApoderado(db);
+    const url = `/api/panel/apoderados/${id}/foto`;
+    expect((await app.inject({ method: "GET", url, cookies })).statusCode).toBe(404);
+
+    let r = await app.inject({ method: "POST", url, cookies, ...multipart([{ nombre: "foto", archivo: JPEG_PRUEBA }]) });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual({ tiene_foto: true });
+    const [a1] = await db.select({ foto_id: apoderados.foto_id }).from(apoderados).where(eq(apoderados.id, id));
+
+    r = await app.inject({ method: "POST", url, cookies, ...multipart([{ nombre: "foto", archivo: PNG_PRUEBA }]) });
+    expect(r.statusCode).toBe(200);
+    expect(await db.select().from(fotos).where(eq(fotos.id, a1?.foto_id ?? ""))).toHaveLength(0);
+
+    r = await app.inject({ method: "GET", url, cookies });
+    expect(r.statusCode).toBe(200);
+    expect(r.headers["content-type"]).toBe("image/png");
+    expect(r.headers["cache-control"]).toBe("private, no-store");
+    expect(r.headers["x-content-type-options"]).toBe("nosniff");
+
+    r = await app.inject({ method: "POST", url, cookies, ...multipart([{ nombre: "otro", archivo: PNG_PRUEBA }]) });
+    expect(r.json().error.codigo).toBe("archivo_invalido");
+    r = await app.inject({ method: "POST", url, cookies, ...multipart([{ nombre: "foto", archivo: Buffer.alloc(FOTO_MAX_BYTES + 1, 0xff) }]) });
+    expect(r.statusCode).toBe(413);
+    expect((await app.inject({ method: "GET", url: `/api/panel/otros/${id}/foto`, cookies })).statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("activar exige lo mismo que aprobar y genera credencial; desactivar la anula", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const id = await crearJugador(db);
+    const accion = (a: string, j = id, tipo = "jugadores") =>
+      app.inject({ method: "POST", url: `/api/panel/${tipo}/${j}/${a}`, cookies });
+
+    let r = await accion("activar");
+    expect(r.statusCode).toBe(422);
+    expect(r.json().error.mensaje).toContain("numero_camiseta");
+    expect(r.json().error.mensaje).toContain("foto");
+    // Regenerar solo con credencial activa.
+    expect((await accion("regenerar-token")).statusCode).toBe(409);
+
+    // Mony completa la ficha en el panel: número y foto. La categoría no es requisito.
+    await app.inject({ method: "PATCH", url: `/api/panel/jugadores/${id}`, cookies, payload: { numero_camiseta: "99", categoria_id: null } });
+    await app.inject({ method: "POST", url: `/api/panel/jugadores/${id}/foto`, cookies, ...multipart([{ nombre: "foto", archivo: JPEG_PRUEBA }]) });
+    r = await accion("activar");
+    expect(r.statusCode).toBe(200);
+    const token1 = r.json().credencial_token;
+    expect(r.json().estado).toBe("activo");
+    expect(token1).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect((await accion("activar")).statusCode).toBe(409);
+
+    r = await accion("regenerar-token");
+    expect(r.statusCode).toBe(200);
+    const token2 = r.json().credencial_token;
+    expect(token2).not.toBe(token1);
+
+    r = await accion("desactivar");
+    expect(r.json()).toEqual({ estado: "inactivo", credencial_token: null });
+    const [j] = await db.select().from(jugadores).where(eq(jugadores.id, id));
+    expect(j?.credencial_token).toBeNull();
+    // Idempotente.
+    expect((await accion("desactivar")).statusCode).toBe(200);
+
+    // Reactivar da un token nuevo, distinto de los anteriores.
+    r = await accion("activar");
+    expect(r.statusCode).toBe(200);
+    expect([token1, token2]).not.toContain(r.json().credencial_token);
+
+    // Un pendiente se maneja desde su solicitud.
+    const pendiente = await crearJugador(db, { estado: "pendiente" });
+    expect((await accion("activar", pendiente)).statusCode).toBe(409);
+    expect((await accion("desactivar", pendiente)).statusCode).toBe(409);
+    expect((await accion("activar", "00000000-0000-4000-8000-000000000000")).statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("apoderados y entrenadores: activar, desactivar y reactivar", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const apo = await crearApoderado(db, { telefono: null });
+    const accion = (tipo: string, id: string, a: string) =>
+      app.inject({ method: "POST", url: `/api/panel/${tipo}/${id}/${a}`, cookies });
+    let r = await accion("apoderados", apo, "activar");
+    expect(r.statusCode).toBe(422);
+    expect(r.json().error.mensaje).toBe("Faltan datos: telefono, foto");
+    await db.update(apoderados).set({ telefono: "912345678", foto_id: await fotoPrueba(db) }).where(eq(apoderados.id, apo));
+    expect((await accion("apoderados", apo, "activar")).json().estado).toBe("activo");
+
+    const [ent] = await db
+      .insert(entrenadores)
+      .values({
+        nombre: "E",
+        apellido: "F",
+        rut: generarRutFicticio(),
+        telefono: "912345678",
+        disciplina: "voleibol",
+        foto_id: await fotoPrueba(db),
+        credencial_token: "a".repeat(43),
+      })
+      .returning({ id: entrenadores.id });
+    if (!ent) throw new Error("sin entrenador");
+    expect((await accion("entrenadores", ent.id, "activar")).statusCode).toBe(409);
+    expect((await accion("entrenadores", ent.id, "desactivar")).json()).toEqual({ estado: "inactivo", credencial_token: null });
+    expect((await accion("entrenadores", ent.id, "regenerar-token")).statusCode).toBe(409);
+    r = await accion("entrenadores", ent.id, "activar");
+    expect(r.json().estado).toBe("activo");
+    expect(r.json().credencial_token).not.toBe("a".repeat(43));
+    await app.close();
+  });
+});
