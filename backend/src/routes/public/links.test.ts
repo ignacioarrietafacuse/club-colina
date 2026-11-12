@@ -146,7 +146,7 @@ describe("GET /api/public/familia/:token", () => {
     await vincular(db, hijo.id, titular.id);
     const { token_acceso } = await crearSolicitud(
       app,
-      { rut: titular.rut, tipo: "apoderado", consentimiento: true, hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }] },
+      { rut: titular.rut, tipo: "apoderado", consentimiento: true, telefono: "911111111", hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }] },
       {},
     );
     const credencial = await activar(jugadores, hijo.rut);
@@ -175,7 +175,7 @@ describe("GET /api/public/familia/:token", () => {
     await vincular(db, hijo.id, titular.id);
     const { token_acceso } = await crearSolicitud(
       app,
-      { rut: titular.rut, tipo: "apoderado", consentimiento: true, hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }] },
+      { rut: titular.rut, tipo: "apoderado", consentimiento: true, telefono: "911111111", hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }] },
       {},
     );
     const credencial = await activar(jugadores, hijo.rut);
@@ -199,7 +199,7 @@ describe("GET /api/public/familia/:token", () => {
       {
         rut: titular.rut,
         tipo: "apoderado",
-        consentimiento: true,
+        consentimiento: true, telefono: "911111111",
         hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }],
         otro_apoderado: { nombre: "Diego", apellido: "Prueba", rut: rutNuevo(), telefono: "944444444", hijos: [0] },
       },
@@ -288,7 +288,7 @@ describe("GET /api/public/familia/:token", () => {
       {
         rut: titular.rut,
         tipo: "apoderado",
-        consentimiento: true,
+        consentimiento: true, telefono: "911111111",
         foto: "t",
         hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
       },

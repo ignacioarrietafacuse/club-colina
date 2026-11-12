@@ -164,6 +164,23 @@ describe("POST /api/public/solicitudes", () => {
     await app.close();
   });
 
+  it("precargado con teléfono en la base: se le exige igual, para comparar y avisar si difiere", async () => {
+    const titular = await crearApoderado(db, { telefono: "911111111" });
+    const app = await construirApp({ config: configTest(), db });
+    const sinTel = await enviar(app, { rut: titular.rut, tipo: "apoderado", consentimiento: true, foto: "t" }, { t: JPEG_PRUEBA });
+    expect(sinTel.statusCode).toBe(400);
+    expect(sinTel.json().error.mensaje).toContain("telefono");
+    expect(await contar("solicitudes_registro")).toBe(0);
+    const igual = await enviar(
+      app,
+      { rut: titular.rut, tipo: "apoderado", consentimiento: true, telefono: "911111111", foto: "t" },
+      { t: JPEG_PRUEBA },
+    );
+    expect(igual.statusCode).toBe(201);
+    expect((await solicitudes())[0]?.avisos).toEqual([]);
+    await app.close();
+  });
+
   it("precargado sin teléfono en la base: se le pide y se avisa que no hubo con qué comparar", async () => {
     const titular = await crearApoderado(db, { telefono: null });
     const app = await construirApp({ config: configTest(), db });
@@ -191,7 +208,7 @@ describe("POST /api/public/solicitudes", () => {
     ]) {
       const r = await enviar(
         app,
-        { rut: titular.rut, tipo: "apoderado", consentimiento: true, foto: "t", hijos: [{ ref, foto: "h", numero_camiseta: "1" }] },
+        { rut: titular.rut, tipo: "apoderado", consentimiento: true, telefono: "911111111", foto: "t", hijos: [{ ref, foto: "h", numero_camiseta: "1" }] },
         { t: JPEG_PRUEBA, h: JPEG_PRUEBA },
       );
       expect(r.statusCode).toBe(409);
@@ -258,7 +275,7 @@ describe("POST /api/public/solicitudes", () => {
     await vincular(db, hijo.id, titular.id);
     const ajeno = await crearJugador(db);
     const app = await construirApp({ config: configTest(), db });
-    const base = { rut: titular.rut, tipo: "apoderado" as const, consentimiento: true as const };
+    const base = { rut: titular.rut, tipo: "apoderado" as const, consentimiento: true as const, telefono: "911111111" };
     const otro = await enviar(app, { ...base, hijos: [{ ref: { rut: ajeno.rut }, ya_no_esta: true }] });
     expect(otro.statusCode).toBe(400);
     expect(otro.json().error.mensaje).toContain("hijos.0.ya_no_esta");
@@ -579,7 +596,7 @@ describe("POST /api/public/solicitudes", () => {
     const r = await enviar(app, {
       rut: titular.rut,
       tipo: "apoderado",
-      consentimiento: true,
+      consentimiento: true, telefono: "911111111",
       hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }],
       otro_apoderado: { nombre: "Intruso", apellido: "X", rut: rutNuevo(), telefono: "966666666", hijos: [0] },
     });
@@ -597,7 +614,7 @@ describe("POST /api/public/solicitudes", () => {
     const r = await enviar(app, {
       rut: titular.rut,
       tipo: "apoderado",
-      consentimiento: true,
+      consentimiento: true, telefono: "911111111",
       hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
       otro_apoderado: { nombre: "A", apellido: "B", rut: rutNuevo(), telefono: "966666666", hijos: [0] },
     });
@@ -614,7 +631,7 @@ describe("POST /api/public/solicitudes", () => {
     const app = await construirApp({ config: configTest(), db });
     const r = await enviar(
       app,
-      { rut: titular.rut, tipo: "apoderado", consentimiento: true, hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }, hijoNuevo(hijo.rut)] },
+      { rut: titular.rut, tipo: "apoderado", consentimiento: true, telefono: "911111111", hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }, hijoNuevo(hijo.rut)] },
       { h0: JPEG_PRUEBA },
     );
     expect(r.statusCode).toBe(400);
@@ -630,7 +647,7 @@ describe("POST /api/public/solicitudes", () => {
     const r = await enviar(app, {
       rut: titular.rut,
       tipo: "apoderado",
-      consentimiento: true,
+      consentimiento: true, telefono: "911111111",
       paga_mensualidad: true,
       hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }],
     });
@@ -670,7 +687,7 @@ describe("POST /api/public/solicitudes", () => {
         {
           rut: titular.rut,
           tipo: "apoderado",
-          consentimiento: true,
+          consentimiento: true, telefono: "911111111",
           nombre: "Rosa",
           foto: "t",
           hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, numero_camiseta: "8", foto: "h" }],
@@ -768,14 +785,14 @@ describe("POST /api/public/solicitudes", () => {
       const app = await construirApp({ config: configTest(), db });
       const completa = await enviar(
         app,
-        { rut: mama.rut, tipo: "apoderado", consentimiento: true, hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, numero_camiseta: "4", foto: "h" }] },
+        { rut: mama.rut, tipo: "apoderado", consentimiento: true, telefono: "911111111", hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, numero_camiseta: "4", foto: "h" }] },
         { h: JPEG_PRUEBA },
       );
       expect(completa.statusCode).toBe(201);
       const marca = await enviar(app, {
         rut: papa.rut,
         tipo: "apoderado",
-        consentimiento: true,
+        consentimiento: true, telefono: "911111111",
         hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
       });
       expect(marca.statusCode).toBe(201);
@@ -829,7 +846,7 @@ describe("POST /api/public/solicitudes", () => {
         datos: {
           rut: titular.rut,
           tipo: "apoderado",
-          consentimiento: true,
+          consentimiento: true, telefono: "911111111",
           nombre: "Rosa",
           foto: "t",
           hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, numero_camiseta: "8", foto: "h" }],
@@ -892,7 +909,7 @@ describe("POST /api/public/solicitudes", () => {
         const r = await enviar(app, {
           rut,
           tipo: "apoderado",
-          consentimiento: true,
+          consentimiento: true, telefono: "911111111",
           hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
         });
         expect(r.statusCode).toBe(201);
@@ -974,7 +991,7 @@ describe("POST /api/public/solicitudes", () => {
       const r = await enviar(app, {
         rut: titular.rut,
         tipo: "apoderado",
-        consentimiento: true,
+        consentimiento: true, telefono: "911111111",
         hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
       });
       expect(r.statusCode).toBe(201);
@@ -991,7 +1008,7 @@ describe("POST /api/public/solicitudes", () => {
       await vincular(db, hijo.id, titular.id);
       const falla = await enviar(
         app,
-        { rut: titular.rut, tipo: "apoderado", consentimiento: true, foto: "t", hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }] },
+        { rut: titular.rut, tipo: "apoderado", consentimiento: true, telefono: "911111111", foto: "t", hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }] },
         { t: JPEG_PRUEBA },
       );
       expect(falla.statusCode).toBe(400);
@@ -1011,7 +1028,7 @@ describe("POST /api/public/solicitudes", () => {
       const primera = await enviar(app, {
         rut: mama.rut,
         tipo: "apoderado",
-        consentimiento: true,
+        consentimiento: true, telefono: "911111111",
         hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
       });
       expect(primera.statusCode).toBe(201);
@@ -1021,7 +1038,7 @@ describe("POST /api/public/solicitudes", () => {
         {
           rut: papa.rut,
           tipo: "apoderado",
-          consentimiento: true,
+          consentimiento: true, telefono: "911111111",
           hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, numero_camiseta: "4", foto: "h" }],
         },
         { h: JPEG_PRUEBA },

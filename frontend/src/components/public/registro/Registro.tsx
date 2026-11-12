@@ -394,7 +394,11 @@ function PasoTitular({
             se cambia.
           </Aviso>
         ) : (
-          <Aviso>Encontramos tu RUT en la base del club. Solo te preguntamos lo que falta.</Aviso>
+          <Aviso>
+            Encontramos tu RUT en la base del club. Te preguntamos lo que falta y el teléfono que le
+            diste al club al inscribirte: no se cambia, y si no coincide el club lo revisa antes de
+            aprobar.
+          </Aviso>
         ))}
       <CamposPersona
         c={c}

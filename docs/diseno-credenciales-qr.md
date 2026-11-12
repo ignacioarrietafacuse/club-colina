@@ -18,7 +18,7 @@ El club necesita verificar en la entrada del Pucalán que quien entra es jugador
 ## Solución (cómo la ve el club)
 - **Carga inicial:** la base que entregó Mony (inscripciones 2026) se importa al sistema. Cada persona queda **precargada**: existe en el panel, pero sin credencial.
 - Mony comparte el link de registro por los grupos de WhatsApp del club.
-- La persona escribe su RUT. **Si el sistema lo reconoce, solo le pide lo que falta y la foto.** Si no lo reconoce, llena el formulario completo.
+- La persona escribe su RUT. **Si el sistema lo reconoce, le pide lo que falta y la foto**; al apoderado titular, además, el teléfono que dio al club, para detectar suplantaciones. El jugador adulto llena su formulario completo, y lo que el club ya tiene no se cambia. Si no lo reconoce, llena el formulario completo.
 - **Jugadores nuevos:** cada vez que entra un jugador, Mony le manda el mismo link al apoderado.
 - Los jugadores adultos usan el mismo link.
 - **Entrenadores:** no llenan nada. Mony los crea a mano en el panel, descarga el QR de cada uno y se lo envía ella misma.
@@ -93,7 +93,7 @@ La base es la exportación del formulario de inscripción 2026: 177 jugadores de
 
 ## Flujo
 1. La persona abre el link y escribe su RUT.
-2. **RUT reconocido:** ve solo las preguntas que faltan y la foto. **RUT no reconocido:** llena el formulario completo.
+2. **RUT reconocido:** ve las preguntas que faltan y la foto; el apoderado titular escribe además el teléfono que dio al club. **RUT no reconocido:** llena el formulario completo.
 3. Al enviar recibe un **link privado** donde ve el estado ("pendiente de aprobación") y, una vez aprobado, los QR de las personas que llegaron en esa solicitud (en el caso del apoderado, los de los hijos que inscribió en ella; un hijo ya inscrito por otro apoderado aparece cuando Mony aprueba el vínculo).
 4. Mony revisa la solicitud en el panel, asigna becas si corresponde y aprueba. Las que calzan con la base aparecen marcadas "Coincide con la base".
 5. Los QR quedan activos. El apoderado reenvía el QR al hijo si este tiene celular.
@@ -108,12 +108,13 @@ La base es la exportación del formulario de inscripción 2026: 177 jugadores de
 **Paso 1 — RUT:** la persona escribe su RUT. El sistema valida el dígito verificador y busca si está precargada.
 
 ### Si el RUT está en la base
-Solo se pregunta lo que no esté en la ficha. Lo habitual:
+Solo se pregunta lo que no esté en la ficha, salvo el teléfono del apoderado titular. Lo habitual:
 
 **Apoderado**
 - Su foto.
 - Casilla "soy quien paga la mensualidad".
-- Nombre, apellido o teléfono, solo si faltan.
+- Nombre o apellido, solo si faltan.
+- Teléfono (el que dio al club al inscribirse), siempre: si la base no lo tiene se completa; si lo tiene, no se cambia y, si no coincide, la solicitud llega con el aviso de teléfono distinto. Así se detecta a quien conoce el RUT de un apoderado e intenta registrarse en su nombre (decisión de Ignacio, 2026-11-12).
 
 **Por cada hijo precargado** (identificado por su primer nombre)
 - Foto.
@@ -121,8 +122,7 @@ Solo se pregunta lo que no esté en la ficha. Lo habitual:
 - Casilla "Ya no está en el club", que lo saca del registro y lo deja marcado para que Mony lo confirme. La marca no se aprueba ni se rechaza con la solicitud: Mony la resuelve en la ficha (lo deja inactivo o quita la marca). Una solicitud que solo marca hijos queda revisada al crearse, y el dashboard muestra cuántos jugadores marcados quedan sin resolver, con un enlace a la lista filtrada (decisión de Ignacio, 2026-11-12).
 
 **Jugador adulto**
-- Su foto y su número de camiseta.
-- Teléfono, solo si falta.
+- El formulario completo, igual que si no estuviera en la base: el servidor exige todos los datos para que la respuesta no revele si el RUT está. Lo que el club ya tiene no se cambia; solo se completa lo que falta.
 
 Después puede agregar a un hijo que no esté en la base (formulario completo de hijo) y a otro apoderado.
 
@@ -252,7 +252,7 @@ Horarios, lugar y entrenador se agregan en la Etapa 2.
 - **Consulta de RUT del formulario:** responde solo si está o no en la base y qué campos faltan (más el primer nombre de los hijos). Nunca devuelve los datos guardados. Con límite de intentos. El RUT de un jugador que no es adulto con certeza (menor, o sin fecha en la base) responde como si no estuviera, y la lista de hijos oculta los vínculos pendientes hacia hijos de otra familia nombrados por RUT hasta que Mony los aprueba (decisión de Ignacio, 2026-11-12).
 - **Panel de Mony:**
   - Login.
-  - Solicitudes pendientes con foto y datos: aprobar / rechazar, asignar becas por jugador (mensualidad, torneos, campus/clínicas) y corregir categoría y número. Etiqueta "Coincide con la base" en las que vienen de un RUT precargado.
+  - Solicitudes pendientes con foto y datos: aprobar / rechazar, asignar becas por jugador (mensualidad, torneos, campus/clínicas) y corregir categoría y número. Etiqueta "Coincide con la base" en las que vienen de un RUT precargado. Al rechazar, un precargado vuelve a como estaba; una persona nueva (llegó por el formulario y nunca estuvo activa) se borra con su foto y sus vínculos, para liberar su RUT y no guardar datos de menores sin motivo (Ley 21.719; decisión de Ignacio, 2026-11-12).
   - Secciones Jugadores y Apoderados con datos reales. Filtros por estado (incluye "Precargado") y por "Faltan datos".
   - Ficha editable: Mony puede completar cualquier dato que falte, incluida la foto, sin esperar a la familia.
   - Lista de precargados que aún no se registran, para insistir por los grupos y detectar retirados. Mony puede marcarlos inactivos.
