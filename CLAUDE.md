@@ -98,9 +98,13 @@ lo pide.
 - **Fotos en Postgres**, tabla `fotos` aparte; las fichas apuntan con `foto_id`. Usar
   `backend/src/lib/fotos.ts` (`guardarFoto`, `leerFoto`, `borrarFoto`). No hay volumen de fotos.
 - **`numero_camiseta` es texto** (`^[0-9]{1,2}$`): "0" y "00" son distintos. "99" = sin número asignado.
-- **Consulta de RUT (S2):** nunca devuelve ids. Los hijos precargados van con `posicion`: todos
-  los vínculos del apoderado en `jugador_apoderado`, sin filtrar por estado, ordenados por
-  `jugador_apoderado.creado_en, jugador_id`. La solicitud los nombra con `ref.precargado` y el
+- **Consulta de RUT (S2):** nunca devuelve ids. Los hijos precargados van con `posicion`: los
+  vínculos del apoderado en `jugador_apoderado`, sin filtrar por estado, ordenados por
+  `jugador_apoderado.creado_en, jugador_id`. Se ocultan los vínculos pendientes que creó una
+  solicitud hacia un hijo que no llegó en esa misma solicitud (un jugador que ya existía, nombrado
+  por RUT); aparece cuando Mony aprueba el vínculo. Un jugador que no es adulto con certeza (menor,
+  o sin fecha en la base) responde igual que un RUT desconocido (`encontrado: false`): si su apoderado lo nombra por RUT, el formulario pide todo
+  y el servidor completa solo lo que falta. La solicitud los nombra con `ref.precargado` y el
   `primer_nombre` que vio; al recibirla, el servidor recalcula la lista desde el RUT de quien llena
   y responde 409 `conflicto` si la posición no existe o el nombre no coincide. Ignora la tabla `entrenadores`. Si un RUT es apoderado y
   jugador adulto a la vez, el formulario lo trata como apoderado; Mony completa la parte
@@ -113,8 +117,9 @@ lo pide.
   `credencial_token` nuevo.
 - **QR en el panel (S4):** se puede descargar en PNG para **cualquier persona activa**
   (jugador, apoderado o entrenador), no solo entrenadores. URL: `urlCredencial()` de `shared/`.
-- **Logs:** el logger censura el token de `/api/public/familia/:token`, `/completar/:token`
-  y `/credencial/:token` (`backend/src/lib/logs.ts`). No loguear params, cuerpos ni cabeceras.
+- **Logs:** el logger escribe el patrón de la ruta (`/api/public/familia/:token`), nunca la URL
+  ni su consulta (el buscador `?q=` lleva RUT y nombres), y un `{ err }` sin texto recibe un
+  mensaje fijo (`backend/src/lib/logs.ts`). No loguear params, query, cuerpos ni cabeceras.
 - **Límite de intentos:** `LIMITES` en `backend/src/lib/limite-intentos.ts`; cada ruta lo
   activa con `config: { rateLimit: LIMITES.x }`. La llave es `ipCliente()`: `x-club-colina-ip` solo
   si la petición trae el secreto del middleware de Vercel (`frontend/middleware.ts`, `PROXY_SECRETO`
@@ -164,3 +169,33 @@ lo pide.
   valores de `AVISOS_SOLICITUD`, sin repetidos; S2 los calcula al recibir la solicitud y, si
   involucra a personas de una solicitud pendiente anterior, le agrega a esa `hay_solicitud_posterior`.
 - **Datos de prueba:** siempre ficticios, con `generarRutFicticio()` de `shared/`.
+
+<!-- graphify-estandar:inicio -->
+## Grafo del código (graphify)
+
+- Antes de buscar archivo por archivo, mira `graphify-out/GRAPH_REPORT.md` y usa
+  `scripts/graphify query "…"`, `scripts/graphify path A B` o `scripts/graphify explain X`.
+  Siempre `scripts/graphify`, sin `./` delante. El graphify aislado de Club Colina no está en
+  el PATH a propósito: `scripts/graphify` lo resuelve y solo deja pasar lo permitido. El
+  `graphify` del PATH está denegado en `.claude/settings.json`.
+- Hay un solo grafo, en la raíz del repo (`graphify-out/` está en `.gitignore`).
+- El grafo orienta; las conclusiones se verifican en el código. Solo indexa código (los `.md`
+  quedan fuera).
+- En la nube el grafo se construye solo al iniciar la sesión, en segundo plano; puede tardar
+  unos segundos. Si `graphify-out/` no existe, sigue normal: no instales graphify ni
+  construyas el grafo a mano. Única excepción: en la nube (`CLAUDE_CODE_REMOTE=true`), si no
+  existe el archivo `graphify-sesion` dentro de la carpeta de git del repo
+  (`git rev-parse --git-path graphify-sesion`), el hook de inicio no corrió (pasa en sesiones
+  con varios repositorios, donde la nube no carga los hooks del repo): lánzalo tú una vez, en
+  segundo plano y sin esperarlo, con `.claude/hooks/graphify-session-start.sh` desde la raíz
+  de este repo. Localmente lo deja `scripts/setup-dev.sh`.
+- Solo `scripts/graphify update .` o `scripts/graphify extract . --code-only`. Prohibido: el
+  skill `/graphify` (el repo lo deniega), el `graphify` del PATH, `extract` sin `--code-only`,
+  `--mode deep`, `--obsidian`, `graphify hook install`, `graphify install` y comitear
+  `graphify-out/`. graphify no envía nada del repo a un modelo ni a terceros: nada que mande
+  docs, imágenes o código a un modelo.
+- Las reglas deny calzan con todo el texto del comando: si un mensaje de commit menciona la ruta
+  de instalación, usa `git commit -F`. Para inspeccionar la instalación o los logs
+  (`~/.cache/club-colina-graphify/`), usa Read/Glob/Grep, no Bash: el deny `*-graphify/*` también
+  tapa los logs, y los deny de `GRAPHIFY_BIN` calzan con cualquier texto que lo contenga.
+<!-- graphify-estandar:fin -->

@@ -6,7 +6,7 @@ import type { Config } from "./config";
 import type { Db } from "./db/cliente";
 import { ErrorApi, manejarError, resumirError } from "./lib/errores";
 import { registrarLimiteIntentos } from "./lib/limite-intentos";
-import { serializarRequest } from "./lib/logs";
+import { limpiarArgumentosDeLog, serializarRequest } from "./lib/logs";
 import { rutasAuth } from "./routes/auth";
 import { rutasHealth } from "./routes/health";
 import { rutasPanel } from "./routes/panel";
@@ -34,6 +34,12 @@ export async function construirApp({ config, db, logStream }: OpcionesApp): Prom
   const logger: OpcionesLogger = {
     level: config.LOG_LEVEL,
     serializers: { req: serializarRequest, err: resumirError },
+    hooks: {
+      logMethod(args, metodo) {
+        limpiarArgumentosDeLog(args);
+        metodo.apply(this, args);
+      },
+    },
     ...(logStream ? { stream: logStream } : {}),
   };
 

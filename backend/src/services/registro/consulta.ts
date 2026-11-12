@@ -1,5 +1,5 @@
 import type { Disciplina, RutLookupResponse } from "@club-colina/shared";
-import { and, asc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, eq, gte, isNotNull, lte, not, sql } from "drizzle-orm";
 import type { Ejecutor } from "../../db/cliente";
 import { apoderados, categorias, jugadorApoderado, jugadores } from "../../db/schema";
 
@@ -44,11 +44,12 @@ export function edad(fechaNacimiento: string, ahora = new Date()): number {
 export const EDAD_ADULTO = 18;
 
 /**
- * Jugador adulto según la base. Si la fecha falta (o era errónea y quedó vacía) no se puede
- * saber: se le deja seguir como adulto y la fecha que escriba se vuelve a revisar al enviar.
+ * Jugador adulto según la base: con fecha conocida y 18 años o más. Ante la duda (fecha vacía o
+ * errónea en la base) no lo es: la consulta de RUT no revela el nombre de un posible menor, y el
+ * adulto sin fecha llena el formulario completo; la fecha que escriba se revisa al enviar.
  */
 export function esAdulto(j: Pick<Jugador, "fecha_nacimiento">): boolean {
-  return j.fecha_nacimiento === null || edad(j.fecha_nacimiento) >= EDAD_ADULTO;
+  return j.fecha_nacimiento !== null && edad(j.fecha_nacimiento) >= EDAD_ADULTO;
 }
 
 /**
@@ -110,16 +111,33 @@ export async function faltantesJugador(
 }
 
 /**
- * Hijos del apoderado, en el orden que fija el contrato: todos sus vínculos, sin filtrar por
- * estado, por `jugador_apoderado.creado_en, jugador_id`. La posición en esta lista es lo único
- * que identifica a un hijo precargado entre la consulta de RUT y la solicitud.
+ * Hijos del apoderado, en el orden que fija el contrato: sus vínculos, sin filtrar por estado,
+ * por `jugador_apoderado.creado_en, jugador_id`. La posición en esta lista es lo único que
+ * identifica a un hijo precargado entre la consulta de RUT y la solicitud.
+ *
+ * Se ocultan los vínculos pendientes que creó una solicitud hacia un hijo que no llegó en esa
+ * misma solicitud (un jugador que ya existía, nombrado por RUT): quien nombra el RUT de un menor
+ * ajeno no ve su nombre antes de que Mony apruebe el vínculo (decisión de Ignacio, 2026-11-12).
+ * Depende de que la solicitud nunca le asigne `solicitud_id` a un jugador que ya existía y se
+ * nombró por RUT (`services/registro/solicitud.ts`, con test de punta a punta).
+ *
+ * Cuando Mony aprueba un vínculo oculto, el hijo aparece en su lugar por `creado_en` y puede
+ * correr las posiciones: un formulario abierto recibe 409 `conflicto` porque el nombre no calza.
  */
 export async function hijosDeApoderado(db: Ejecutor, apoderadoId: string) {
   const filas = await db
     .select({ jugador: jugadores, vinculo: jugadorApoderado })
     .from(jugadorApoderado)
     .innerJoin(jugadores, eq(jugadores.id, jugadorApoderado.jugador_id))
-    .where(eq(jugadorApoderado.apoderado_id, apoderadoId))
+    .where(
+      and(
+        eq(jugadorApoderado.apoderado_id, apoderadoId),
+        // Entre paréntesis: `not()` de drizzle no los agrega.
+        not(
+          sql`(${eq(jugadorApoderado.estado, "pendiente")} and ${isNotNull(jugadorApoderado.solicitud_id)} and ${jugadores.solicitud_id} is distinct from ${jugadorApoderado.solicitud_id})`,
+        ),
+      ),
+    )
     .orderBy(asc(jugadorApoderado.creado_en), asc(jugadorApoderado.jugador_id));
   return filas.map((f, posicion) => ({ posicion, ...f }));
 }
@@ -136,7 +154,8 @@ export async function jugadorPorRut(db: Ejecutor, rut: string): Promise<Jugador 
 
 /**
  * Consulta de RUT del formulario. Responde solo si está en la base y qué falta; nunca los datos
- * guardados ni ids. Si el RUT es apoderado y jugador a la vez, se trata como apoderado. La tabla
+ * guardados ni ids. Si el RUT es apoderado y jugador a la vez, se trata como apoderado; un
+ * jugador que no es adulto con certeza (`esAdulto`) responde `encontrado: false`. La tabla
  * `entrenadores` no se mira: los entrenadores no usan el formulario.
  */
 export async function consultarRut(db: Ejecutor, rut: string): Promise<RutLookupResponse> {
@@ -160,16 +179,19 @@ export async function consultarRut(db: Ejecutor, rut: string): Promise<RutLookup
     };
   }
   const jugador = await jugadorPorRut(db, rut);
-  if (jugador) {
-    const adulto = esAdulto(jugador);
+  // Un jugador menor (o sin fecha en la base) no usa el formulario por sí mismo: se responde
+  // igual que un RUT desconocido, para que la consulta no revele el nombre de un menor
+  // (decisión de Ignacio, 2026-11-12). Si su apoderado lo nombra por RUT, el formulario pide
+  // todo y el servidor completa solo lo que falta en la ficha.
+  if (jugador && esAdulto(jugador)) {
     const registrado = yaRegistrado(jugador);
     return {
       encontrado: true,
       tipo: "jugador",
       primer_nombre: primerNombre(jugador.nombre),
-      adulto,
+      adulto: true,
       ya_registrado: registrado,
-      faltantes: registrado ? [] : await faltantesJugador(db, jugador, { adulto }),
+      faltantes: registrado ? [] : await faltantesJugador(db, jugador, { adulto: true }),
     };
   }
   return { encontrado: false };

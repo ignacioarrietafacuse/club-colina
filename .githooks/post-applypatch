@@ -1,0 +1,17 @@
+#!/bin/sh
+# Reconstruye el grafo local tras `git am` si el parche tocó código. Nunca lo falla.
+# `am` crea el commit sin pasar por post-commit ni por post-rewrite: este hook lo cubre.
+# Misma lógica que post-commit; --no-renames para que un archivo movido a un lugar ignorado
+# siga mostrando su ruta de origen. El argumento «am» hace que rebase-apply (que `am` usa),
+# CHERRY_PICK_HEAD y REVERT_HEAD no cuenten como operación en curso.
+trap 'exit 0' EXIT
+lib="$(dirname "$0")/lib-graphify.sh"
+[ -r "$lib" ] || exit 0
+. "$lib"
+graphify_precheck am || exit 0
+if git -c core.quotePath=false diff-tree -m --no-renames --no-commit-id --name-only -r --root HEAD 2>/dev/null | graphify_relevant; then
+  graphify_rebuild
+else
+  echo "[graphify] parche sin código: no se reconstruye"
+fi
+exit 0

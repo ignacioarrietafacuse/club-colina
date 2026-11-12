@@ -67,7 +67,68 @@
       "Edit(./.githooks/**)",
       "Write(./.githooks/**)",
       "Edit(./.git/**)",
-      "Write(./.git/**)"
+      "Write(./.git/**)",
+      "Skill(graphify)",
+      "Skill(graphify *)",
+      "Skill(graphify:*)",
+      "Bash(graphify *)",
+      "Bash(*club-colina-graphify/*)",
+      "Bash(*-graphify/*)",
+      "Bash(uvx graphifyy*)",
+      "Bash(uvx *graphify*)",
+      "Bash(uv tool *graphify*)",
+      "Bash(uv run *graphify*)",
+      "Bash(pipx *graphify*)",
+      "Bash(python -m graphify*)",
+      "Bash(python3 -m graphify*)",
+      "Bash(env graphify*)",
+      "Bash(*GRAPHIFY_BIN*)",
+      "Bash(*GRAPHIFY_ALLOW_TEST_BIN*)"
+    ],
+    "allow": [
+      "Bash(scripts/graphify query *)",
+      "Bash(scripts/graphify path *)",
+      "Bash(scripts/graphify explain *)",
+      "Bash(scripts/graphify update .)",
+      "Bash(scripts/graphify extract . --code-only)",
+      "Bash(scripts/setup-dev.sh)",
+      "Bash(scripts/test-graphify-hooks.sh)",
+      "Bash(scripts/test-graphify-install.sh)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/graphify-guard.sh search",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/graphify-guard.sh read",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/graphify-session-start.sh",
+            "async": true
+          }
+        ]
+      }
     ]
   }
 }
