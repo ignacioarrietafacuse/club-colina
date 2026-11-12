@@ -43,7 +43,9 @@ describe("app", () => {
       url: "/api/public/solicitudes",
       headers: { origin: "https://panel.ejemplo.test" },
     });
-    expect(propio.statusCode).toBe(404);
+    // Pasa la reja de origen; la ruta responde 400 porque el pedido no es multipart.
+    expect(propio.statusCode).toBe(400);
+    expect(propio.json().error.codigo).toBe("validacion");
     await app.close();
   });
 
@@ -88,7 +90,8 @@ describe("app", () => {
     await app.inject({ method: "POST", url: `/api/public/completar/${tokens[3]}`, headers: { origin: "https://malo.test" } });
     await app.close();
     const log = lineas.join("");
-    expect(log).toContain("[censurado]");
+    // Esas rutas todavía no existen: se loguean como "(sin ruta)", sin el token.
+    expect(log).toContain('"url":"(sin ruta)"');
     for (const t of tokens) expect(log).not.toContain(t);
   });
 

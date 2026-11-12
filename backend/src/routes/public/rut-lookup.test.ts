@@ -1,11 +1,12 @@
 import { API, generarRutFicticio } from "@club-colina/shared";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { construirApp } from "../../app";
-import { entrenadores } from "../../db/schema";
+import { entrenadores, jugadorApoderado, solicitudesRegistro } from "../../db/schema";
 import { guardarFoto } from "../../lib/fotos";
 import { LIMITES } from "../../lib/limite-intentos";
-import { generarToken } from "../../lib/tokens";
+import { generarToken, hashToken } from "../../lib/tokens";
 import { crearApoderado, crearJugador, vaciarRegistro, vincular } from "../../services/registro/datos-prueba";
 import { configTest, dbTest, JPEG_PRUEBA } from "../../test/db";
 
@@ -161,11 +162,70 @@ describe("POST /api/public/rut-lookup", () => {
     await app.close();
   });
 
-  it("jugador menor: adulto false y sin pedir teléfono; la categoría se calcula", async () => {
-    const jugador = await crearJugador(db, { fecha_nacimiento: "2013-07-01", telefono: null });
+  it("un jugador menor responde igual que un RUT desconocido, sin su nombre", async () => {
+    const jugador = await crearJugador(db, { nombre: "Matilde", fecha_nacimiento: "2013-07-01", telefono: null });
     const app = await construirApp({ config: configTest(), db });
     const r = await consultar(app, jugador.rut);
-    expect(r.json()).toMatchObject({ tipo: "jugador", adulto: false, faltantes: ["numero_camiseta", "foto"] });
+    expect(r.json()).toEqual({ encontrado: false });
+    expect(r.body).not.toContain("Matilde");
+    await app.close();
+  });
+
+  it("un jugador sin fecha en la base (puede ser menor) tampoco revela su nombre", async () => {
+    const apoderado = await crearApoderado(db);
+    const sinFecha = await crearJugador(db, { nombre: "Emilia", fecha_nacimiento: null });
+    await vincular(db, sinFecha.id, apoderado.id);
+    const huerfano = await crearJugador(db, { nombre: "Josefa", fecha_nacimiento: null });
+    const app = await construirApp({ config: configTest(), db });
+    for (const rut of [sinFecha.rut, huerfano.rut]) {
+      const r = await consultar(app, rut);
+      expect(r.json()).toEqual({ encontrado: false });
+    }
+    await app.close();
+  });
+
+  it("oculta el vínculo pendiente hacia un hijo ajeno nombrado por RUT hasta que se aprueba", async () => {
+    const apoderado = await crearApoderado(db, { estado: "pendiente" });
+    const [s] = await db
+      .insert(solicitudesRegistro)
+      .values({ token_acceso_hash: hashToken(generarToken()), consentimiento_en: new Date() })
+      .returning();
+    if (!s) throw new Error("sin solicitud");
+    const t0 = new Date("2026-03-01T00:00:00Z");
+    const deLaBase = await crearJugador(db, { nombre: "Benjamín" });
+    const nuevo = await crearJugador(db, { nombre: "Isidora", estado: "pendiente", origen: "formulario", solicitud_id: s.id });
+    const ajeno = await crearJugador(db, { nombre: "Florencia" });
+    // Otro hijo ajeno, que llegó en la solicitud de su propia familia.
+    const [deOtra] = await db
+      .insert(solicitudesRegistro)
+      .values({ token_acceso_hash: hashToken(generarToken()), consentimiento_en: new Date() })
+      .returning();
+    const ajenoConSolicitud = await crearJugador(db, { nombre: "Gaspar", estado: "pendiente", solicitud_id: deOtra?.id });
+    await vincular(db, deLaBase.id, apoderado.id, { creado_en: t0 });
+    await vincular(db, nuevo.id, apoderado.id, { creado_en: new Date(t0.getTime() + 1), estado: "pendiente", solicitud_id: s.id });
+    await vincular(db, ajeno.id, apoderado.id, { creado_en: new Date(t0.getTime() + 2), estado: "pendiente", solicitud_id: s.id });
+    await vincular(db, ajenoConSolicitud.id, apoderado.id, { creado_en: new Date(t0.getTime() + 3), estado: "pendiente", solicitud_id: s.id });
+
+    const app = await construirApp({ config: configTest(), db });
+    const nombres = async () =>
+      (await consultar(app, apoderado.rut)).json().hijos.map((h: { posicion: number; primer_nombre: string }) => [
+        h.posicion,
+        h.primer_nombre,
+      ]);
+    expect(await nombres()).toEqual([
+      [0, "Benjamín"],
+      [1, "Isidora"],
+    ]);
+    // Mony aprueba el vínculo: recién ahí aparece.
+    await db
+      .update(jugadorApoderado)
+      .set({ estado: "activo" })
+      .where(and(eq(jugadorApoderado.jugador_id, ajeno.id), eq(jugadorApoderado.apoderado_id, apoderado.id)));
+    expect(await nombres()).toEqual([
+      [0, "Benjamín"],
+      [1, "Isidora"],
+      [2, "Florencia"],
+    ]);
     await app.close();
   });
 
