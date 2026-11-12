@@ -45,57 +45,48 @@ export const llaveVinculo = (v: { jugador_id: string; apoderado_id: string }) =>
 const bloquea = (faltantes: readonly string[]) => faltantes.includes("foto");
 
 /**
- * Parte marcada solo quien es de esta solicitud (`solicitud_id`) o no tiene ninguna. El contrato
- * no dice quién es «propia» para el servidor, así que esto es aproximado: quien tiene otra
- * solicitud (otra familia, o el segundo apoderado que agregó esta) parte desmarcado, y uno sin
- * solicitud que dejó pendiente otra solicitud parte marcado aunque el servidor lo rechace con 409.
- * En ambos casos el error va hacia denegar; el servidor vuelve a validar todo.
+ * La persona se aprueba o rechaza desde esta solicitud (contrato: `propia && estado ===
+ * "pendiente"`). Las demás solo se muestran: una propia ya decidida responde 409, y una que no es
+ * propia (el titular que ya estaba activo, un hijo de otra solicitud nombrado por RUT, un hijo
+ * marcado «ya no está») se decide en otro lado; desde acá, a lo más, su vínculo.
  */
-export function esDeEstaSolicitud(p: { solicitud_id: string | null }, s: SolicitudDetalle) {
-  return p.solicitud_id === s.id || p.solicitud_id === null;
-}
+export const seDecideAca = (p: { propia: boolean; estado: string }) =>
+  p.propia && p.estado === "pendiente";
 
 /**
  * Foto que subió el segundo apoderado por `/completar`, con un link que le reenvió quien llenó
- * la solicitud: nadie del club la vio. En su propia solicitud (`segundo_apoderado`) es exacto; en
- * la de origen, el apoderado pendiente de otra solicitud que se muestra es ese segundo apoderado.
+ * la solicitud: nadie del club la vio. En su propia solicitud (`segundo_apoderado`) es el
+ * apoderado de esa solicitud; en la de origen, el apoderado propio que trae otra solicitud.
  */
 export function fotoPorLinkReenviado(
-  a: { estado: string; tiene_foto: boolean; solicitud_id: string | null },
+  a: { estado: string; propia: boolean; tiene_foto: boolean; solicitud_id: string | null },
   s: SolicitudDetalle,
 ): boolean {
-  if (a.estado !== "pendiente" || !a.tiene_foto) return false;
+  if (!seDecideAca(a) || !a.tiene_foto) return false;
   return s.tipo === "segundo_apoderado"
     ? a.solicitud_id === s.id
     : a.solicitud_id !== null && a.solicitud_id !== s.id;
 }
 
 /**
- * Quién nombra la confirmación de «Rechazar todo lo pendiente» (cuerpo sin `personas`). El
- * servidor rechaza a las personas propias pendientes. Con certeza lo son las que tienen
- * `solicitud_id` de esta solicitud; las demás pendientes que se muestran (el segundo apoderado
- * que agregó esta, un precargado que esta dejó pendiente, o alguien de otra solicitud que solo
- * está por un vínculo) pueden serlo o no: el contrato no lo dice, así que van aparte y en
- * condicional, nunca como rechazadas seguro.
+ * A quién rechaza «Rechazar todo lo pendiente» (cuerpo sin `personas` ni `vinculos`): las
+ * personas que se deciden desde esta solicitud. Los ids, en el orden en que se muestran.
  */
-export function alcanceRechazoTotal(s: SolicitudDetalle): {
-  seguras: string[];
-  posibles: string[];
-} {
-  const pendientes = [...s.jugadores, ...s.apoderados].filter((p) => p.estado === "pendiente");
-  return {
-    seguras: pendientes.filter((p) => p.solicitud_id === s.id).map((p) => p.id),
-    posibles: pendientes.filter((p) => p.solicitud_id !== s.id).map((p) => p.id),
-  };
+export function alcanceRechazoTotal(s: SolicitudDetalle): string[] {
+  return [...s.jugadores, ...s.apoderados].filter(seDecideAca).map((p) => p.id);
 }
 
-/** Estados con los que un vínculo puede quedar activo (el servidor exige ambos activos al final). */
-const admiteVinculo = (estado: string) => estado === "activo" || estado === "pendiente";
+/**
+ * Con quién un vínculo puede quedar activo: el servidor exige ambas puntas activas al final, así
+ * que la persona ya lo está o se aprueba en este mismo envío.
+ */
+const admiteVinculo = (p: { propia: boolean; estado: string }) =>
+  p.estado === "activo" || seDecideAca(p);
 
 /**
- * Un vínculo se ofrece para aprobar solo si sus dos personas vienen en la solicitud y están
- * activas o pendientes: con una rechazada, inactiva o precargada quedaría activo hacia alguien
- * que no lo está (y el servidor lo rechaza).
+ * Un vínculo se ofrece para aprobar solo si sus dos personas vienen en la solicitud y cada una
+ * está activa o se aprueba desde acá: con una rechazada, inactiva, precargada o pendiente de otra
+ * solicitud quedaría activo hacia alguien que no lo está (y el servidor lo rechaza).
  */
 export function vinculoAprobable(
   v: { jugador_id: string; apoderado_id: string },
@@ -106,8 +97,8 @@ export function vinculoAprobable(
   return (
     jugador !== undefined &&
     apoderado !== undefined &&
-    admiteVinculo(jugador.estado) &&
-    admiteVinculo(apoderado.estado)
+    admiteVinculo(jugador) &&
+    admiteVinculo(apoderado)
   );
 }
 
@@ -137,18 +128,15 @@ export function contactoPosible(jugadorId: string, s: SolicitudDetalle): boolean
     }
     const a = s.apoderados.find((x) => x.id === v.apoderado_id);
     if (!a) return false;
-    return (
-      a.estado === "activo" ||
-      (a.estado === "pendiente" && esDeEstaSolicitud(a, s) && !bloquea(a.faltantes))
-    );
+    return a.estado === "activo" || (seDecideAca(a) && !bloquea(a.faltantes));
   });
 }
 
 /**
- * Solo lo pendiente se aprueba o rechaza; parte marcado con los valores que ya trae, salvo quien
- * no tiene foto (no se puede aprobar), un hijo marcado «ya no está», quien puede no ser de esta
- * solicitud, y los vínculos que no se pueden aprobar o cuyas personas no parten listas
- * (denegar por defecto).
+ * Entra al formulario solo quien se decide desde acá (`seDecideAca`); parte marcado con los valores
+ * que ya trae, salvo quien no tiene foto (no se puede aprobar), un hijo marcado «ya no está», un
+ * adulto sin contacto posible, y los vínculos que no se pueden aprobar o cuyas personas no parten
+ * listas (denegar por defecto).
  */
 export function formInicial(
   s: SolicitudDetalle,
@@ -157,13 +145,12 @@ export function formInicial(
 ): FormAprobacion {
   const jugadores: Record<string, FormJugador> = {};
   for (const j of s.jugadores) {
-    if (j.estado !== "pendiente") continue;
+    if (!seDecideAca(j)) continue;
     jugadores[j.id] = {
       // Un hijo marcado «ya no está» no se activa por inercia: Mony lo marca a mano si corresponde.
       marcado:
         !bloquea(j.faltantes) &&
         j.marcado_retiro_en === null &&
-        esDeEstaSolicitud(j, s) &&
         !desmarcar.has(j.id) &&
         // Un adulto sin teléfono que no puede tener contacto desde acá no se puede aprobar.
         (!j.faltantes.includes("telefono") || contactoPosible(j.id, s)),
@@ -178,9 +165,9 @@ export function formInicial(
   }
   const apoderados: Record<string, FormApoderado> = {};
   for (const a of s.apoderados) {
-    if (a.estado !== "pendiente") continue;
+    if (!seDecideAca(a)) continue;
     apoderados[a.id] = {
-      marcado: !bloquea(a.faltantes) && esDeEstaSolicitud(a, s),
+      marcado: !bloquea(a.faltantes),
       metodo_pago: a.metodo_pago ?? "",
     };
   }

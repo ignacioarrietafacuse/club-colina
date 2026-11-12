@@ -9,7 +9,7 @@ import {
   formInicial,
   llaveVinculo,
   RECHAZO_TOTAL,
-  esDeEstaSolicitud,
+  seDecideAca,
   alcanceRechazoTotal,
   fotoPorLinkReenviado,
   vinculoAprobable,
@@ -300,23 +300,41 @@ describe("casos de la segunda revisión", () => {
   });
 });
 
-describe("quién se decide desde esta solicitud", () => {
+describe("quién se decide desde esta solicitud (propia, #29)", () => {
   const OTRA = "55555555-5555-4555-8555-555555555555";
 
-  it("una persona de otra solicitud (o el segundo apoderado) parte desmarcada", () => {
+  it("solo propia y pendiente: las demás no entran al formulario", () => {
+    expect(seDecideAca({ propia: true, estado: "pendiente" })).toBe(true);
+    // Una propia ya decidida responde 409: no se ofrece.
+    expect(seDecideAca({ propia: true, estado: "activo" })).toBe(false);
+    expect(seDecideAca({ propia: false, estado: "pendiente" })).toBe(false);
     const s = solicitud({
-      apoderados: [{ ...solicitud().apoderados[0]!, solicitud_id: OTRA }],
+      jugadores: [jugador(J1, { propia: false })],
+      apoderados: [{ ...solicitud().apoderados[0]!, propia: false }],
     });
-    expect(esDeEstaSolicitud(s.apoderados[0]!, s)).toBe(false);
     const form = formInicial(s);
-    expect(form.apoderados[A1]?.marcado).toBe(false);
-    // Su vínculo tampoco parte marcado: el apoderado no quedaría activo.
-    expect(form.vinculos[llaveVinculo({ jugador_id: J1, apoderado_id: A1 })]).toBe(false);
+    expect(form.jugadores).toEqual({});
+    expect(form.apoderados).toEqual({});
   });
 
-  it("sin solicitud asignada (precargado que esta dejó pendiente) es de esta", () => {
-    const s = solicitud({ jugadores: [jugador(J1, { solicitud_id: null })] });
-    expect(formInicial(s).jugadores[J1]?.marcado).toBe(true);
+  it("un vínculo hacia una persona pendiente que no es propia no se ofrece", () => {
+    const s = solicitud({ jugadores: [jugador(J1, { propia: false })] });
+    const v = s.vinculos[0]!;
+    expect(vinculoAprobable(v, s)).toBe(false);
+    expect(formInicial(s).vinculos[llaveVinculo(v)]).toBe(false);
+    // Con esa persona ya activa (aunque no sea propia), el vínculo sí se puede aprobar.
+    const activa = solicitud({ jugadores: [jugador(J1, { propia: false, estado: "activo" })] });
+    expect(vinculoAprobable(activa.vinculos[0]!, activa)).toBe(true);
+  });
+
+  it("propia con otra solicitud o sin solicitud se decide igual desde acá", () => {
+    const s = solicitud({
+      jugadores: [jugador(J1, { solicitud_id: null })],
+      apoderados: [{ ...solicitud().apoderados[0]!, solicitud_id: OTRA }],
+    });
+    const form = formInicial(s);
+    expect(form.jugadores[J1]?.marcado).toBe(true);
+    expect(form.apoderados[A1]?.marcado).toBe(true);
   });
 
   it("nota de foto reenviada: el apoderado de una solicitud de segundo apoderado", () => {
@@ -327,11 +345,15 @@ describe("quién se decide desde esta solicitud", () => {
     expect(fotoPorLinkReenviado({ ...base, estado: "activo" }, segunda)).toBe(false);
   });
 
-  it("nota de foto reenviada: en la solicitud de origen, el apoderado de la segunda", () => {
+  it("nota de foto reenviada: en la solicitud de origen, el segundo apoderado (propio)", () => {
     const base = solicitud().apoderados[0]!;
     const origen = solicitud();
     expect(fotoPorLinkReenviado(base, origen)).toBe(false);
     expect(fotoPorLinkReenviado({ ...base, solicitud_id: OTRA }, origen)).toBe(true);
+    // Alguien de otra familia que solo está por un vínculo no es el segundo apoderado.
+    expect(fotoPorLinkReenviado({ ...base, solicitud_id: OTRA, propia: false }, origen)).toBe(
+      false,
+    );
   });
 });
 
@@ -351,19 +373,16 @@ describe("quitar la marca de retiro", () => {
 });
 
 describe("alcance de «Rechazar todo lo pendiente»", () => {
-  const OTRA = "55555555-5555-4555-8555-555555555555";
-
-  it("seguras: solo las pendientes con solicitud_id de esta; el resto, en condicional", () => {
+  it("nombra solo a quien se decide desde acá", () => {
     const s = solicitud({
-      jugadores: [jugador(J1), jugador(J2, { solicitud_id: null })],
-      apoderados: [{ ...solicitud().apoderados[0]!, solicitud_id: OTRA }],
+      jugadores: [jugador(J1), jugador(J2, { propia: false })],
     });
-    expect(alcanceRechazoTotal(s)).toEqual({ seguras: [J1], posibles: [J2, A1] });
+    expect(alcanceRechazoTotal(s)).toEqual([J1, A1]);
   });
 
-  it("no nombra a quien ya no está pendiente", () => {
+  it("no nombra a una propia ya decidida", () => {
     const s = solicitud({ jugadores: [jugador(J1, { estado: "activo" })] });
-    expect(alcanceRechazoTotal(s)).toEqual({ seguras: [A1], posibles: [] });
+    expect(alcanceRechazoTotal(s)).toEqual([A1]);
   });
 });
 
@@ -402,7 +421,7 @@ describe("adulto sin teléfono (#27)", () => {
     const OTRA = "55555555-5555-4555-8555-555555555555";
     const sinVinculos = solicitud({ ...conFaltaTelefono(), vinculos: [] });
     const deOtra = conFaltaTelefono();
-    deOtra.apoderados[0] = { ...deOtra.apoderados[0]!, solicitud_id: OTRA };
+    deOtra.apoderados[0] = { ...deOtra.apoderados[0]!, solicitud_id: OTRA, propia: false };
     const sinFoto = conFaltaTelefono();
     sinFoto.apoderados[0] = { ...sinFoto.apoderados[0]!, tiene_foto: false, faltantes: ["foto"] };
     for (const s of [sinVinculos, deOtra, sinFoto]) {
