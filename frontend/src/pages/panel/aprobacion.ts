@@ -40,10 +40,11 @@ export const llaveVinculo = (v: { jugador_id: string; apoderado_id: string }) =>
 const bloquea = (faltantes: readonly string[]) => faltantes.includes("foto");
 
 /**
- * La persona se decide desde esta solicitud con certeza: es suya (`solicitud_id`) o no tiene
- * ninguna. El resto (de otra solicitud, o el segundo apoderado que agregó esta) solo se muestra
- * para sus vínculos o puede ser propia; el contrato no lo distingue, así que parte desmarcada y
- * el servidor rechaza (409) a quien no sea de esta solicitud.
+ * Parte marcada solo quien es de esta solicitud (`solicitud_id`) o no tiene ninguna. El contrato
+ * no dice quién es «propia» para el servidor, así que esto es aproximado: quien tiene otra
+ * solicitud (otra familia, o el segundo apoderado que agregó esta) parte desmarcado, y uno sin
+ * solicitud que dejó pendiente otra solicitud parte marcado aunque el servidor lo rechace con 409.
+ * En ambos casos el error va hacia denegar; el servidor vuelve a validar todo.
  */
 export function esDeEstaSolicitud(p: { solicitud_id: string | null }, s: SolicitudDetalle) {
   return p.solicitud_id === s.id || p.solicitud_id === null;
@@ -62,6 +63,35 @@ export function fotoPorLinkReenviado(
   return s.tipo === "segundo_apoderado"
     ? a.solicitud_id === s.id
     : a.solicitud_id !== null && a.solicitud_id !== s.id;
+}
+
+/**
+ * Firma esperada después de quitar la marca de retiro de un jugador: así el formulario armado
+ * (con ese jugador desmarcado y lo que Mony haya escrito) sigue sirviendo, y cualquier otro
+ * cambio sí lo deja desfasado.
+ */
+export function firmaTrasQuitarMarca(
+  s: SolicitudDetalle,
+  ficha: {
+    id: string;
+    estado: SolicitudDetalle["jugadores"][number]["estado"];
+    marcado_retiro_en: string | null;
+    faltantes: SolicitudDetalle["jugadores"][number]["faltantes"];
+  },
+): string {
+  return firmaSolicitud({
+    ...s,
+    jugadores: s.jugadores.map((j) =>
+      j.id === ficha.id
+        ? {
+            ...j,
+            estado: ficha.estado,
+            marcado_retiro_en: ficha.marcado_retiro_en,
+            faltantes: ficha.faltantes,
+          }
+        : j,
+    ),
+  });
 }
 
 /** Estados con los que un vínculo puede quedar activo (el servidor exige ambos activos al final). */

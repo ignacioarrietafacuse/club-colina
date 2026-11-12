@@ -12,6 +12,7 @@ import {
   llaveVinculo,
   RECHAZO_TOTAL,
   esDeEstaSolicitud,
+  firmaTrasQuitarMarca,
   fotoPorLinkReenviado,
   vinculoAprobable,
   vinculoConocido,
@@ -329,5 +330,21 @@ describe("quién se decide desde esta solicitud", () => {
     const origen = solicitud();
     expect(fotoPorLinkReenviado(base, origen)).toBe(false);
     expect(fotoPorLinkReenviado({ ...base, solicitud_id: OTRA }, origen)).toBe(true);
+  });
+});
+
+describe("quitar la marca de retiro", () => {
+  it("el formulario sigue sirviendo solo si no cambió nada más", () => {
+    const antes = solicitud({ jugadores: [jugador(J1, { marcado_retiro_en: AHORA })] });
+    const ficha = jugador(J1);
+    const esperada = firmaTrasQuitarMarca(antes, ficha);
+    expect(esperada).toBe(firmaSolicitud(solicitud({ jugadores: [jugador(J1)] })));
+    expect(esperada).not.toBe(firmaSolicitud(antes));
+    // Otro cambio a la vez (un aviso nuevo) sigue dejándolo desfasado.
+    expect(
+      firmaSolicitud(solicitud({ jugadores: [jugador(J1)], avisos: ["hay_solicitud_posterior"] })),
+    ).not.toBe(esperada);
+    // El jugador sigue desmarcado en el formulario que ya estaba armado.
+    expect(formInicial(antes).jugadores[J1]?.marcado).toBe(false);
   });
 });

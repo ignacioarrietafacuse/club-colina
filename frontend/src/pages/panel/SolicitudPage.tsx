@@ -31,6 +31,7 @@ import {
   formInicial,
   RECHAZO_TOTAL,
   esDeEstaSolicitud,
+  firmaTrasQuitarMarca,
   fotoPorLinkReenviado,
   vinculoAprobable,
   vinculoConocido,
@@ -134,7 +135,7 @@ function DetalleSolicitud({
   };
   // Si la solicitud cambió por otro lado (otra pestaña, otro usuario), el formulario ya no
   // calza con lo que hay: no se envía hasta rehacerlo.
-  const [firmaInicial] = useState(() => firmaSolicitud(s));
+  const [firmaInicial, setFirmaInicial] = useState(() => firmaSolicitud(s));
   const desfasado = firmaSolicitud(s) !== firmaInicial;
 
   const aprobar = useMutation({
@@ -150,7 +151,12 @@ function DetalleSolicitud({
 
   const quitarMarca = useMutation({
     mutationFn: (jugadorId: string) => api.panel.quitarMarcaRetiro(jugadorId),
-    onSuccess: refrescar,
+    // No se rehace el formulario: el jugador sigue desmarcado (decir que sigue en el club no es
+    // aprobarlo) y no se pierde lo escrito. Solo se acepta este cambio en la firma.
+    onSuccess: async (ficha) => {
+      setFirmaInicial(firmaTrasQuitarMarca(s, ficha));
+      await queryClient.invalidateQueries({ queryKey: ["panel"] });
+    },
   });
 
   const personasPendientes =
@@ -158,6 +164,13 @@ function DetalleSolicitud({
   const hayPendientes = personasPendientes + Object.keys(form.vinculos).length > 0;
   const marcadas = contarMarcadas(form);
   const ocupado = aprobar.isPending || rechazar.isPending || quitarMarca.isPending || desfasado;
+  const pendientes = [...s.jugadores, ...s.apoderados].filter((p) => p.estado === "pendiente");
+  const pendientesPropias = pendientes
+    .filter((p) => esDeEstaSolicitud(p, s))
+    .map((p) => nombres[p.id] ?? "");
+  const pendientesDeOtra = pendientes
+    .filter((p) => !esDeEstaSolicitud(p, s))
+    .map((p) => nombres[p.id] ?? "");
   const conPosterior = s.avisos.includes("hay_solicitud_posterior");
   const huboRechazo = [...s.jugadores, ...s.apoderados].some((p) => p.estado === "rechazado");
 
@@ -361,6 +374,23 @@ function DetalleSolicitud({
         </div>
       )}
 
+      {confirmar === "todo" && (
+        <div role="alert" className="mb-4 rounded-lg bg-destructive/10 px-4 py-3 text-sm">
+          «Rechazar todo lo pendiente» rechaza a todas las personas pendientes de esta solicitud,
+          estén marcadas o no
+          {pendientesPropias.length > 0 && <>: {pendientesPropias.join(", ")}</>}, y sus vínculos
+          pendientes.
+          {pendientesDeOtra.length > 0 && (
+            <>
+              {" "}
+              También a {pendientesDeOtra.join(", ")} si la agregó el segundo apoderado de esta
+              solicitud.
+            </>
+          )}{" "}
+          No se deshace desde el panel.
+        </div>
+      )}
+
       {hayPendientes ? (
         <div className="card-surface flex flex-wrap items-center gap-3 p-4">
           <p className="flex-1 text-sm text-muted-foreground">
@@ -408,7 +438,8 @@ function NotaDeOtra() {
   return (
     <span className="w-full text-xs text-muted-foreground">
       Es de otra solicitud o la agregó un segundo apoderado: parte sin marcar. Márcala solo si se
-      decide desde acá.
+      decide desde acá. Si la agregó el segundo apoderado de esta solicitud, «Rechazar todo lo
+      pendiente» también la rechaza.
     </span>
   );
 }
