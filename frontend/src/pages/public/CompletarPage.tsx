@@ -3,8 +3,13 @@ import { useParams } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { mensajeError } from "@/components/public/api";
-import { FormularioCompletar } from "@/components/public/Completar";
-import { esNoEncontrado, tokenConForma } from "@/components/public/estados";
+import { CompletarListo, FormularioCompletar } from "@/components/public/Completar";
+import {
+  completarTermino,
+  esNoEncontrado,
+  tituloCompletar,
+  tokenConForma,
+} from "@/components/public/estados";
 import { Aviso, Cargando, Marco } from "@/components/public/Marco";
 
 const LINK_INVALIDO = "Este link no es válido. Pídele uno nuevo a quien te registró o al club.";
@@ -25,7 +30,7 @@ export function CompletarPage() {
   });
 
   return (
-    <Marco titulo="Sube tu foto">
+    <Marco titulo={tituloCompletar(consulta.data)}>
       {!conForma ? (
         <Aviso tono="error">{LINK_INVALIDO}</Aviso>
       ) : consulta.isPending ? (
@@ -45,11 +50,8 @@ export function CompletarPage() {
             </Button>
           </div>
         )
-      ) : consulta.data.foto_subida ? (
-        <Aviso tono="ok">
-          Listo, {consulta.data.primer_nombre}: ya tenemos tu foto. El club la revisará antes de
-          activar tu credencial.
-        </Aviso>
+      ) : completarTermino(consulta.data) ? (
+        <CompletarListo datos={consulta.data} />
       ) : (
         <FormularioCompletar
           token={token}

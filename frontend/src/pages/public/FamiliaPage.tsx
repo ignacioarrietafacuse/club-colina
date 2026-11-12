@@ -44,7 +44,7 @@ export function FamiliaPage() {
           </div>
         )
       ) : (
-        <VistaFamilia datos={consulta.data} baseUrl={window.location.origin} />
+        <VistaFamilia datos={consulta.data} />
       )}
     </Marco>
   );

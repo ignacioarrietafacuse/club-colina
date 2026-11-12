@@ -2,10 +2,13 @@ import type { FamiliaResponse } from "@club-colina/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CompletarListo } from "./Completar";
 import { VistaCredencial } from "./Credencial";
 import { VistaFamilia } from "./Familia";
 import { Listo, Registro } from "./registro/Registro";
+
+afterEach(() => vi.unstubAllEnvs());
 
 // Datos siempre ficticios.
 const TOKEN = "T".repeat(43);
@@ -56,7 +59,7 @@ describe("familia", () => {
   };
 
   it("muestra a cada persona con su estado y el QR solo de las activas", () => {
-    const h = html(<VistaFamilia datos={datos} baseUrl="https://club.example" />);
+    const h = html(<VistaFamilia datos={datos} />);
     expect(h).toContain("Ana Pérez");
     expect(h).toContain("Pendiente de aprobación");
     expect(h).toContain("No aprobada");
@@ -71,7 +74,6 @@ describe("familia", () => {
     const h = html(
       <VistaFamilia
         datos={{ estado_solicitud: "pendiente", personas: [], otros_apoderados: [] }}
-        baseUrl="https://club.example"
       />,
     );
     expect(h).toContain("El club está revisando tu registro");
@@ -86,7 +88,6 @@ describe("familia", () => {
           personas: [{ nombre_completo: "Beto Pérez", rol: "jugador", estado: "rechazado" }],
           otros_apoderados: [],
         }}
-        baseUrl="https://club.example"
       />,
     );
     expect(h).toContain("No hay credenciales activas");
@@ -101,7 +102,6 @@ describe("familia", () => {
           personas: datos.personas.slice(0, 1),
           otros_apoderados: [],
         }}
-        baseUrl="https://club.example"
       />,
     );
     expect(h).toContain("Muestra el código QR");
@@ -111,24 +111,61 @@ describe("familia", () => {
 
 describe("registro", () => {
   it("parte pidiendo el RUT de quien llena", () => {
-    const h = html(<Registro baseUrl="https://club.example" />);
+    const h = html(<Registro />);
     expect(h).toContain("Tu RUT");
     expect(h).toContain("no el de tu hijo");
+  });
+
+  it("sin dirección pública, el final no se cae: muestra la ruta y pide entregarla al club", () => {
+    vi.stubEnv("VITE_PUBLIC_BASE_URL", "");
+    const h = html(<Listo resultado={{ token_acceso: TOKEN, otros_apoderados: [] }} />);
+    expect(h).toContain(`/familia/${TOKEN}`);
+    expect(h).not.toContain("https://");
+    expect(h).toContain("entrégaselo al club");
   });
 
   it("al terminar muestra el link privado y los de los otros apoderados", () => {
     const otro = "O".repeat(43);
     const h = html(
       <Listo
-        baseUrl="https://club.example/"
         resultado={{
           token_acceso: TOKEN,
           otros_apoderados: [{ nombre_completo: "Eva Soto", completar_token: otro }],
         }}
       />,
     );
-    expect(h).toContain(`https://club.example/familia/${TOKEN}`);
-    expect(h).toContain(`https://club.example/completar/${otro}`);
+    expect(h).toContain(`https://club-colina.test/familia/${TOKEN}`);
+    expect(h).toContain(`https://club-colina.test/completar/${otro}`);
     expect(h).toContain("Es la única vez que lo verás");
+  });
+});
+
+describe("completar", () => {
+  it("activo: muestra su QR", () => {
+    const h = html(
+      <CompletarListo
+        datos={{ primer_nombre: "Eva", foto_subida: true, credencial_token: TOKEN }}
+      />,
+    );
+    expect(h).toContain("tu credencial está activa");
+    // El QR se dibuja en el navegador: en el HTML inicial va su espacio reservado.
+    expect(h).toContain("animate-pulse");
+  });
+
+  it("activo sin haber subido la foto por el link (la completó el club): igual ve su QR", () => {
+    const h = html(
+      <CompletarListo
+        datos={{ primer_nombre: "Eva", foto_subida: false, credencial_token: TOKEN }}
+      />,
+    );
+    expect(h).toContain("tu credencial está activa");
+    expect(h).toContain("animate-pulse");
+  });
+
+  it("foto subida y aún sin aprobar: en revisión, sin QR", () => {
+    const h = html(<CompletarListo datos={{ primer_nombre: "Eva", foto_subida: true }} />);
+    expect(h).toContain("ya tenemos tu foto");
+    expect(h).toContain("Si el club aprueba");
+    expect(h).not.toContain("animate-pulse");
   });
 });

@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { mensajeError, statusDe } from "../api";
 import { Aviso } from "../Marco";
+import { hayBasePublica, urlPublica } from "../links";
 import { Campo, CamposPersona, Casilla } from "./campos";
 import {
   armarSolicitud,
@@ -46,7 +47,7 @@ type Pantalla =
   | { tipo: "listo"; resultado: SolicitudCreadaResponse };
 
 /** Formulario de registro por pasos, según el diseño (`docs/diseno-credenciales-qr.md`). */
-export function Registro({ baseUrl }: { baseUrl: string }) {
+export function Registro() {
   const [pantalla, setPantalla] = useState<Pantalla>({ tipo: "rut" });
   const reiniciar = () => setPantalla({ tipo: "rut" });
 
@@ -117,7 +118,7 @@ export function Registro({ baseUrl }: { baseUrl: string }) {
         />
       );
     case "listo":
-      return <Listo resultado={pantalla.resultado} baseUrl={baseUrl} />;
+      return <Listo resultado={pantalla.resultado} />;
   }
 }
 
@@ -270,6 +271,15 @@ function Pasos({
     if (Object.keys(e).length > 0) return;
     if (actual !== "confirmar") {
       onPaso(paso + 1);
+      return;
+    }
+    // Los links privados se entregan una sola vez, al terminar: si no se pueden armar, mejor
+    // no crear la solicitud que perderlos.
+    if (!hayBasePublica()) {
+      setFallaEnvio({
+        mensaje: "El sitio no está bien configurado. Avísale al club e intenta más tarde.",
+        reiniciar: false,
+      });
       return;
     }
     setFallaEnvio(null);
@@ -753,8 +763,12 @@ function PasoConfirmar({ f, onCambio, errores }: PropsPaso) {
 // Resultado
 // ---------------------------------------------------------------------------
 
-export function LinkParaGuardar({ url, etiqueta }: { url: string; etiqueta: string }) {
+export function LinkParaGuardar({ ruta, etiqueta }: { ruta: string; etiqueta: string }) {
   const [copiado, setCopiado] = useState(false);
+  // Sin dirección pública (no debería pasar: el formulario no envía sin ella) se muestra la
+  // ruta, para que la familia no pierda el único link que recibe.
+  const completa = urlPublica(ruta);
+  const url = completa ?? ruta;
   async function copiar() {
     try {
       await navigator.clipboard.writeText(url);
@@ -767,11 +781,17 @@ export function LinkParaGuardar({ url, etiqueta }: { url: string; etiqueta: stri
     <div className="space-y-2 rounded-xl border bg-card p-4">
       <p className="text-sm font-medium">{etiqueta}</p>
       <p className="select-all break-all rounded-md bg-muted p-2 font-mono text-xs">{url}</p>
+      {!completa && (
+        <p className="text-xs text-destructive">
+          No pudimos armar el link completo. Guarda este texto y entrégaselo al club.
+        </p>
+      )}
       <div className="flex gap-2">
         <Button type="button" variant="secondary" size="sm" onClick={() => void copiar()}>
           {copiado ? "Copiado" : "Copiar link"}
         </Button>
-        {typeof navigator !== "undefined" && typeof navigator.share === "function" && (
+        {/* Compartir una ruta sin dirección la completaría con la del navegador: no se ofrece. */}
+        {completa && typeof navigator !== "undefined" && typeof navigator.share === "function" && (
           <Button
             type="button"
             variant="outline"
@@ -786,13 +806,7 @@ export function LinkParaGuardar({ url, etiqueta }: { url: string; etiqueta: stri
   );
 }
 
-export function Listo({
-  resultado,
-  baseUrl,
-}: {
-  resultado: SolicitudCreadaResponse;
-  baseUrl: string;
-}) {
+export function Listo({ resultado }: { resultado: SolicitudCreadaResponse }) {
   // El link es la única vez que se entrega: avisar antes de cerrar la pestaña.
   useEffect(() => {
     const avisar = (e: BeforeUnloadEvent) => {
@@ -804,7 +818,6 @@ export function Listo({
     return () => window.removeEventListener("beforeunload", avisar);
   }, []);
 
-  const base = baseUrl.replace(/\/+$/, "");
   return (
     <div className="space-y-5">
       <Aviso tono="ok">¡Listo! Recibimos tu registro. El club lo revisará pronto.</Aviso>
@@ -814,7 +827,7 @@ export function Listo({
       </Aviso>
       <LinkParaGuardar
         etiqueta="Tu link privado"
-        url={`${base}/familia/${encodeURIComponent(resultado.token_acceso)}`}
+        ruta={`/familia/${encodeURIComponent(resultado.token_acceso)}`}
       />
       {resultado.otros_apoderados.length > 0 && (
         <section className="space-y-3">
@@ -826,7 +839,7 @@ export function Listo({
             <LinkParaGuardar
               key={o.completar_token}
               etiqueta={o.nombre_completo}
-              url={`${base}/completar/${encodeURIComponent(o.completar_token)}`}
+              ruta={`/completar/${encodeURIComponent(o.completar_token)}`}
             />
           ))}
         </section>

@@ -3,7 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { construirApp } from "../../app";
-import { apoderados, categorias, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
+import { apoderados, categorias, fichasPrevias, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
 import { guardarFoto } from "../../lib/fotos";
 import { LIMITES } from "../../lib/limite-intentos";
 import { hashToken } from "../../lib/tokens";
@@ -650,6 +650,208 @@ describe("POST /api/public/solicitudes", () => {
     await enviar(app, { ...apoderadoNuevo(rutNuevo()), hijos: [hijoNuevo(rutHijo)] }, { titular: JPEG_PRUEBA, h0: JPEG_PRUEBA });
     expect((await solicitudes()).find((s) => s.id === primera?.id)?.avisos).toEqual([]);
     await app.close();
+  });
+
+  describe("fichas previas", () => {
+    it("guarda cómo estaban el titular y el hijo precargados antes de modificarlos, sin RUT ni credencial", async () => {
+      const titular = await crearApoderado(db, { nombre: null, email: "rosa@ejemplo.test", metodo_pago: "forpay_mensual" });
+      const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: null });
+      await vincular(db, hijo.id, titular.id);
+      const app = await construirApp({ config: configTest(), db });
+      const r = await enviar(
+        app,
+        {
+          rut: titular.rut,
+          tipo: "apoderado",
+          consentimiento: true,
+          nombre: "Rosa",
+          foto: "t",
+          hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, numero_camiseta: "8", foto: "h" }],
+        },
+        { t: JPEG_PRUEBA, h: JPEG_PRUEBA },
+      );
+      expect(r.statusCode).toBe(201);
+      const [s] = await solicitudes();
+      const copias = await db.select().from(fichasPrevias);
+      expect(copias).toHaveLength(2);
+      const deApoderado = copias.find((c) => c.apoderado_id === titular.id);
+      expect(deApoderado).toMatchObject({ solicitud_id: s?.id, jugador_id: null });
+      expect(deApoderado?.datos).toEqual({
+        nombre: null,
+        apellido: "Ficticia",
+        telefono: "911111111",
+        email: "rosa@ejemplo.test",
+        metodo_pago: "forpay_mensual",
+        foto_id: null,
+        estado: "precargado",
+        solicitud_id: null,
+      });
+      const deHijo = copias.find((c) => c.jugador_id === hijo.id);
+      expect(deHijo?.datos).toEqual({
+        nombre: "Tomás",
+        apellido: "Inventado",
+        fecha_nacimiento: "2014-05-10",
+        disciplina: "basketball",
+        categoria_id: null,
+        numero_camiseta: null,
+        telefono: null,
+        email: null,
+        metodo_pago: null,
+        foto_id: null,
+        estado: "precargado",
+        solicitud_id: null,
+        marcado_retiro_en: null,
+      });
+      for (const c of copias) {
+        const texto = JSON.stringify(c.datos);
+        expect(texto).not.toContain(titular.rut);
+        expect(texto).not.toContain(hijo.rut);
+        expect(texto).not.toContain("credencial_token");
+      }
+      await app.close();
+    });
+
+    it("también guarda copia del jugador adulto precargado y del hijo sin apoderado nombrado por RUT", async () => {
+      const adulto = await crearJugador(db, { fecha_nacimiento: "2001-01-01", numero_camiseta: null });
+      const huerfano = await crearJugador(db, { numero_camiseta: null });
+      const app = await construirApp({ config: configTest(), db });
+      expect((await enviar(app, adultoCompleto(adulto.rut), { t: JPEG_PRUEBA })).statusCode).toBe(201);
+      expect(
+        (await enviar(app, { ...apoderadoNuevo(rutNuevo()), hijos: [hijoNuevo(huerfano.rut)] }, { titular: JPEG_PRUEBA, h0: JPEG_PRUEBA }))
+          .statusCode,
+      ).toBe(201);
+      const copias = await db.select().from(fichasPrevias);
+      expect(copias.map((c) => c.jugador_id).sort()).toEqual([adulto.id, huerfano.id].sort());
+      for (const c of copias) expect(c.datos).toMatchObject({ estado: "precargado", numero_camiseta: null });
+      await app.close();
+    });
+
+    it("un 'ya no está' sobre un hijo con copia de otra solicitud no lo marca, no deja su aviso y le avisa a la otra", async () => {
+      const mama = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+      const papa = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+      const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: null });
+      await vincular(db, hijo.id, mama.id);
+      await vincular(db, hijo.id, papa.id);
+      const app = await construirApp({ config: configTest(), db });
+      const completa = await enviar(
+        app,
+        { rut: mama.rut, tipo: "apoderado", consentimiento: true, hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, numero_camiseta: "4", foto: "h" }] },
+        { h: JPEG_PRUEBA },
+      );
+      expect(completa.statusCode).toBe(201);
+      const marca = await enviar(app, {
+        rut: papa.rut,
+        tipo: "apoderado",
+        consentimiento: true,
+        hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
+      });
+      expect(marca.statusCode).toBe(201);
+      expect((await jugadorRut(hijo.rut)).marcado_retiro_en).toBeNull();
+      const [s1, s2] = await solicitudes();
+      expect(s1?.avisos).toContain("hay_solicitud_posterior");
+      expect(s2?.avisos).not.toContain("hijo_marcado_ya_no_esta");
+      await app.close();
+    });
+
+    it("un hijo ya marcado por otra solicitud: la otra recibe el aviso y no se crea una copia nueva", async () => {
+      const mama = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+      const papa = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+      const hijo = await crearJugador(db, { nombre: "Tomás" });
+      await vincular(db, hijo.id, mama.id);
+      await vincular(db, hijo.id, papa.id);
+      const app = await construirApp({ config: configTest(), db });
+      for (const rut of [mama.rut, papa.rut]) {
+        const r = await enviar(app, {
+          rut,
+          tipo: "apoderado",
+          consentimiento: true,
+          hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
+        });
+        expect(r.statusCode).toBe(201);
+      }
+      const [s1, s2] = await solicitudes();
+      expect(s1?.avisos).toContain("hay_solicitud_posterior");
+      expect(s2?.avisos).not.toContain("hijo_marcado_ya_no_esta");
+      const copias = await db.select().from(fichasPrevias);
+      expect(copias.filter((c) => c.jugador_id === hijo.id)).toEqual([expect.objectContaining({ solicitud_id: s1?.id })]);
+      await app.close();
+    });
+
+    it("un hijo ya marcado sin copia de nadie (por ejemplo, desde el panel): aviso y sin copia", async () => {
+      const titular = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+      const hijo = await crearJugador(db, { nombre: "Tomás", marcado_retiro_en: new Date("2026-10-01T00:00:00Z") });
+      await vincular(db, hijo.id, titular.id);
+      const app = await construirApp({ config: configTest(), db });
+      const r = await enviar(app, {
+        rut: titular.rut,
+        tipo: "apoderado",
+        consentimiento: true,
+        hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
+      });
+      expect(r.statusCode).toBe(201);
+      expect((await solicitudes())[0]?.avisos).toContain("hijo_marcado_ya_no_esta");
+      expect((await db.select().from(fichasPrevias)).filter((c) => c.jugador_id === hijo.id)).toEqual([]);
+      await app.close();
+    });
+
+    it("una persona nueva no lleva copia, y una solicitud que falla no deja ninguna", async () => {
+      const app = await construirApp({ config: configTest(), db });
+      expect((await enviar(app, { ...apoderadoNuevo(rutNuevo()), hijos: [hijoNuevo(rutNuevo())] }, { titular: JPEG_PRUEBA, h0: JPEG_PRUEBA })).statusCode).toBe(201);
+      const titular = await crearApoderado(db);
+      const hijo = await crearJugador(db, { nombre: "Tomás" });
+      await vincular(db, hijo.id, titular.id);
+      const falla = await enviar(
+        app,
+        { rut: titular.rut, tipo: "apoderado", consentimiento: true, foto: "t", hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" } }] },
+        { t: JPEG_PRUEBA },
+      );
+      expect(falla.statusCode).toBe(400);
+      expect(await db.select().from(fichasPrevias)).toEqual([]);
+      await app.close();
+    });
+
+    it("si otra solicitud ya modificó a la persona, la segunda no la pisa: solo vincula y le avisa a la primera", async () => {
+      // Dos apoderados de la base con el mismo hijo precargado.
+      const mama = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+      const papa = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+      const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: null });
+      await vincular(db, hijo.id, mama.id);
+      await vincular(db, hijo.id, papa.id);
+      const app = await construirApp({ config: configTest(), db });
+      // La primera lo marca "ya no está": queda precargado, con copia.
+      const primera = await enviar(app, {
+        rut: mama.rut,
+        tipo: "apoderado",
+        consentimiento: true,
+        hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
+      });
+      expect(primera.statusCode).toBe(201);
+      const fotosAntes = await contar("fotos");
+      // La segunda lo completa con número y foto: no se aplica.
+      const segunda = await enviar(
+        app,
+        {
+          rut: papa.rut,
+          tipo: "apoderado",
+          consentimiento: true,
+          hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, numero_camiseta: "4", foto: "h" }],
+        },
+        { h: JPEG_PRUEBA },
+      );
+      expect(segunda.statusCode).toBe(201);
+      const j = await jugadorRut(hijo.rut);
+      expect(j).toMatchObject({ numero_camiseta: null, foto_id: null, estado: "precargado", solicitud_id: null });
+      expect(j.marcado_retiro_en).toBeInstanceOf(Date);
+      expect(await contar("fotos")).toBe(fotosAntes);
+      const [s1, s2] = await solicitudes();
+      expect(s1?.avisos).toContain("hay_solicitud_posterior");
+      expect(s2?.avisos).not.toContain("hay_solicitud_posterior");
+      // La del hijo es una sola, la de la primera; cada titular precargado tiene la suya.
+      const copias = await db.select().from(fichasPrevias);
+      expect(copias.filter((c) => c.jugador_id === hijo.id)).toEqual([expect.objectContaining({ solicitud_id: s1?.id })]);
+      expect(copias.filter((c) => c.apoderado_id !== null)).toHaveLength(2);
+      await app.close();
+    });
   });
 
   describe("multipart", () => {

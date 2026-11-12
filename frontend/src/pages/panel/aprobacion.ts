@@ -40,22 +40,85 @@ export const llaveVinculo = (v: { jugador_id: string; apoderado_id: string }) =>
 const bloquea = (faltantes: readonly string[]) => faltantes.includes("foto");
 
 /**
- * Un vínculo con una persona de esta solicitud rechazada o inactiva no se ofrece para aprobar:
- * quedaría activo hacia alguien que no lo está.
+ * Parte marcada solo quien es de esta solicitud (`solicitud_id`) o no tiene ninguna. El contrato
+ * no dice quién es «propia» para el servidor, así que esto es aproximado: quien tiene otra
+ * solicitud (otra familia, o el segundo apoderado que agregó esta) parte desmarcado, y uno sin
+ * solicitud que dejó pendiente otra solicitud parte marcado aunque el servidor lo rechace con 409.
+ * En ambos casos el error va hacia denegar; el servidor vuelve a validar todo.
+ */
+export function esDeEstaSolicitud(p: { solicitud_id: string | null }, s: SolicitudDetalle) {
+  return p.solicitud_id === s.id || p.solicitud_id === null;
+}
+
+/**
+ * Foto que subió el segundo apoderado por `/completar`, con un link que le reenvió quien llenó
+ * la solicitud: nadie del club la vio. En su propia solicitud (`segundo_apoderado`) es exacto; en
+ * la de origen, el apoderado pendiente de otra solicitud que se muestra es ese segundo apoderado.
+ */
+export function fotoPorLinkReenviado(
+  a: { estado: string; tiene_foto: boolean; solicitud_id: string | null },
+  s: SolicitudDetalle,
+): boolean {
+  if (a.estado !== "pendiente" || !a.tiene_foto) return false;
+  return s.tipo === "segundo_apoderado"
+    ? a.solicitud_id === s.id
+    : a.solicitud_id !== null && a.solicitud_id !== s.id;
+}
+
+/**
+ * Firma esperada después de quitar la marca de retiro de un jugador: así el formulario armado
+ * (con ese jugador desmarcado y lo que Mony haya escrito) sigue sirviendo, y cualquier otro
+ * cambio sí lo deja desfasado.
+ */
+export function firmaTrasQuitarMarca(
+  s: SolicitudDetalle,
+  ficha: {
+    id: string;
+    estado: SolicitudDetalle["jugadores"][number]["estado"];
+    marcado_retiro_en: string | null;
+    faltantes: SolicitudDetalle["jugadores"][number]["faltantes"];
+  },
+): string {
+  return firmaSolicitud({
+    ...s,
+    jugadores: s.jugadores.map((j) =>
+      j.id === ficha.id
+        ? {
+            ...j,
+            estado: ficha.estado,
+            marcado_retiro_en: ficha.marcado_retiro_en,
+            faltantes: ficha.faltantes,
+          }
+        : j,
+    ),
+  });
+}
+
+/** Estados con los que un vínculo puede quedar activo (el servidor exige ambos activos al final). */
+const admiteVinculo = (estado: string) => estado === "activo" || estado === "pendiente";
+
+/**
+ * Un vínculo se ofrece para aprobar solo si sus dos personas vienen en la solicitud y están
+ * activas o pendientes: con una rechazada, inactiva o precargada quedaría activo hacia alguien
+ * que no lo está (y el servidor lo rechaza).
  */
 export function vinculoAprobable(
   v: { jugador_id: string; apoderado_id: string },
   s: SolicitudDetalle,
 ): boolean {
-  const caida = (estado: string) => estado === "rechazado" || estado === "inactivo";
   const jugador = s.jugadores.find((j) => j.id === v.jugador_id);
   const apoderado = s.apoderados.find((a) => a.id === v.apoderado_id);
-  return !(jugador && caida(jugador.estado)) && !(apoderado && caida(apoderado.estado));
+  return (
+    jugador !== undefined &&
+    apoderado !== undefined &&
+    admiteVinculo(jugador.estado) &&
+    admiteVinculo(apoderado.estado)
+  );
 }
 
 /**
- * Las dos personas del vínculo vienen en esta solicitud. Si no (un hijo de otra familia nombrado
- * por RUT), su estado no se ve acá: el vínculo parte desmarcado y Mony lo marca a mano.
+ * Las dos personas del vínculo vienen en esta solicitud. Si no, su estado no se ve acá y el
+ * vínculo no se ofrece.
  */
 export function vinculoConocido(
   v: { jugador_id: string; apoderado_id: string },
@@ -69,8 +132,9 @@ export function vinculoConocido(
 
 /**
  * Solo lo pendiente se aprueba o rechaza; parte marcado con los valores que ya trae, salvo quien
- * no tiene foto (no se puede aprobar), un hijo marcado «ya no está», los vínculos con una persona
- * rechazada y los vínculos hacia alguien que no viene en la solicitud (denegar por defecto).
+ * no tiene foto (no se puede aprobar), un hijo marcado «ya no está», quien puede no ser de esta
+ * solicitud, y los vínculos que no se pueden aprobar o cuyas personas no parten listas
+ * (denegar por defecto).
  */
 export function formInicial(s: SolicitudDetalle): FormAprobacion {
   const jugadores: Record<string, FormJugador> = {};
@@ -78,7 +142,7 @@ export function formInicial(s: SolicitudDetalle): FormAprobacion {
     if (j.estado !== "pendiente") continue;
     jugadores[j.id] = {
       // Un hijo marcado «ya no está» no se activa por inercia: Mony lo marca a mano si corresponde.
-      marcado: !bloquea(j.faltantes) && j.marcado_retiro_en === null,
+      marcado: !bloquea(j.faltantes) && j.marcado_retiro_en === null && esDeEstaSolicitud(j, s),
       categoria_id: j.categoria_id === null ? "" : String(j.categoria_id),
       numero_camiseta: j.numero_camiseta ?? "",
       beca_mensualidad_pct: String(j.beca_mensualidad_pct),
@@ -90,13 +154,23 @@ export function formInicial(s: SolicitudDetalle): FormAprobacion {
   const apoderados: Record<string, FormApoderado> = {};
   for (const a of s.apoderados) {
     if (a.estado !== "pendiente") continue;
-    apoderados[a.id] = { marcado: !bloquea(a.faltantes), metodo_pago: a.metodo_pago ?? "" };
+    apoderados[a.id] = {
+      marcado: !bloquea(a.faltantes) && esDeEstaSolicitud(a, s),
+      metodo_pago: a.metodo_pago ?? "",
+    };
   }
+  // Cada persona del vínculo tiene que quedar activa: ya lo está, o parte marcada en este envío.
+  const lista = (estado: string, enForm: { marcado: boolean } | undefined) =>
+    estado === "activo" || enForm?.marcado === true;
   const vinculos: Record<string, boolean> = {};
   for (const v of s.vinculos) {
-    if (v.estado === "pendiente") {
-      vinculos[llaveVinculo(v)] = vinculoAprobable(v, s) && vinculoConocido(v, s);
-    }
+    if (v.estado !== "pendiente") continue;
+    const jugador = s.jugadores.find((j) => j.id === v.jugador_id);
+    const apoderado = s.apoderados.find((a) => a.id === v.apoderado_id);
+    vinculos[llaveVinculo(v)] =
+      vinculoAprobable(v, s) &&
+      lista(jugador?.estado ?? "", jugadores[v.jugador_id]) &&
+      lista(apoderado?.estado ?? "", apoderados[v.apoderado_id]);
   }
   return { jugadores, apoderados, vinculos };
 }
@@ -106,7 +180,7 @@ export function formInicial(s: SolicitudDetalle): FormAprobacion {
  * este envío: aprobar el vínculo de alguien que no se aprueba lo dejaría a medias.
  */
 export function vinculoVa(form: FormAprobacion, llave: string): boolean {
-  if (!form.vinculos[llave]) return false;
+  if (form.vinculos[llave] !== true) return false;
   const [jugadorId = "", apoderadoId = ""] = llave.split(":");
   const jugador = form.jugadores[jugadorId];
   const apoderado = form.apoderados[apoderadoId];

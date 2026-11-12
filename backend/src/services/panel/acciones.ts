@@ -19,6 +19,22 @@ const DESACTIVABLES = new Set(["activo", "precargado"]);
 
 const conflicto = (mensaje: string) => new ErrorApi(409, "conflicto", mensaje);
 
+export const MENSAJE_MARCADO =
+  'Ese jugador está marcado "ya no está en el club": quita la marca en su ficha antes de activarlo o aprobarlo';
+
+/**
+ * Quita la marca "ya no está en el club" que dejó el formulario. Es la decisión explícita de Mony
+ * de que el jugador sigue: sin esto no se lo puede aprobar ni activar.
+ */
+export async function quitarMarcaRetiro(db: Ejecutor, id: string): Promise<void> {
+  const filas = await db
+    .update(jugadores)
+    .set({ marcado_retiro_en: null })
+    .where(eq(jugadores.id, id))
+    .returning({ id: jugadores.id });
+  if (filas.length === 0) throw noEncontrado();
+}
+
 export function incompleto(faltantes: readonly string[]): ErrorApi {
   return new ErrorApi(422, "requisitos_incompletos", `Faltan datos: ${faltantes.join(", ")}`);
 }
@@ -113,6 +129,7 @@ export async function activar(db: Ejecutor, tipo: TipoPersona, id: string): Prom
           numero_camiseta: jugadores.numero_camiseta,
           telefono: jugadores.telefono,
           foto_id: jugadores.foto_id,
+          marcado_retiro_en: jugadores.marcado_retiro_en,
           disciplina: jugadores.disciplina,
           tiene_apoderado: tieneApoderadoVigente,
         })
@@ -121,6 +138,7 @@ export async function activar(db: Ejecutor, tipo: TipoPersona, id: string): Prom
         .for("update");
       if (!j) throw noEncontrado();
       if (!ACTIVABLES.has(j.estado)) throw conflicto("Solo se activa a un precargado o a un inactivo");
+      if (j.marcado_retiro_en !== null) throw conflicto(MENSAJE_MARCADO);
       const faltan = requisitosJugador(faltantesJugador(j, j.tiene_apoderado, await cargarCategorias(tx)));
       if (faltan.length > 0) throw incompleto(faltan);
       await tx.update(jugadores).set({ estado: "activo", credencial_token: token }).where(eq(jugadores.id, id));

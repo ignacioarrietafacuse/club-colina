@@ -282,6 +282,42 @@ describe("cada función llama al método y la URL del contrato", () => {
     expect(JSON.parse(String(llamadas[0]?.init.body))).toEqual({});
   });
 
+  it("quitar la marca de retiro: DELETE y valida la ficha que vuelve", async () => {
+    const ficha = {
+      id: ID,
+      nombre: "Ana",
+      apellido: "Pérez",
+      rut: generarRutFicticio(5),
+      disciplina: "basketball",
+      categoria_id: null,
+      numero_camiseta: null,
+      estado: "activo",
+      origen: "base_2026",
+      tiene_foto: true,
+      faltan_datos: false,
+      marcado_retiro_en: null,
+      fecha_nacimiento: null,
+      edad: null,
+      postula_beca: false,
+      beca_mensualidad_pct: 0,
+      beca_torneos_pct: 0,
+      beca_campus_pct: 0,
+      telefono: null,
+      email: null,
+      metodo_pago: null,
+      credencial_token: null,
+      solicitud_id: null,
+      faltantes: [],
+      apoderados: [],
+      creado_en: "2026-11-12T10:00:00.000Z",
+      actualizado_en: "2026-11-12T10:00:00.000Z",
+    };
+    responder(json(ficha));
+    expect(await api.panel.quitarMarcaRetiro(ID)).toEqual(ficha);
+    expect(llamadas[0]?.init.method).toBe("DELETE");
+    expect(llamadas[0]?.url).toBe(`/api/panel/jugadores/${ID}/marca-retiro`);
+  });
+
   it("aprobar manda el cuerpo y valida el detalle que vuelve", async () => {
     const detalle = {
       id: ID,

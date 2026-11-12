@@ -5,7 +5,7 @@ import { Registro } from "@/components/public/registro/Registro";
 export function RegistroPage() {
   return (
     <Marco titulo="Registro">
-      <Registro baseUrl={window.location.origin} />
+      <Registro />
     </Marco>
   );
 }

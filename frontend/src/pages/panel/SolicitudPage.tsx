@@ -30,6 +30,9 @@ import {
   firmaSolicitud,
   formInicial,
   RECHAZO_TOTAL,
+  esDeEstaSolicitud,
+  firmaTrasQuitarMarca,
+  fotoPorLinkReenviado,
   vinculoAprobable,
   vinculoConocido,
   vinculoVa,
@@ -132,7 +135,7 @@ function DetalleSolicitud({
   };
   // Si la solicitud cambió por otro lado (otra pestaña, otro usuario), el formulario ya no
   // calza con lo que hay: no se envía hasta rehacerlo.
-  const [firmaInicial] = useState(() => firmaSolicitud(s));
+  const [firmaInicial, setFirmaInicial] = useState(() => firmaSolicitud(s));
   const desfasado = firmaSolicitud(s) !== firmaInicial;
 
   const aprobar = useMutation({
@@ -146,16 +149,36 @@ function DetalleSolicitud({
     onSuccess: refrescar,
   });
 
+  const quitarMarca = useMutation({
+    mutationFn: (jugadorId: string) => api.panel.quitarMarcaRetiro(jugadorId),
+    // No se rehace el formulario: el jugador sigue desmarcado (decir que sigue en el club no es
+    // aprobarlo) y no se pierde lo escrito. Solo se acepta este cambio en la firma.
+    onSuccess: async (ficha) => {
+      setFirmaInicial(firmaTrasQuitarMarca(s, ficha));
+      await queryClient.invalidateQueries({ queryKey: ["panel"] });
+    },
+  });
+
   const personasPendientes =
     Object.keys(form.jugadores).length + Object.keys(form.apoderados).length;
   const hayPendientes = personasPendientes + Object.keys(form.vinculos).length > 0;
   const marcadas = contarMarcadas(form);
-  const ocupado = aprobar.isPending || rechazar.isPending || desfasado;
+  const ocupado = aprobar.isPending || rechazar.isPending || quitarMarca.isPending || desfasado;
+  const pendientes = [...s.jugadores, ...s.apoderados].filter((p) => p.estado === "pendiente");
+  const pendientesPropias = pendientes
+    .filter((p) => esDeEstaSolicitud(p, s))
+    .map((p) => nombres[p.id] ?? "");
+  const pendientesDeOtra = pendientes
+    .filter((p) => !esDeEstaSolicitud(p, s))
+    .map((p) => nombres[p.id] ?? "");
+  const conPosterior = s.avisos.includes("hay_solicitud_posterior");
+  const huboRechazo = [...s.jugadores, ...s.apoderados].some((p) => p.estado === "rechazado");
 
   function enviarAprobacion() {
     if (desfasado) return;
     setConfirmar(null);
     rechazar.reset();
+    quitarMarca.reset();
     const r = armarAprobacion(form, nombres);
     if (!r.ok) return setErrores(r.errores);
     setErrores([]);
@@ -164,6 +187,7 @@ function DetalleSolicitud({
   function enviarRechazo(cual: "marcadas" | "todo") {
     if (desfasado) return;
     aprobar.reset();
+    quitarMarca.reset();
     const r = cual === "todo" ? { ok: true as const, datos: RECHAZO_TOTAL } : armarRechazo(form);
     if (!r.ok) return setErrores(r.errores);
     setErrores([]);
@@ -173,7 +197,7 @@ function DetalleSolicitud({
   }
 
   // Solo el error de la última acción.
-  const errorServidor = aprobar.error ?? rechazar.error;
+  const errorServidor = aprobar.error ?? rechazar.error ?? quitarMarca.error;
 
   return (
     <div>
@@ -213,6 +237,8 @@ function DetalleSolicitud({
           <TarjetaApoderado
             key={a.id}
             a={a}
+            fotoReenviada={fotoPorLinkReenviado(a, s)}
+            deOtra={a.estado === "pendiente" && !esDeEstaSolicitud(a, s)}
             form={form.apoderados[a.id]}
             onChange={(cambio) =>
               cambiarForm((f) => {
@@ -231,6 +257,16 @@ function DetalleSolicitud({
           <TarjetaJugador
             key={j.id}
             j={j}
+            deOtra={j.estado === "pendiente" && !esDeEstaSolicitud(j, s)}
+            quitarMarca={{
+              enviar: () => {
+                aprobar.reset();
+                rechazar.reset();
+                setConfirmar(null);
+                quitarMarca.mutate(j.id);
+              },
+              ocupado,
+            }}
             categorias={categorias?.filter((c) => c.disciplina === j.disciplina)}
             form={form.jugadores[j.id]}
             onChange={(cambio) =>
@@ -275,15 +311,16 @@ function DetalleSolicitud({
                     {v.paga_mensualidad && (
                       <span className="text-muted-foreground"> · paga la mensualidad</span>
                     )}
-                    {pendiente && aprobable && !conocido && (
-                      <span className="block text-xs text-warning-foreground">
-                        Una de las personas no viene en esta solicitud y su estado no se ve acá.
-                        Márcalo solo después de revisar su ficha.
+                    {pendiente && !conocido && (
+                      <span className="block text-xs text-destructive">
+                        Una de las personas no viene en esta solicitud: no se puede aprobar desde
+                        acá.
                       </span>
                     )}
-                    {pendiente && !aprobable && (
+                    {pendiente && conocido && !aprobable && (
                       <span className="block text-xs text-destructive">
-                        Una de las dos personas está rechazada o inactiva: no se puede aprobar.
+                        Una de las dos personas está rechazada, inactiva o precargada: no se puede
+                        aprobar desde acá. Si está precargada, complétala y actívala en su ficha.
                       </span>
                     )}
                     {pendiente && aprobable && form.vinculos[llave] && !vinculoVa(form, llave) && (
@@ -329,6 +366,31 @@ function DetalleSolicitud({
         </div>
       )}
 
+      {conPosterior && (confirmar !== null || huboRechazo) && (
+        <div role="status" className="mb-4 rounded-lg bg-warning/15 px-4 py-3 text-sm">
+          Llegó después otra solicitud con las mismas personas.{" "}
+          {huboRechazo ? "Como rechazaste" : "Si rechazas"} a alguien de esta, pide a la familia de
+          la solicitud posterior que vuelva a enviar el formulario.
+        </div>
+      )}
+
+      {confirmar === "todo" && (
+        <div role="alert" className="mb-4 rounded-lg bg-destructive/10 px-4 py-3 text-sm">
+          «Rechazar todo lo pendiente» rechaza a todas las personas pendientes de esta solicitud,
+          estén marcadas o no
+          {pendientesPropias.length > 0 && <>: {pendientesPropias.join(", ")}</>}, y sus vínculos
+          pendientes.
+          {pendientesDeOtra.length > 0 && (
+            <>
+              {" "}
+              También a {pendientesDeOtra.join(", ")} si la agregó el segundo apoderado de esta
+              solicitud.
+            </>
+          )}{" "}
+          No se deshace desde el panel.
+        </div>
+      )}
+
       {hayPendientes ? (
         <div className="card-surface flex flex-wrap items-center gap-3 p-4">
           <p className="flex-1 text-sm text-muted-foreground">
@@ -369,6 +431,40 @@ function DetalleSolicitud({
         </p>
       )}
     </div>
+  );
+}
+
+function NotaDeOtra() {
+  return (
+    <span className="w-full text-xs text-muted-foreground">
+      Es de otra solicitud o la agregó un segundo apoderado: parte sin marcar. Márcala solo si se
+      decide desde acá. Si la agregó el segundo apoderado de esta solicitud, «Rechazar todo lo
+      pendiente» también la rechaza.
+    </span>
+  );
+}
+
+/** «Sigue en el club»: quita la marca de retiro, con confirmación. */
+function QuitarMarcaRetiro({ enviar, ocupado }: { enviar: () => void; ocupado: boolean }) {
+  const [confirmar, setConfirmar] = useState(false);
+  return (
+    <span className="flex w-full flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      Para confirmar el retiro, abre su ficha y déjalo inactivo. Si sigue en el club:
+      {confirmar ? (
+        <>
+          <Button size="sm" variant="outline" disabled={ocupado} onClick={enviar}>
+            Confirmar: sigue en el club
+          </Button>
+          <Button size="sm" variant="ghost" disabled={ocupado} onClick={() => setConfirmar(false)}>
+            Cancelar
+          </Button>
+        </>
+      ) : (
+        <Button size="sm" variant="outline" disabled={ocupado} onClick={() => setConfirmar(true)}>
+          Quitar la marca
+        </Button>
+      )}
+    </span>
   );
 }
 
@@ -442,10 +538,14 @@ function Marcar({
 
 function TarjetaApoderado({
   a,
+  fotoReenviada,
+  deOtra,
   form,
   onChange,
 }: {
   a: ApoderadoDetalle;
+  fotoReenviada: boolean;
+  deOtra: boolean;
   form: { marcado: boolean; metodo_pago: MetodoPago | "" } | undefined;
   onChange: (c: Partial<{ marcado: boolean; metodo_pago: MetodoPago | "" }>) => void;
 }) {
@@ -465,6 +565,13 @@ function TarjetaApoderado({
           {a.faltantes.length > 0 && (
             <Badge tone="danger">Falta: {textoFaltantes(a.faltantes)}</Badge>
           )}
+          {fotoReenviada && (
+            <span className="w-full text-xs text-warning-foreground">
+              Foto subida con un link reenviado por quien llenó la solicitud; confírmala antes de
+              aprobar.
+            </span>
+          )}
+          {deOtra && <NotaDeOtra />}
         </div>
         <Dato etiqueta="RUT">{a.rut}</Dato>
         <Dato etiqueta="Teléfono">{a.telefono ?? "—"}</Dato>
@@ -534,11 +641,15 @@ function CampoNumero({
 
 function TarjetaJugador({
   j,
+  deOtra,
+  quitarMarca,
   categorias,
   form,
   onChange,
 }: {
   j: JugadorDetalle;
+  deOtra: boolean;
+  quitarMarca: { enviar: () => void; ocupado: boolean };
   categorias: CategoriaPanel[] | undefined;
   form: FormJugador | undefined;
   onChange: (c: Partial<FormJugador>) => void;
@@ -559,10 +670,9 @@ function TarjetaJugador({
           {j.postula_beca && <Badge tone="accent">Postula a beca</Badge>}
           {j.marcado_retiro_en && <Badge tone="danger">Marcado «ya no está en el club»</Badge>}
           {j.marcado_retiro_en && (
-            <span className="w-full text-xs text-muted-foreground">
-              Para confirmar el retiro, abre su ficha y déjalo inactivo.
-            </span>
+            <QuitarMarcaRetiro enviar={quitarMarca.enviar} ocupado={quitarMarca.ocupado} />
           )}
+          {deOtra && <NotaDeOtra />}
           {j.apoderados.length === 0 && <Badge tone="neutral">Adulto sin apoderado</Badge>}
         </div>
         <Dato etiqueta="RUT">{j.rut}</Dato>
