@@ -328,3 +328,13 @@ export function armarRechazoVinculo(llave: string): Resultado<RechazarRequest> {
   if (!leido.success) return { ok: false, errores: ["Hay datos inválidos en el rechazo."] };
   return { ok: true, datos };
 }
+
+/**
+ * Si el jugador no aparece en el link /familia de esta solicitud (solo quienes entraron por ella).
+ * Cuando Mony lo aprueba, o aprueba su vínculo, el panel le recuerda entregar el QR desde la ficha.
+ */
+export function fueraDelLink(s: SolicitudDetalle, jugadorId: string): boolean {
+  return (
+    s.tipo === "formulario" && s.jugadores.some((j) => j.id === jugadorId && !j.en_link_familia)
+  );
+}

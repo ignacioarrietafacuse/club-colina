@@ -596,7 +596,7 @@ class Proceso {
       }
 
       // Un jugador que ya existía y no es de la lista de quien llena: entra solo por un vínculo
-      // pendiente, sin `solicitud_id`, y no aparece en /familia hasta que Mony lo aprueba.
+      // pendiente, sin `solicitud_id`, y nunca aparece en /familia (ver `entraPorSolicitud`).
       const cantidad = await this.cantidadApoderados(jugador.id, titular.id);
       if (cantidad > 0) this.avisos.add("hijo_con_otro_apoderado");
       if (jugador.estado !== "precargado") {

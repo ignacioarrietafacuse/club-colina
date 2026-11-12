@@ -31,6 +31,7 @@ import {
   contarMarcadas,
   firmaSolicitud,
   formInicial,
+  fueraDelLink,
   RECHAZO_TOTAL,
   seDecideAca,
   alcanceRechazoTotal,
@@ -298,31 +299,41 @@ function DetalleSolicitud({
       <Seccion titulo="Jugadores">
         {s.jugadores.length === 0 && <Vacio />}
         {s.jugadores.map((j) => (
-          <TarjetaJugador
-            key={j.id}
-            j={j}
-            soloSeMuestra={j.estado === "pendiente" && !seDecideAca(j)}
-            sinContactoPosible={!contactoPosible(j.id, s)}
-            quitarMarca={{
-              enviar: () => {
-                aprobar.reset();
-                rechazar.reset();
-                setConfirmar(null);
-                setConfirmarVinculo(null);
-                quitarMarca.mutate(j.id);
-              },
-              ocupado,
-            }}
-            categorias={categorias?.filter((c) => c.disciplina === j.disciplina)}
-            form={form.jugadores[j.id]}
-            onChange={(cambio) =>
-              cambiarForm((f) => {
-                const actual = f.jugadores[j.id];
-                if (!actual) return f;
-                return { ...f, jugadores: { ...f.jugadores, [j.id]: { ...actual, ...cambio } } };
-              })
-            }
-          />
+          <div key={j.id}>
+            <TarjetaJugador
+              j={j}
+              soloSeMuestra={j.estado === "pendiente" && !seDecideAca(j)}
+              sinContactoPosible={!contactoPosible(j.id, s)}
+              quitarMarca={{
+                enviar: () => {
+                  aprobar.reset();
+                  rechazar.reset();
+                  setConfirmar(null);
+                  setConfirmarVinculo(null);
+                  revisar.reset();
+                  quitarMarca.mutate(j.id);
+                },
+                ocupado,
+              }}
+              categorias={categorias?.filter((c) => c.disciplina === j.disciplina)}
+              form={form.jugadores[j.id]}
+              onChange={(cambio) =>
+                cambiarForm((f) => {
+                  const actual = f.jugadores[j.id];
+                  if (!actual) return f;
+                  return { ...f, jugadores: { ...f.jugadores, [j.id]: { ...actual, ...cambio } } };
+                })
+              }
+            />
+            {j.propia &&
+              fueraDelLink(s, j.id) &&
+              (j.estado === "activo" || form.jugadores[j.id]?.marcado === true) && (
+                <p className="-mt-2 mb-4 rounded-lg bg-warning/15 px-4 py-2 text-xs text-warning-foreground">
+                  Esta familia no verá el QR de {nombres[j.id] ?? "este jugador"} en su link:
+                  descárgalo desde su ficha y envíaselo si corresponde.
+                </p>
+              )}
+          </div>
         ))}
       </Seccion>
 
@@ -336,9 +347,8 @@ function DetalleSolicitud({
               const conocido = vinculoConocido(v, s);
               // Un niño que ya existía no aparece en el link de esta familia (solo quienes
               // entraron por la solicitud): al aprobar el vínculo, Mony entrega el QR a mano.
-              const fueraDelLink =
-                s.tipo === "formulario" &&
-                s.jugadores.some((j) => j.id === v.jugador_id && !j.en_link_familia) &&
+              const recordarQr =
+                fueraDelLink(s, v.jugador_id) &&
                 (v.estado === "activo" || (pendiente && vinculoVa(form, llave)));
               return (
                 <div key={llave} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
@@ -384,7 +394,7 @@ function DetalleSolicitud({
                             Se aprueba junto con la persona desmarcada, no antes.
                           </span>
                         )}
-                      {fueraDelLink && (
+                      {recordarQr && (
                         <span className="block text-xs text-warning-foreground">
                           Esta familia no verá el QR de {nombres[v.jugador_id] ?? "este jugador"} en
                           su link: descárgalo desde su ficha y envíaselo si corresponde.

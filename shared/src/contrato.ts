@@ -561,7 +561,9 @@ export const solicitudDetalle = z.object({
    * personas que entraron por ella; siempre false en una de segundo apoderado). El panel lo usa
    * para recordarle a Mony que entregue el QR desde la ficha a quien no aparece.
    */
-  jugadores: z.array(jugadorDetalle.extend({ propia: z.boolean(), en_link_familia: z.boolean() })),
+  // Con default: un backend anterior al campo (despliegue a medias) no lo manda; true solo omite el
+  // recordatorio, no muestra nada de más.
+  jugadores: z.array(jugadorDetalle.extend({ propia: z.boolean(), en_link_familia: z.boolean().default(true) })),
   apoderados: z.array(apoderadoDetalle.extend({ propia: z.boolean() })),
   vinculos: z.array(
     z.object({
@@ -610,7 +612,6 @@ export const rechazarRequest = z.object({
  * segundo apoderado, su link de `/completar`) y anula el anterior: la base guarda solo el hash.
  */
 export const linkResponse = z.object({ url: z.url() });
-
 
 /** POST /api/panel/:tipo/:id/foto — multipart: archivo `foto`. GET devuelve la imagen. */
 export const fotoSubidaResponse = z.object({ tiene_foto: z.literal(true) });

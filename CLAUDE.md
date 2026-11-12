@@ -160,8 +160,8 @@ lo pide.
   en NULL (persona nueva, o precargada del RUT de quien llena) y **nunca se reasigna**: un hijo
   que ya existía y se nombró por RUT entra solo por su vínculo. Si el titular ya estaba registrado
   (aviso `titular_ya_registrado`), solo las personas que la solicitud creó (`origen = 'formulario'`),
-  no los precargados de su lista (decisiones de Ignacio, 2026-11-12). A un hijo marcado "ya no está" no se le asigna `solicitud_id`; la marca es solo una
-  señal para Mony y no lo saca de ningún `/familia` (lo saca la baja en la ficha). S2 cubre esto con un
+  no los precargados de su lista (decisiones de Ignacio, 2026-11-12). A un hijo marcado "ya no
+  está" no se le asigna `solicitud_id`; la marca es solo una señal para Mony y no lo saca de ningún `/familia` (lo saca la baja en la ficha). S2 cubre esto con un
   test (un RUT ajeno nombrado en la solicitud no devuelve su nombre ni su `credencial_token`).
 - **Tipos de link (S2):** `/familia` busca el hash solo entre solicitudes `tipo = 'formulario'` y
   `/completar` solo entre `tipo = 'segundo_apoderado'`; en cualquier otro caso, 404 genérico. Con test.

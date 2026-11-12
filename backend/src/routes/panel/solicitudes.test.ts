@@ -1417,6 +1417,31 @@ describe("solicitudes: quién aparece en el link de la familia", () => {
     await app.close();
   });
 
+  it("titular precargado (no registrado): el precargado de su lista que completó sí aparece", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s } = await familia({ avisos: [] });
+    const precargado = await crearJugador(db, { estado: "pendiente", solicitud_id: s.id });
+    const r = await app.inject({ method: "GET", url: API.panel.solicitud(s.id), cookies });
+    const enLink = Object.fromEntries(
+      r.json().jugadores.map((j: { id: string; en_link_familia: boolean }) => [j.id, j.en_link_familia]),
+    );
+    expect(enLink[precargado]).toBe(true);
+    await app.close();
+  });
+
+  it("en una solicitud de segundo apoderado nadie está en un link de familia", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const origen = await nuevaSolicitud();
+    const s = await nuevaSolicitud({ tipo: "segundo_apoderado", solicitud_origen_id: origen.id });
+    const apo = await crearApoderado(db, { estado: "pendiente", origen: "formulario", solicitud_id: s.id });
+    const hijo = await crearJugador(db, { estado: "pendiente", origen: "formulario", solicitud_id: s.id });
+    await db.insert(jugadorApoderado).values({ jugador_id: hijo, apoderado_id: apo, solicitud_id: s.id, paga_mensualidad: false });
+    const r = await app.inject({ method: "GET", url: API.panel.solicitud(s.id), cookies });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().jugadores.map((j: { en_link_familia: boolean }) => j.en_link_familia)).toEqual([false]);
+    await app.close();
+  });
+
   it("con titular ya registrado, ni el precargado de su lista que la solicitud completó", async () => {
     const { app, cookies } = await appConSesion(db);
     const { s, hijo } = await familia({ avisos: ["titular_ya_registrado"] });
