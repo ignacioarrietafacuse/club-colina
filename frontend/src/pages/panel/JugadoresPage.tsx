@@ -1,6 +1,6 @@
 import { DISCIPLINAS, ESTADOS_PERSONA } from "@club-colina/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { ClipboardList, Search, Users } from "lucide-react";
 import { useState } from "react";
 import { EstadoBadge } from "@/components/panel/persona";
@@ -13,21 +13,22 @@ import {
 } from "@/components/panel/textos";
 import { Badge, PageHeader } from "@/components/panel/ui";
 import { api, mensajeDeError, type FiltrosJugadores } from "@/lib/api";
-import { filtrosJugadores, type FormFiltrosJugadores } from "./filtros";
+import { busquedaJugadores, filtrosJugadores, type FormFiltrosJugadores } from "./filtros";
 
 export function JugadoresPage() {
-  const busqueda = useSearch({ from: "/_panel/jugadores/" });
-  const [form, setForm] = useState<FormFiltrosJugadores>({
+  // El filtro de marcados vive en la URL: el dashboard enlaza a /jugadores?marcados=true.
+  const marcados = useSearch({ from: "/_panel/jugadores/" }).marcados === true;
+  const navegar = useNavigate({ from: "/jugadores/" });
+  const [form, setForm] = useState<Omit<FormFiltrosJugadores, "marcado_ya_no_esta">>({
     q: "",
     estado: "",
     disciplina: "",
     categoria_id: "",
     faltan_datos: false,
     sin_numero: false,
-    marcado_ya_no_esta: busqueda.marcados === true,
   });
   const q = useRetrasado(form.q);
-  const filtros: FiltrosJugadores = filtrosJugadores({ ...form, q });
+  const filtros: FiltrosJugadores = filtrosJugadores({ ...form, q, marcado_ya_no_esta: marcados });
   const consulta = useQuery({
     queryKey: ["panel", "jugadores", filtros],
     queryFn: ({ signal }) => api.panel.jugadores(filtros, signal),
@@ -128,8 +129,13 @@ export function JugadoresPage() {
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
-              checked={form.marcado_ya_no_esta}
-              onChange={(e) => cambiar({ marcado_ya_no_esta: e.target.checked })}
+              checked={marcados}
+              onChange={(e) =>
+                void navegar({
+                  search: busquedaJugadores({ marcados: e.target.checked }),
+                  replace: true,
+                })
+              }
             />
             Marcados &quot;ya no está&quot;
           </label>

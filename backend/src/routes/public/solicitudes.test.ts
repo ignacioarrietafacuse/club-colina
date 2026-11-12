@@ -908,6 +908,41 @@ describe("POST /api/public/solicitudes", () => {
       await app.close();
     });
 
+    it("solo marcar a un hijo con copia de otra solicitud: no se marca, queda revisada y la otra recibe el aviso", async () => {
+      const mama = await crearApoderado(db, { foto_id: await guardarFoto(db, JPEG_PRUEBA) });
+      const papa = await apoderadoRegistrado();
+      const hijo = await crearJugador(db, { nombre: "Tomás", numero_camiseta: null });
+      await vincular(db, hijo.id, mama.id);
+      await vincular(db, hijo.id, papa.id);
+      const app = await construirApp({ config: configTest(), db });
+      const completa = await enviar(
+        app,
+        {
+          rut: mama.rut,
+          tipo: "apoderado",
+          consentimiento: true,
+          telefono: mama.telefono ?? undefined,
+          hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, numero_camiseta: "4", foto: "h" }],
+        },
+        { h: JPEG_PRUEBA },
+      );
+      expect(completa.statusCode).toBe(201);
+      const marca = await enviar(app, {
+        rut: papa.rut,
+        tipo: "apoderado",
+        consentimiento: true,
+        hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
+      });
+      expect(marca.statusCode).toBe(201);
+      expect((await jugadorRut(hijo.rut)).marcado_retiro_en).toBeNull();
+      const [s1, s2] = await solicitudes();
+      expect(s1).toMatchObject({ estado: "pendiente" });
+      expect(s1?.avisos).toContain("hay_solicitud_posterior");
+      expect(s2).toMatchObject({ estado: "revisada" });
+      expect(s2?.avisos).toContain("cambios_bloqueados_por_otra_solicitud");
+      await app.close();
+    });
+
     it("una marca junto con algo que decidir deja la solicitud pendiente, sin copia del hijo marcado", async () => {
       const titular = await apoderadoRegistrado();
       const hijo = await crearJugador(db, { nombre: "Tomás" });

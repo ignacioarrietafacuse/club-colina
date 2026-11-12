@@ -110,6 +110,8 @@ class Proceso {
   private readonly conCopiaAjena = new Set<string>();
   private solicitudId = "";
   private coincideBase = false;
+  /** Si la solicitud traía alguna casilla "ya no está" (se haya podido marcar o no). */
+  private traeMarcas = false;
   /** El titular precargado que esta solicitud modificó (tiene su copia en `fichas_previas`). */
   private titularConCopia: string | null = null;
   /** Quién llenó el formulario: con esto /familia sabe de quién son los hijos que muestra. */
@@ -152,10 +154,11 @@ class Proceso {
         titular_jugador_id: this.titularJugadorId,
       })
       .where(eq(solicitudesRegistro.id, this.solicitudId));
-    // Una solicitud que solo marcó hijos "ya no está" no deja nada que aprobar ni rechazar: queda
-    // revisada al crearse (la marca la resuelve Mony en la ficha). El criterio de "nada pendiente"
-    // es el mismo con que el panel cierra una solicitud.
-    if (this.avisos.has("hijo_marcado_ya_no_esta")) await cerrarSiCorresponde(this.tx, this.solicitudId);
+    // Una solicitud que solo trajo casillas "ya no está" no deja nada que aprobar ni rechazar: queda
+    // revisada al crearse (la marca la resuelve Mony en la ficha), también si un hijo no se pudo
+    // marcar por la copia de otra solicitud. El criterio de "nada pendiente" es el mismo con que el
+    // panel cierra una solicitud.
+    if (this.traeMarcas) await cerrarSiCorresponde(this.tx, this.solicitudId);
     return { token_acceso: tokenAcceso, otros_apoderados: otros };
   }
 
@@ -539,6 +542,7 @@ class Proceso {
         // Solo se puede marcar a un hijo propio. Queda marcado para que Mony lo confirme, sin
         // `solicitud_id`: no aparece en /familia.
         if (!jugador || !enLista) throw invalido([`${p}ya_no_esta`]);
+        this.traeMarcas = true;
         // La marca no guarda copia en `fichas_previas`: ni aprobar ni rechazar la solicitud la
         // tocan, la resuelve Mony en la ficha (decisión de Ignacio, 2026-11-12). Si otra solicitud
         // tiene copia de este hijo, no se toca y ella recibe el aviso de solicitud posterior. El

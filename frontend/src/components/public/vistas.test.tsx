@@ -94,11 +94,11 @@ describe("familia", () => {
     expect(h).not.toContain("Muestra el código QR");
   });
 
-  it("revisada sin personas (solo avisó que un hijo ya no está): dice que el club ya la revisó", () => {
+  it("revisada sin personas (solo avisó que un hijo ya no está): dice que no hay QR", () => {
     const h = html(
       <VistaFamilia datos={{ estado_solicitud: "revisada", personas: [], otros_apoderados: [] }} />,
     );
-    expect(h).toContain("El club ya revisó este registro.");
+    expect(h).toContain("No hay códigos QR en este registro.");
     expect(h).not.toContain("No hay credenciales activas");
     expect(h).not.toContain("está revisando");
   });

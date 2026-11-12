@@ -1091,6 +1091,7 @@ describe("solicitudes: la copia de un hijo marcado 'ya no está'", () => {
         rut: antesA?.rut,
         tipo: "apoderado",
         consentimiento: true,
+        telefono: "911111111",
         foto: "titular",
         hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
       }),

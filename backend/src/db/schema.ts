@@ -366,8 +366,9 @@ export const sesiones = pgTable(
  * restaura y borra la copia solo al decidir a la persona desde la solicitud de la copia.
  *
  * Es una copia de datos personales: cada fila se borra en la misma transacción en que se decide
- * a esa persona (aprobada: ya no hace falta; rechazada: después de restaurar), y se borra sola
- * si se borra la persona (CASCADE).
+ * a esa persona (aprobada: ya no hace falta; rechazada: después de restaurar), y las que le
+ * queden a una solicitud se borran al cerrarse (revisada). Se borra sola si se borra la persona
+ * (CASCADE). La marca "ya no está" no escribe copia: la resuelve Mony en la ficha.
  */
 export const fichasPrevias = pgTable(
   "fichas_previas",

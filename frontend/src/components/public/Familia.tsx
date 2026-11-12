@@ -32,9 +32,8 @@ export function VistaFamilia({ datos }: { datos: FamiliaResponse }) {
       {!enRevision && !hayActivas && (
         <Aviso>
           {datos.personas.length === 0
-            ? "El club ya revisó este registro."
-            : "No hay credenciales activas en este registro."}{" "}
-          Si crees que es un error, escríbele al club.
+            ? "No hay códigos QR en este registro. Si tienes dudas, escríbele al club."
+            : "No hay credenciales activas en este registro. Si crees que es un error, escríbele al club."}
         </Aviso>
       )}
 
