@@ -1045,6 +1045,7 @@ describe("solicitudes: paga_mensualidad de un vínculo de la base", () => {
         rut,
         tipo: "apoderado",
         consentimiento: true,
+        telefono: "911111111",
         foto: "titular",
         paga_mensualidad: paga,
         hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, numero_camiseta: "7", foto: "h0" }],

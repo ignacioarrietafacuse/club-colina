@@ -18,7 +18,7 @@ El club necesita verificar en la entrada del Pucalán que quien entra es jugador
 ## Solución (cómo la ve el club)
 - **Carga inicial:** la base que entregó Mony (inscripciones 2026) se importa al sistema. Cada persona queda **precargada**: existe en el panel, pero sin credencial.
 - Mony comparte el link de registro por los grupos de WhatsApp del club.
-- La persona escribe su RUT. **Si el sistema lo reconoce, solo le pide lo que falta y la foto.** Si no lo reconoce, llena el formulario completo.
+- La persona escribe su RUT. **Si el sistema lo reconoce, solo le pide lo que falta y la foto** (al apoderado titular, también su teléfono, para detectar suplantaciones). Si no lo reconoce, llena el formulario completo.
 - **Jugadores nuevos:** cada vez que entra un jugador, Mony le manda el mismo link al apoderado.
 - Los jugadores adultos usan el mismo link.
 - **Entrenadores:** no llenan nada. Mony los crea a mano en el panel, descarga el QR de cada uno y se lo envía ella misma.
@@ -93,7 +93,7 @@ La base es la exportación del formulario de inscripción 2026: 177 jugadores de
 
 ## Flujo
 1. La persona abre el link y escribe su RUT.
-2. **RUT reconocido:** ve solo las preguntas que faltan y la foto. **RUT no reconocido:** llena el formulario completo.
+2. **RUT reconocido:** ve solo las preguntas que faltan y la foto; el apoderado titular escribe además su teléfono. **RUT no reconocido:** llena el formulario completo.
 3. Al enviar recibe un **link privado** donde ve el estado ("pendiente de aprobación") y, una vez aprobado, los QR de las personas que llegaron en esa solicitud (en el caso del apoderado, los de los hijos que inscribió en ella; un hijo ya inscrito por otro apoderado aparece cuando Mony aprueba el vínculo).
 4. Mony revisa la solicitud en el panel, asigna becas si corresponde y aprueba. Las que calzan con la base aparecen marcadas "Coincide con la base".
 5. Los QR quedan activos. El apoderado reenvía el QR al hijo si este tiene celular.
@@ -113,7 +113,8 @@ Solo se pregunta lo que no esté en la ficha. Lo habitual:
 **Apoderado**
 - Su foto.
 - Casilla "soy quien paga la mensualidad".
-- Nombre, apellido o teléfono, solo si faltan.
+- Nombre o apellido, solo si faltan.
+- Teléfono, siempre: si la base no lo tiene se completa; si lo tiene, no se cambia y, si no coincide, la solicitud llega con el aviso de teléfono distinto. Así se detecta a quien conoce el RUT de un apoderado e intenta registrarse en su nombre (decisión de Ignacio, 2026-11-12).
 
 **Por cada hijo precargado** (identificado por su primer nombre)
 - Foto.
