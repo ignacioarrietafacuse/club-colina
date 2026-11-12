@@ -66,32 +66,22 @@ export function fotoPorLinkReenviado(
 }
 
 /**
- * Firma esperada después de quitar la marca de retiro de un jugador: así el formulario armado
- * (con ese jugador desmarcado y lo que Mony haya escrito) sigue sirviendo, y cualquier otro
- * cambio sí lo deja desfasado.
+ * Quién nombra la confirmación de «Rechazar todo lo pendiente» (cuerpo sin `personas`). El
+ * servidor rechaza a las personas propias pendientes. Con certeza lo son las que tienen
+ * `solicitud_id` de esta solicitud; las demás pendientes que se muestran (el segundo apoderado
+ * que agregó esta, un precargado que esta dejó pendiente, o alguien de otra solicitud que solo
+ * está por un vínculo) pueden serlo o no: el contrato no lo dice, así que van aparte y en
+ * condicional, nunca como rechazadas seguro.
  */
-export function firmaTrasQuitarMarca(
-  s: SolicitudDetalle,
-  ficha: {
-    id: string;
-    estado: SolicitudDetalle["jugadores"][number]["estado"];
-    marcado_retiro_en: string | null;
-    faltantes: SolicitudDetalle["jugadores"][number]["faltantes"];
-  },
-): string {
-  return firmaSolicitud({
-    ...s,
-    jugadores: s.jugadores.map((j) =>
-      j.id === ficha.id
-        ? {
-            ...j,
-            estado: ficha.estado,
-            marcado_retiro_en: ficha.marcado_retiro_en,
-            faltantes: ficha.faltantes,
-          }
-        : j,
-    ),
-  });
+export function alcanceRechazoTotal(s: SolicitudDetalle): {
+  seguras: string[];
+  posibles: string[];
+} {
+  const pendientes = [...s.jugadores, ...s.apoderados].filter((p) => p.estado === "pendiente");
+  return {
+    seguras: pendientes.filter((p) => p.solicitud_id === s.id).map((p) => p.id),
+    posibles: pendientes.filter((p) => p.solicitud_id !== s.id).map((p) => p.id),
+  };
 }
 
 /** Estados con los que un vínculo puede quedar activo (el servidor exige ambos activos al final). */
@@ -136,13 +126,21 @@ export function vinculoConocido(
  * solicitud, y los vínculos que no se pueden aprobar o cuyas personas no parten listas
  * (denegar por defecto).
  */
-export function formInicial(s: SolicitudDetalle): FormAprobacion {
+export function formInicial(
+  s: SolicitudDetalle,
+  /** Jugadores a los que Mony les quitó la marca «ya no está»: decir que sigue no es aprobarlo. */
+  desmarcar: ReadonlySet<string> = new Set(),
+): FormAprobacion {
   const jugadores: Record<string, FormJugador> = {};
   for (const j of s.jugadores) {
     if (j.estado !== "pendiente") continue;
     jugadores[j.id] = {
       // Un hijo marcado «ya no está» no se activa por inercia: Mony lo marca a mano si corresponde.
-      marcado: !bloquea(j.faltantes) && j.marcado_retiro_en === null && esDeEstaSolicitud(j, s),
+      marcado:
+        !bloquea(j.faltantes) &&
+        j.marcado_retiro_en === null &&
+        esDeEstaSolicitud(j, s) &&
+        !desmarcar.has(j.id),
       categoria_id: j.categoria_id === null ? "" : String(j.categoria_id),
       numero_camiseta: j.numero_camiseta ?? "",
       beca_mensualidad_pct: String(j.beca_mensualidad_pct),

@@ -31,7 +31,7 @@ import {
   formInicial,
   RECHAZO_TOTAL,
   esDeEstaSolicitud,
-  firmaTrasQuitarMarca,
+  alcanceRechazoTotal,
   fotoPorLinkReenviado,
   vinculoAprobable,
   vinculoConocido,
@@ -55,6 +55,9 @@ export function SolicitudPage() {
   // El formulario se rehace solo después de aprobar o rechazar, no cada vez que la consulta
   // vuelve a cargar sola: así no se pierde lo que Mony está escribiendo.
   const [generacion, setGeneracion] = useState(0);
+  // Jugadores a los que se les quitó la marca «ya no está» en esta pantalla: parten sin marcar
+  // cada vez que el formulario se rehace.
+  const [desmarcados, setDesmarcados] = useState<ReadonlySet<string>>(() => new Set());
 
   return (
     <div>
@@ -89,7 +92,11 @@ export function SolicitudPage() {
             key={generacion}
             s={consulta.data}
             categorias={categorias.data}
-            alCambiar={() => setGeneracion((g) => g + 1)}
+            desmarcados={desmarcados}
+            alCambiar={(desmarcar = []) => {
+              if (desmarcar.length > 0) setDesmarcados((d) => new Set([...d, ...desmarcar]));
+              setGeneracion((g) => g + 1);
+            }}
           />
           {/* Fuera del formulario que se rehace: el link se entrega una sola vez. */}
           <LinkPrivado
@@ -105,15 +112,18 @@ export function SolicitudPage() {
 function DetalleSolicitud({
   s,
   categorias,
+  desmarcados,
   alCambiar,
 }: {
   s: SolicitudDetalle;
   /** `undefined` mientras no carguen (o si fallaron): el selector queda deshabilitado. */
   categorias: CategoriaPanel[] | undefined;
-  alCambiar: () => void;
+  desmarcados: ReadonlySet<string>;
+  /** Rehace el formulario; `desmarcar` = jugadores que deben partir sin marcar. */
+  alCambiar: (desmarcar?: string[]) => void;
 }) {
   const queryClient = useQueryClient();
-  const [form, setForm] = useState<FormAprobacion>(() => formInicial(s));
+  const [form, setForm] = useState<FormAprobacion>(() => formInicial(s, desmarcados));
   const [errores, setErrores] = useState<string[]>([]);
   const [confirmar, setConfirmar] = useState<null | "marcadas" | "todo">(null);
 
@@ -135,7 +145,7 @@ function DetalleSolicitud({
   };
   // Si la solicitud cambió por otro lado (otra pestaña, otro usuario), el formulario ya no
   // calza con lo que hay: no se envía hasta rehacerlo.
-  const [firmaInicial, setFirmaInicial] = useState(() => firmaSolicitud(s));
+  const [firmaInicial] = useState(() => firmaSolicitud(s));
   const desfasado = firmaSolicitud(s) !== firmaInicial;
 
   const aprobar = useMutation({
@@ -151,11 +161,11 @@ function DetalleSolicitud({
 
   const quitarMarca = useMutation({
     mutationFn: (jugadorId: string) => api.panel.quitarMarcaRetiro(jugadorId),
-    // No se rehace el formulario: el jugador sigue desmarcado (decir que sigue en el club no es
-    // aprobarlo) y no se pierde lo escrito. Solo se acepta este cambio en la firma.
-    onSuccess: async (ficha) => {
-      setFirmaInicial(firmaTrasQuitarMarca(s, ficha));
+    // Como después de aprobar o rechazar: el formulario se rehace con el detalle nuevo (y una
+    // firma nueva), y ese jugador parte sin marcar (decir que sigue en el club no es aprobarlo).
+    onSuccess: async (_ficha, jugadorId) => {
       await queryClient.invalidateQueries({ queryKey: ["panel"] });
+      alCambiar([jugadorId]);
     },
   });
 
@@ -164,13 +174,9 @@ function DetalleSolicitud({
   const hayPendientes = personasPendientes + Object.keys(form.vinculos).length > 0;
   const marcadas = contarMarcadas(form);
   const ocupado = aprobar.isPending || rechazar.isPending || quitarMarca.isPending || desfasado;
-  const pendientes = [...s.jugadores, ...s.apoderados].filter((p) => p.estado === "pendiente");
-  const pendientesPropias = pendientes
-    .filter((p) => esDeEstaSolicitud(p, s))
-    .map((p) => nombres[p.id] ?? "");
-  const pendientesDeOtra = pendientes
-    .filter((p) => !esDeEstaSolicitud(p, s))
-    .map((p) => nombres[p.id] ?? "");
+  const alcance = alcanceRechazoTotal(s);
+  const pendientesPropias = alcance.seguras.map((id) => nombres[id] ?? "");
+  const pendientesDeOtra = alcance.posibles.map((id) => nombres[id] ?? "");
   const conPosterior = s.avisos.includes("hay_solicitud_posterior");
   const huboRechazo = [...s.jugadores, ...s.apoderados].some((p) => p.estado === "rechazado");
 
@@ -360,7 +366,7 @@ function DetalleSolicitud({
             La solicitud cambió desde que abriste esta pantalla. Recarga el formulario antes de
             aprobar o rechazar.
           </span>
-          <Button size="sm" variant="outline" onClick={alCambiar}>
+          <Button size="sm" variant="outline" onClick={() => alCambiar()}>
             Recargar formulario
           </Button>
         </div>
@@ -376,15 +382,16 @@ function DetalleSolicitud({
 
       {confirmar === "todo" && (
         <div role="alert" className="mb-4 rounded-lg bg-destructive/10 px-4 py-3 text-sm">
-          «Rechazar todo lo pendiente» rechaza a todas las personas pendientes de esta solicitud,
-          estén marcadas o no
-          {pendientesPropias.length > 0 && <>: {pendientesPropias.join(", ")}</>}, y sus vínculos
-          pendientes.
+          «Rechazar todo lo pendiente» rechaza, estén marcadas o no,
+          {pendientesPropias.length > 0
+            ? ` a ${pendientesPropias.join(", ")}`
+            : " a las personas pendientes de esta solicitud"}
+          , y los vínculos pendientes de la solicitud.
           {pendientesDeOtra.length > 0 && (
             <>
               {" "}
-              También a {pendientesDeOtra.join(", ")} si la agregó el segundo apoderado de esta
-              solicitud.
+              Entre {pendientesDeOtra.join(", ")}, rechaza solo a quien sea de esta solicitud (por
+              ejemplo, el segundo apoderado que agregó); a quien sea de otra no lo toca.
             </>
           )}{" "}
           No se deshace desde el panel.
