@@ -25,7 +25,7 @@ import {
   type solicitudResumen,
   type solicitudesQuery,
 } from "@club-colina/shared";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import type { Ejecutor } from "../../db/cliente";
 import {
@@ -688,51 +688,90 @@ async function rechazarPersona(
  * su RUT y no guardar datos (muchas veces de menores) sin motivo (Ley 21.719). Solo llegan aquí
  * personas que creó el formulario, sin ficha previa y pendientes al rechazarlas: nunca estuvieron
  * activas, porque cualquier cambio sobre una persona que ya existía pasa por `fichas_previas`.
- * Las solicitudes que las nombraban (como titular o por un vínculo) se revisan otra vez: una que
- * quedó sin nada pendiente se cierra.
+ *
+ * El borrado no decide nada fuera de esta solicitud (`familia`: ella, su origen y sus segundas):
+ * si la persona tiene un vínculo de otra solicitud (o hecho en el panel), o es titular de otra
+ * solicitud pendiente, responde 409 y no cambia nada. Mony decide primero esa otra solicitud, que
+ * así no pierde un vínculo ni se cierra sin que nadie la revise.
  */
-async function borrarNuevas(tx: Ejecutor, jugadoresIds: string[], apoderadosIds: string[]): Promise<void> {
+async function borrarNuevas(tx: Ejecutor, familia: string[], jugadoresIds: string[], apoderadosIds: string[]): Promise<void> {
   if (jugadoresIds.length + apoderadosIds.length === 0) return;
-  const afectadas = new Set<string>();
   const porVinculo = or(
     jugadoresIds.length > 0 ? inArray(jugadorApoderado.jugador_id, jugadoresIds) : undefined,
     apoderadosIds.length > 0 ? inArray(jugadorApoderado.apoderado_id, apoderadosIds) : undefined,
   );
-  for (const v of await tx.select({ s: jugadorApoderado.solicitud_id }).from(jugadorApoderado).where(porVinculo)) {
-    if (v.s) afectadas.add(v.s);
+  const ajenos = await tx
+    .select({ id: jugadorApoderado.jugador_id })
+    .from(jugadorApoderado)
+    .where(
+      and(
+        porVinculo,
+        or(isNull(jugadorApoderado.solicitud_id), notInArray(jugadorApoderado.solicitud_id, familia)),
+      ),
+    )
+    .limit(1);
+  const comoTitular = or(
+    jugadoresIds.length > 0 ? inArray(solicitudesRegistro.titular_jugador_id, jugadoresIds) : undefined,
+    apoderadosIds.length > 0 ? inArray(solicitudesRegistro.titular_apoderado_id, apoderadosIds) : undefined,
+  );
+  const titularDeOtra = await tx
+    .select({ id: solicitudesRegistro.id })
+    .from(solicitudesRegistro)
+    .where(
+      and(comoTitular, eq(solicitudesRegistro.estado, "pendiente"), notInArray(solicitudesRegistro.id, familia)),
+    )
+    .limit(1);
+  if (ajenos.length > 0 || titularDeOtra.length > 0) {
+    throw conflicto(
+      "Esa persona también está en otra solicitud pendiente: decide primero esa otra solicitud y después rechaza esta",
+    );
   }
   // titular_* es restrict: la solicitud deja de tener titular (nulo = sin QR de hijos en /familia,
-  // lo mismo que con un titular rechazado).
-  if (jugadoresIds.length > 0) {
-    const filas = await tx
-      .update(solicitudesRegistro)
-      .set({ titular_jugador_id: null })
-      .where(inArray(solicitudesRegistro.titular_jugador_id, jugadoresIds))
-      .returning({ id: solicitudesRegistro.id });
-    for (const f of filas) afectadas.add(f.id);
-  }
-  if (apoderadosIds.length > 0) {
-    const filas = await tx
-      .update(solicitudesRegistro)
-      .set({ titular_apoderado_id: null })
-      .where(inArray(solicitudesRegistro.titular_apoderado_id, apoderadosIds))
-      .returning({ id: solicitudesRegistro.id });
-    for (const f of filas) afectadas.add(f.id);
-  }
+  // lo mismo que con un titular rechazado). Las de la familia se revisan otra vez al final.
+  const afectadas = new Set<string>();
+  const sinTitular = await tx
+    .update(solicitudesRegistro)
+    .set({
+      ...(jugadoresIds.length > 0
+        ? { titular_jugador_id: sql`case when ${inArray(solicitudesRegistro.titular_jugador_id, jugadoresIds)} then null else ${solicitudesRegistro.titular_jugador_id} end` }
+        : {}),
+      ...(apoderadosIds.length > 0
+        ? { titular_apoderado_id: sql`case when ${inArray(solicitudesRegistro.titular_apoderado_id, apoderadosIds)} then null else ${solicitudesRegistro.titular_apoderado_id} end` }
+        : {}),
+    })
+    .where(comoTitular)
+    .returning({ id: solicitudesRegistro.id });
+  for (const f of sinTitular) if (familia.includes(f.id)) afectadas.add(f.id);
   // Los vínculos y las fichas previas se van en cascada; las fotos son restrict y se borran después.
+  const sinCopia = (columna: typeof fichasPrevias.jugador_id | typeof fichasPrevias.apoderado_id, id: typeof jugadores.id | typeof apoderados.id) =>
+    sql`not exists (select 1 from ${fichasPrevias} where ${columna} = ${id})`;
   const fotosJ =
     jugadoresIds.length === 0
       ? []
       : await tx
           .delete(jugadores)
-          .where(and(inArray(jugadores.id, jugadoresIds), eq(jugadores.estado, "rechazado"), eq(jugadores.origen, "formulario")))
+          .where(
+            and(
+              inArray(jugadores.id, jugadoresIds),
+              eq(jugadores.estado, "rechazado"),
+              eq(jugadores.origen, "formulario"),
+              sinCopia(fichasPrevias.jugador_id, jugadores.id),
+            ),
+          )
           .returning({ id: jugadores.id, foto_id: jugadores.foto_id });
   const fotosA =
     apoderadosIds.length === 0
       ? []
       : await tx
           .delete(apoderados)
-          .where(and(inArray(apoderados.id, apoderadosIds), eq(apoderados.estado, "rechazado"), eq(apoderados.origen, "formulario")))
+          .where(
+            and(
+              inArray(apoderados.id, apoderadosIds),
+              eq(apoderados.estado, "rechazado"),
+              eq(apoderados.origen, "formulario"),
+              sinCopia(fichasPrevias.apoderado_id, apoderados.id),
+            ),
+          )
           .returning({ id: apoderados.id, foto_id: apoderados.foto_id });
   if (fotosJ.length !== jugadoresIds.length || fotosA.length !== apoderadosIds.length) {
     // Denegar por defecto: si alguna no calza con lo esperado, no se borra nada.
@@ -880,7 +919,7 @@ export async function rechazarSolicitud(
     await borrarFichasPrevias(tx, "apoderado", rechA);
     await cerrarSiCorresponde(tx, id);
     await cerrarRelacionadas(tx, s, rechJ, rechA);
-    await borrarNuevas(tx, nuevasJ, nuevasA);
+    await borrarNuevas(tx, familia, nuevasJ, nuevasA);
   });
 }
 

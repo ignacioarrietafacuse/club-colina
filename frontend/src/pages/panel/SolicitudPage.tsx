@@ -181,7 +181,10 @@ function DetalleSolicitud({
   const ocupado = aprobar.isPending || rechazar.isPending || quitarMarca.isPending || desfasado;
   const rechazaTodo = alcanceRechazoTotal(s).map((id) => nombres[id] ?? "");
   const conPosterior = s.avisos.includes("hay_solicitud_posterior");
-  const huboRechazo = [...s.jugadores, ...s.apoderados].some((p) => p.estado === "rechazado");
+  // Una persona nueva rechazada se borra y ya no sale en el detalle: también cuenta el rechazo
+  // que se acaba de hacer en esta pantalla.
+  const huboRechazo =
+    rechazar.isSuccess || [...s.jugadores, ...s.apoderados].some((p) => p.estado === "rechazado");
 
   function enviarAprobacion() {
     if (desfasado) return;
@@ -438,6 +441,13 @@ function DetalleSolicitud({
           Llegó después otra solicitud con las mismas personas.{" "}
           {huboRechazo ? "Como rechazaste" : "Si rechazas"} a alguien de esta, pide a la familia de
           la solicitud posterior que vuelva a enviar el formulario.
+        </div>
+      )}
+
+      {confirmar === "marcadas" && (
+        <div role="alert" className="mb-4 rounded-lg bg-destructive/10 px-4 py-3 text-sm">
+          Las personas nuevas se borran con su foto; los precargados vuelven a como estaban. No se
+          deshace desde el panel.
         </div>
       )}
 

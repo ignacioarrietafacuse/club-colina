@@ -349,6 +349,8 @@ describe("solicitudes: solo desde la propia", () => {
     expect(r.statusCode).toBe(200);
     expect(await estadoS(segunda.id)).toBe("revisada");
     expect(await vinculo(hijo, otro)).toBeUndefined();
+    // Era nuevo: se borra.
+    expect(await estadoA(otro)).toBeUndefined();
 
     // La de origen se termina de decidir y se cierra.
     await app.inject({
@@ -475,7 +477,7 @@ describe("solicitudes: rechazar vuelve a como estaba", () => {
     await app.close();
   });
 
-  it("otra solicitud que solo tenía un vínculo hacia el rechazado pierde el vínculo y se cierra", async () => {
+  it("si otra solicitud tiene un vínculo hacia la persona nueva, 409 hasta que Mony decida esa otra", async () => {
     const { app, cookies } = await appConSesion(db);
     const { s, hijo } = await familia();
     // Otra familia, ya registrada, nombró a ese hijo por RUT: su solicitud solo tiene ese vínculo.
@@ -483,17 +485,58 @@ describe("solicitudes: rechazar vuelve a como estaba", () => {
     const otroApo = await crearApoderado(db, { estado: "activo", foto_id: await fotoPrueba(db), credencial_token: generarToken() });
     await db.update(solicitudesRegistro).set({ titular_apoderado_id: otroApo }).where(eq(solicitudesRegistro.id, otra.id));
     await db.insert(jugadorApoderado).values({ jugador_id: hijo, apoderado_id: otroApo, solicitud_id: otra.id });
-    const r = await app.inject({
+    const rechazarHijo = () =>
+      app.inject({
+        method: "POST",
+        url: `/api/panel/solicitudes/${s.id}/rechazar`,
+        cookies,
+        payload: { personas: [{ rol: "jugador", id: hijo }] },
+      });
+    const r = await rechazarHijo();
+    expect(r.statusCode).toBe(409);
+    // No cambió nada: ni el hijo, ni el vínculo de la otra, ni su estado.
+    expect(await estadoJ(hijo)).toMatchObject({ estado: "pendiente" });
+    expect(await vinculo(hijo, otroApo)).toBeDefined();
+    expect(await estadoS(otra.id)).toBe("pendiente");
+    // Mony decide primero la otra (rechaza su vínculo) y después puede rechazar al hijo.
+    const v = await app.inject({
       method: "POST",
-      url: `/api/panel/solicitudes/${s.id}/rechazar`,
+      url: `/api/panel/solicitudes/${otra.id}/rechazar`,
       cookies,
-      payload: { personas: [{ rol: "jugador", id: hijo }] },
+      payload: { vinculos: [{ jugador_id: hijo, apoderado_id: otroApo }] },
     });
-    expect(r.statusCode).toBe(200);
-    expect(await estadoJ(hijo)).toBeUndefined();
-    expect(await vinculo(hijo, otroApo)).toBeUndefined();
+    expect(v.statusCode).toBe(200);
     expect(await estadoS(otra.id)).toBe("revisada");
+    expect((await rechazarHijo()).statusCode).toBe(200);
+    expect(await estadoJ(hijo)).toBeUndefined();
     expect(await estadoA(otroApo)).toMatchObject({ estado: "activo" });
+    await app.close();
+  });
+
+  it("si la persona nueva es titular de otra solicitud pendiente, 409 hasta que Mony decida esa otra", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, apo } = await familia();
+    // El mismo apoderado volvió a llenar el formulario para agregar un hijo olvidado.
+    const otra = await nuevaSolicitud({ titular_apoderado_id: apo });
+    const olvidado = await crearJugador(db, {
+      nombre: "Ema",
+      estado: "pendiente",
+      origen: "formulario",
+      solicitud_id: otra.id,
+      foto_id: await fotoPrueba(db),
+    });
+    await db.insert(jugadorApoderado).values({ jugador_id: olvidado, apoderado_id: apo, solicitud_id: otra.id });
+    const rechazarTodo = () => app.inject({ method: "POST", url: `/api/panel/solicitudes/${s.id}/rechazar`, cookies, payload: {} });
+    expect((await rechazarTodo()).statusCode).toBe(409);
+    expect(await estadoA(apo)).toMatchObject({ estado: "pendiente" });
+    expect(await estadoJ(olvidado)).toMatchObject({ estado: "pendiente" });
+    // Decidida la otra (se rechaza a la hija nueva, que se borra), ya se puede rechazar todo.
+    expect((await app.inject({ method: "POST", url: `/api/panel/solicitudes/${otra.id}/rechazar`, cookies, payload: {} })).statusCode).toBe(200);
+    expect(await estadoJ(olvidado)).toBeUndefined();
+    expect((await rechazarTodo()).statusCode).toBe(200);
+    expect(await estadoA(apo)).toBeUndefined();
+    const [cerrada] = await db.select().from(solicitudesRegistro).where(eq(solicitudesRegistro.id, otra.id));
+    expect(cerrada).toMatchObject({ estado: "revisada", titular_apoderado_id: null });
     await app.close();
   });
 
