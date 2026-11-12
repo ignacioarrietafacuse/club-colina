@@ -15,7 +15,14 @@ import type { Ejecutor } from "../../db/cliente";
 import { apoderados, categorias, jugadorApoderado, jugadores } from "../../db/schema";
 import { ErrorApi, noEncontrado } from "../../lib/errores";
 import { conRestricciones } from "./errores-db";
-import { calcularEdad, faltantesApoderado, faltantesJugador, hoyEnChile, nombreCompleto } from "./reglas";
+import {
+  calcularEdad,
+  faltantesApoderado,
+  faltantesJugador,
+  hoyEnChile,
+  nombreCompleto,
+  requisitosJugador,
+} from "./reglas";
 
 type JugadorResumen = z.input<typeof jugadorResumen>;
 type JugadorDetalle = z.input<typeof jugadorDetalle>;
@@ -192,6 +199,15 @@ export async function editarJugador(
     if (tocaRama && categoria !== null) await verificarCategoria(tx, categoria, disciplina);
     if (Object.keys(cambios).length === 0) return;
     await conRestricciones(() => tx.update(jugadores).set(cambios).where(eq(jugadores.id, id)));
+    // La base cubre casi todo con sus CHECK, pero no el teléfono del adulto sin apoderado: un
+    // activo no puede quedar con menos de lo que se le exigió para activarlo.
+    const [despues] = await seleccionarJugadores(tx, eq(jugadores.id, id));
+    if (despues?.estado === "activo") {
+      const faltan = requisitosJugador(faltantesJugador(despues, despues.tiene_apoderado));
+      if (faltan.length > 0) {
+        throw new ErrorApi(422, "requisitos_incompletos", `Faltan datos: ${faltan.join(", ")}`);
+      }
+    }
   });
 }
 

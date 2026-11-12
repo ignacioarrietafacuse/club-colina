@@ -165,6 +165,14 @@ describe("jugadores", () => {
     expect(r.statusCode).toBe(422);
     expect(r.json().error.codigo).toBe("requisitos_incompletos");
 
+    // Un adulto activo sin apoderado no puede quedar sin teléfono.
+    const adulto = await crearJugadorActivo(db, { fecha_nacimiento: "2000-01-01", telefono: "912345678" });
+    r = await patch({ telefono: null }, adulto);
+    expect(r.statusCode).toBe(422);
+    expect(r.json().error.mensaje).toBe("Faltan datos: telefono");
+    const [sigue] = await db.select().from(jugadores).where(eq(jugadores.id, adulto));
+    expect(sigue?.telefono).toBe("912345678");
+
     expect((await patch({ nombre: "X" }, "00000000-0000-4000-8000-000000000000")).statusCode).toBe(404);
     await app.close();
   });
