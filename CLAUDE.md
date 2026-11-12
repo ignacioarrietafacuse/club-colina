@@ -156,3 +156,33 @@ lo pide.
   valores de `AVISOS_SOLICITUD`, sin repetidos; S2 los calcula al recibir la solicitud y, si
   involucra a personas de una solicitud pendiente anterior, le agrega a esa `hay_solicitud_posterior`.
 - **Datos de prueba:** siempre ficticios, con `generarRutFicticio()` de `shared/`.
+
+<!-- graphify-estandar:inicio -->
+## Grafo del código (graphify)
+
+- Antes de buscar archivo por archivo, mira `graphify-out/GRAPH_REPORT.md` y usa
+  `scripts/graphify query "…"`, `scripts/graphify path A B` o `scripts/graphify explain X`.
+  Siempre `scripts/graphify`, sin `./` delante. El graphify aislado de Club Colina no está en
+  el PATH a propósito: `scripts/graphify` lo resuelve y solo deja pasar lo permitido. El
+  `graphify` del PATH está denegado en `.claude/settings.json`.
+- Hay un solo grafo, en la raíz del repo (`graphify-out/` está en `.gitignore`).
+- El grafo orienta; las conclusiones se verifican en el código. Solo indexa código (los `.md`
+  quedan fuera).
+- En la nube el grafo se construye solo al iniciar la sesión, en segundo plano; puede tardar
+  unos segundos. Si `graphify-out/` no existe, sigue normal: no instales graphify ni
+  construyas el grafo a mano. Única excepción: en la nube (`CLAUDE_CODE_REMOTE=true`), si no
+  existe el archivo `graphify-sesion` dentro de la carpeta de git del repo
+  (`git rev-parse --git-path graphify-sesion`), el hook de inicio no corrió (pasa en sesiones
+  con varios repositorios, donde la nube no carga los hooks del repo): lánzalo tú una vez, en
+  segundo plano y sin esperarlo, con `.claude/hooks/graphify-session-start.sh` desde la raíz
+  de este repo. Localmente lo deja `scripts/setup-dev.sh`.
+- Solo `scripts/graphify update .` o `scripts/graphify extract . --code-only`. Prohibido: el
+  skill `/graphify` (el repo lo deniega), el `graphify` del PATH, `extract` sin `--code-only`,
+  `--mode deep`, `--obsidian`, `graphify hook install`, `graphify install` y comitear
+  `graphify-out/`. graphify no envía nada del repo a un modelo ni a terceros: nada que mande
+  docs, imágenes o código a un modelo.
+- Las reglas deny calzan con todo el texto del comando: si un mensaje de commit menciona la ruta
+  de instalación, usa `git commit -F`. Para inspeccionar la instalación o los logs
+  (`~/.cache/club-colina-graphify/`), usa Read/Glob/Grep, no Bash: el deny `*-graphify/*` también
+  tapa los logs, y los deny de `GRAPHIFY_BIN` calzan con cualquier texto que lo contenga.
+<!-- graphify-estandar:fin -->

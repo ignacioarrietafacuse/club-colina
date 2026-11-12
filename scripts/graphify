@@ -1,0 +1,116 @@
+#!/bin/sh
+# Ejecuta el graphify aislado de Club Colina (el de .graphify-version), no el del PATH.
+# Es lo que los agentes usan para `query`, `path` y `explain`: el graphify aislado no está
+# en el PATH a propósito. Tres capas, para que graphify no mande nada del repo a un modelo:
+# 1. Lista blanca exacta de argumentos (no un filtro por subcadena: graphify consume el
+#    argumento que sigue a ciertas opciones, así que `extract . --exclude --code-only` pasaría
+#    un filtro y correría sin --code-only). Todo lo que no está en la lista sale con código 2 y
+#    un mensaje que nombra el argumento.
+# 2. El binario corre con `env -i` y una lista blanca de variables (graphify_exec en la lib):
+#    ninguna clave ni token del entorno le llega, y `claude` ni siquiera está en su PATH.
+# 3. La salida se filtra: las líneas que sugieren /graphify, `graphify cluster-only`,
+#    `graphify label` o --update se reemplazan por una frase (con rc distinto de 0, la frase se
+#    agrega al lado de la línea original). El código de salida de graphify se conserva.
+# GRAPHIFY_BIN (lo usan las pruebas) solo se respeta junto con GRAPHIFY_ALLOW_TEST_BIN=1
+# (graphify_test_bin en la lib); las dos están en `deny` de .claude/settings.json.
+root=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd) || exit 1
+lib="$root/.githooks/lib-graphify.sh"
+[ -r "$lib" ] || { echo "scripts/graphify: falta .githooks/lib-graphify.sh" >&2; exit 1; }
+. "$lib"
+cd "$root" || exit 1
+
+fail() { echo "scripts/graphify: $*" >&2; exit 2; }
+is_uint() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; return 0; }
+
+# Opciones de query/path/explain en cli.py de la 0.9.76 (se leyó el archivo, no se supuso):
+# - query (cli.py:1276-1317): la pregunta es sys.argv[2]; --dfs (1286, se busca en todo argv);
+#   --budget N y --budget=N (1293-1306, N entero); --context C y --context=C (1307-1312, puede
+#   repetirse); --graph (1313-1315); cualquier otra cosa se ignora en silencio (1316-1317).
+# - path (cli.py:1623-1658): origen y destino son argv[2] y argv[3]; --graph (1641),
+#   --directed (1643) y --undirected (1651).
+# - explain (cli.py:1803-1815): la etiqueta es argv[2]; la única opción es --graph (1813-1815).
+# Ninguna activa un backend (no llaman a detect_backend). La única que cambia qué se lee es
+# --graph, en las tres, y al leer un grafo ajeno además escribe junto a él (_touch_query_stamp,
+# cli.py:710-719): se rechaza, como todo lo que no esté en la lista. Lo que graphify ignoraría
+# en silencio (una palabra de más) aquí también se rechaza: un argumento que no hace lo que
+# parece es una pregunta mal hecha. Se valida en una función para no tocar "$@".
+validate() {
+  _cmd=$1; shift
+  case "$_cmd" in
+    query)
+      [ $# -ge 1 ] || fail "query necesita la pregunta como primer argumento."
+      case "$1" in -*) fail "query: el primer argumento es la pregunta, no una opción (recibí: $1)." ;; esac
+      shift
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --dfs) shift ;;
+          --budget)
+            is_uint "${2:-}" || fail "query: --budget necesita un entero (recibí: ${2:-nada})."
+            shift 2 ;;
+          --budget=*)
+            is_uint "${1#--budget=}" || fail "query: --budget necesita un entero (recibí: $1)."
+            shift ;;
+          --context)
+            [ $# -ge 2 ] || fail "query: --context necesita un valor."
+            shift 2 ;;
+          --context=*) shift ;;
+          *) fail "query: argumento no permitido: $1 (solo la pregunta entre comillas, --dfs, --budget N y --context C)." ;;
+        esac
+      done ;;
+    path)
+      [ $# -ge 2 ] || fail "path necesita origen y destino."
+      case "$1" in -*) fail "path: el origen no puede ser una opción (recibí: $1)." ;; esac
+      case "$2" in -*) fail "path: el destino no puede ser una opción (recibí: $2)." ;; esac
+      shift 2
+      for _a in "$@"; do
+        case "$_a" in
+          --directed|--undirected) ;;
+          *) fail "path: argumento no permitido: $_a (solo origen, destino, --directed y --undirected)." ;;
+        esac
+      done ;;
+    explain)
+      [ $# -ge 1 ] || fail "explain necesita la etiqueta como primer argumento."
+      case "$1" in -*) fail "explain: el primer argumento es la etiqueta, no una opción (recibí: $1)." ;; esac
+      [ $# -eq 1 ] || fail "explain: argumento no permitido: $2 (explain solo acepta la etiqueta)."
+      ;;
+  esac
+}
+
+case "${1:-}" in
+  --version)
+    [ $# -eq 1 ] || fail "--version no lleva más argumentos (recibí: $2)." ;;
+  query|path|explain)
+    validate "$@" ;;
+  extract|update)
+    # Patrones exactos por subcomando, nunca `*:.`: ese comodín calzaba con cualquier argumento
+    # terminado en «:.» (--out=/tmp/x:., --backend=claude:.) porque se evalúa sobre "$_cmd:$_a".
+    _cmd=$1; shift
+    _code_only=0
+    _dots=0
+    for _a in "$@"; do
+      case "$_cmd:$_a" in
+        extract:--code-only) _code_only=1 ;;
+        extract:.|update:.) _dots=$((_dots + 1)) ;;
+        extract:--force|extract:--no-cluster|update:--force|update:--no-cluster) ;;
+        *) fail "en $_cmd solo se permiten «.», --force y --no-cluster$([ "$_cmd" = extract ] && echo ', con --code-only obligatorio') (recibí: $_a)." ;;
+      esac
+    done
+    if [ "$_dots" -ne 1 ]; then
+      fail "en $_cmd hace falta exactamente un «.» como ruta (recibí $_dots)."
+    fi
+    if [ "$_cmd" = extract ] && [ "$_code_only" -ne 1 ]; then
+      fail "«extract» solo se permite con --code-only (sin LLM)."
+    fi
+    set -- "$_cmd" "$@" ;;
+  *) fail "subcomando no permitido: ${1:-(ninguno)}. Usa query, path, explain, update o extract --code-only." ;;
+esac
+
+bin=$(graphify_bin "$root") || bin=""
+if [ -z "$bin" ] || [ ! -x "$bin" ]; then
+  echo "scripts/graphify: no hay graphify instalado (o .graphify-version no es X.Y.Z). Corre scripts/setup-dev.sh (en la nube se instala solo al iniciar la sesión)." >&2
+  exit 1
+fi
+
+# Salida filtrada y código de salida de graphify conservado (ver graphify_exec_filtered).
+graphify_exec_filtered "$bin" "$@"
+exit $?

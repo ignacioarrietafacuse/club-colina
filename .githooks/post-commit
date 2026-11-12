@@ -1,0 +1,16 @@
+#!/bin/sh
+# Reconstruye el grafo local si el commit tocó código. Nunca falla un commit.
+# -m: en un merge lista los archivos contra cada padre (sin él, diff-tree no lista nada).
+# El argumento «commit» hace que CHERRY_PICK_HEAD y REVERT_HEAD no cuenten como operación en
+# curso: un cherry-pick o un revert sin conflicto crean su commit con ese archivo aún presente.
+trap 'exit 0' EXIT
+lib="$(dirname "$0")/lib-graphify.sh"
+[ -r "$lib" ] || exit 0
+. "$lib"
+graphify_precheck commit || exit 0
+if git -c core.quotePath=false diff-tree -m --no-renames --no-commit-id --name-only -r --root HEAD 2>/dev/null | graphify_relevant; then
+  graphify_rebuild
+else
+  echo "[graphify] commit sin código: no se reconstruye"
+fi
+exit 0
