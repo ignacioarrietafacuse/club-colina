@@ -154,7 +154,7 @@ class Proceso {
         titular_jugador_id: this.titularJugadorId,
       })
       .where(eq(solicitudesRegistro.id, this.solicitudId));
-    // Una solicitud que solo trae marcas "ya no está" no deja nada que aprobar ni rechazar: queda
+    // Una solicitud que trae marcas "ya no está" y no deja nada que aprobar ni rechazar queda
     // revisada al crearse (decisión de Ignacio, 2026-11-12), con el mismo criterio con que el panel
     // cierra una solicitud. No se cierra si modificó a alguien (dejó copias en `fichas_previas`) ni
     // si otra pendiente le bloqueó cambios: esa pareja tiene que seguir a la vista de Mony, porque

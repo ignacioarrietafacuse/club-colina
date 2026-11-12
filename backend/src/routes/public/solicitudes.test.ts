@@ -1016,7 +1016,76 @@ describe("POST /api/public/solicitudes", () => {
       const [s1, s2] = await solicitudes();
       expect(s1).toMatchObject({ estado: "pendiente" });
       expect(s2).toMatchObject({ estado: "pendiente" });
+      // Ni copias ni bloqueos: lo único que la deja abierta es que no trae marcas.
+      expect(s2?.avisos).toEqual(["titular_ya_registrado"]);
+      expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.solicitud_id, s2?.id ?? ""))).toHaveLength(0);
       expect(s1?.avisos).toContain("hay_solicitud_posterior");
+      await app.close();
+    });
+
+    it("una marca con cambios bloqueados por otra solicitud no se cierra: la pareja sigue a la vista", async () => {
+      const papa = await apoderadoRegistrado();
+      const a = await crearJugador(db, { nombre: "Tomás" });
+      const b = await crearJugador(db, { nombre: "Ana", numero_camiseta: null });
+      await vincular(db, a.id, papa.id);
+      await vincular(db, b.id, papa.id);
+      // Otra solicitud pendiente ya tiene la copia de Ana.
+      const [otra] = await db
+        .insert(solicitudesRegistro)
+        .values({ token_acceso_hash: hashToken(generarToken()), consentimiento_en: new Date(), tipo: "formulario" })
+        .returning();
+      if (!otra) throw new Error("sin solicitud");
+      await db.insert(fichasPrevias).values({ solicitud_id: otra.id, jugador_id: b.id, datos: {} });
+      const app = await construirApp({ config: configTest(), db });
+      const r = await enviar(
+        app,
+        {
+          rut: papa.rut,
+          tipo: "apoderado",
+          consentimiento: true,
+          hijos: [
+            { ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true },
+            { ref: { precargado: 1, primer_nombre: "Ana" }, numero_camiseta: "4", foto: "h" },
+          ],
+        },
+        { h: JPEG_PRUEBA },
+      );
+      expect(r.statusCode).toBe(201);
+      const s = (await solicitudes()).find((x) => x.id !== otra.id);
+      expect(s?.estado).toBe("pendiente");
+      expect(s?.avisos).toEqual(expect.arrayContaining(["hijo_marcado_ya_no_esta", "cambios_bloqueados_por_otra_solicitud"]));
+      expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.solicitud_id, otra.id))).toHaveLength(1);
+      await app.close();
+    });
+
+    it("una marca de una solicitud que modificó a alguien no se cierra ni pierde su copia", async () => {
+      // Un titular precargado que ya trae un `solicitud_id` de otra solicitud: al modificarlo no
+      // queda como propio de esta, y sin la guarda de las copias la solicitud se cerraría.
+      const [s0] = await db
+        .insert(solicitudesRegistro)
+        .values({ token_acceso_hash: hashToken(generarToken()), consentimiento_en: new Date(), tipo: "formulario", estado: "revisada", revisada_en: new Date() })
+        .returning();
+      if (!s0) throw new Error("sin solicitud");
+      const titular = await crearApoderado(db, { solicitud_id: s0.id });
+      const hijo = await crearJugador(db, { nombre: "Tomás" });
+      await vincular(db, hijo.id, titular.id);
+      const app = await construirApp({ config: configTest(), db });
+      const r = await enviar(
+        app,
+        {
+          rut: titular.rut,
+          tipo: "apoderado",
+          consentimiento: true,
+          telefono: titular.telefono ?? undefined,
+          foto: "t",
+          hijos: [{ ref: { precargado: 0, primer_nombre: "Tomás" }, ya_no_esta: true }],
+        },
+        { t: JPEG_PRUEBA },
+      );
+      expect(r.statusCode).toBe(201);
+      const s = (await solicitudes()).find((x) => x.id !== s0.id);
+      expect(s?.estado).toBe("pendiente");
+      expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.solicitud_id, s?.id ?? ""))).toHaveLength(1);
       await app.close();
     });
 

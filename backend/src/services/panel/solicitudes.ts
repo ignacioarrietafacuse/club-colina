@@ -312,7 +312,7 @@ export async function detalleSolicitud(db: Ejecutor, id: string): Promise<Solici
 
 /**
  * Si ya no queda nada pendiente de decidir desde la solicitud, pasa a revisada. S2 la usa también
- * al crear una solicitud que solo marcó hijos "ya no está". Se llama con el candado tomado.
+ * al crear una solicitud que trae marcas "ya no está" (ver `solicitud.ts`). Se llama con el candado tomado.
  */
 export async function cerrarSiCorresponde(tx: Ejecutor, solicitudId: string): Promise<void> {
   const s = await filaSolicitud(tx, solicitudId);
