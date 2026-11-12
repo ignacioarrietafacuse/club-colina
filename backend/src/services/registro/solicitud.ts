@@ -164,16 +164,24 @@ class Proceso {
    * hay una de otra solicitud, esta no modifica la ficha (devuelve false), solo vincula, y la
    * otra recibe `hay_solicitud_posterior`. Así ninguna pisa los cambios de la otra.
    */
-  private async copiaPrevia(p: { jugador: Jugador } | { apoderado: Apoderado }): Promise<boolean> {
+  /** Si otra solicitud tiene copia de esa persona (y la anota para avisarle). */
+  private async copiaDeOtra(p: { jugador: Jugador } | { apoderado: Apoderado }): Promise<boolean> {
     const [copia] = await this.tx
       .select({ solicitud_id: fichasPrevias.solicitud_id })
       .from(fichasPrevias)
       .where("jugador" in p ? eq(fichasPrevias.jugador_id, p.jugador.id) : eq(fichasPrevias.apoderado_id, p.apoderado.id));
-    if (copia) {
-      if (copia.solicitud_id === this.solicitudId) return true;
-      this.conCopiaAjena.add(copia.solicitud_id);
-      return false;
-    }
+    if (!copia || copia.solicitud_id === this.solicitudId) return false;
+    this.conCopiaAjena.add(copia.solicitud_id);
+    return true;
+  }
+
+  private async copiaPrevia(p: { jugador: Jugador } | { apoderado: Apoderado }): Promise<boolean> {
+    if (await this.copiaDeOtra(p)) return false;
+    const [propia] = await this.tx
+      .select({ id: fichasPrevias.id })
+      .from(fichasPrevias)
+      .where("jugador" in p ? eq(fichasPrevias.jugador_id, p.jugador.id) : eq(fichasPrevias.apoderado_id, p.apoderado.id));
+    if (propia) return true;
     if ("jugador" in p) {
       const j = p.jugador;
       await this.tx.insert(fichasPrevias).values({
@@ -378,7 +386,8 @@ class Proceso {
     this.coincideBase = true;
     const telefonoNuevo = this.telefono(existente.telefono, new Faltantes(), "telefono");
     const { cambios, foto: fotoFaltante } = await this.completarJugador(existente, d, "", new Faltantes());
-    // Otra solicitud ya la modificó y Mony no la decidió: no se pisa.
+    // Otra solicitud ya la modificó y Mony no la decidió: no se pisa. En la práctica no se llega
+    // acá (una ficha con copia ya no es precargada sin solicitud ni vínculos, y dio 409 arriba).
     if (!(await this.copiaPrevia({ jugador: existente }))) throw conflicto();
     await this.tx
       .update(jugadores)
@@ -527,13 +536,22 @@ class Proceso {
         // Solo se puede marcar a un hijo propio. Queda marcado para que Mony lo confirme, sin
         // `solicitud_id`: no aparece en /familia.
         if (!jugador || !enLista) throw invalido([`${p}ya_no_esta`]);
-        if (jugador.marcado_retiro_en === null && (await this.copiaPrevia({ jugador }))) {
-          await this.tx
-            .update(jugadores)
-            .set({ marcado_retiro_en: this.ahora })
-            .where(eq(jugadores.id, jugador.id));
+        // Si otra solicitud ya tiene copia de este hijo, no se toca (y ella recibe el aviso de
+        // solicitud posterior); el aviso de "ya no está" va solo si el hijo quedó marcado.
+        // Ya marcado: no hay nada que modificar ni copiar; solo se mira si otra solicitud lo tiene.
+        const puede =
+          jugador.marcado_retiro_en === null
+            ? await this.copiaPrevia({ jugador })
+            : !(await this.copiaDeOtra({ jugador }));
+        if (puede) {
+          if (jugador.marcado_retiro_en === null) {
+            await this.tx
+              .update(jugadores)
+              .set({ marcado_retiro_en: this.ahora })
+              .where(eq(jugadores.id, jugador.id));
+          }
+          this.avisos.add("hijo_marcado_ya_no_esta");
         }
-        this.avisos.add("hijo_marcado_ya_no_esta");
         resueltos.push(null);
         continue;
       }
