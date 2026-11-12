@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
+import { crearDb } from "./cliente";
 import { dbTest, urlTest } from "../test/db";
-import { aplicarMigraciones } from "./migraciones";
+import { aplicarMigraciones, CANDADO_MIGRACIONES } from "./migraciones";
 
 const carpeta = fileURLToPath(new URL("../../migrations", import.meta.url));
 const { db, cerrar } = dbTest();
@@ -54,8 +55,27 @@ describe("migraciones al arrancar", () => {
     expect(await aplicadas()).toBe(antes);
   });
 
-  it("dos arranques a la vez no chocan", async () => {
-    await Promise.all([aplicarMigraciones(urlTest(), carpeta), aplicarMigraciones(urlTest(), carpeta)]);
+  it("espera al candado de otro proceso y falla con plazo si no se suelta", async () => {
+    const otro = crearDb(urlTest(), { max: 1 });
+    try {
+      await otro.db.execute(sql`select pg_advisory_lock(${CANDADO_MIGRACIONES})`);
+      // Con el candado tomado por otro, no puede migrar: falla al vencer el plazo.
+      await expect(aplicarMigraciones(urlTest(), carpeta, { plazoMs: 300 })).rejects.toThrow(
+        "candado de migraciones",
+      );
+      // Y espera mientras el otro lo tenga: termina recién después de soltarlo.
+      let termino = false;
+      const espera = aplicarMigraciones(urlTest(), carpeta, { plazoMs: 10_000 }).then(() => {
+        termino = true;
+      });
+      await new Promise((r) => setTimeout(r, 700));
+      expect(termino).toBe(false);
+      await otro.db.execute(sql`select pg_advisory_unlock(${CANDADO_MIGRACIONES})`);
+      await espera;
+      expect(termino).toBe(true);
+    } finally {
+      await otro.cerrar();
+    }
   });
 
   it("si una migración falla, rechaza y no deja nada a medias", async () => {

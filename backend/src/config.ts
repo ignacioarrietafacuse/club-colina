@@ -25,6 +25,11 @@ const esquema = z.object({
         .map((s) => s.trim().replace(/\/+$/, ""))
         .filter((s) => s.length > 0),
     ),
+  /**
+   * "si" solo en el servicio de Railway: junto con NODE_ENV=production, permite que el servidor
+   * migre una base que no es localhost al arrancar. Sin las dos, la guarda de host lo frena.
+   */
+  MIGRAR_AL_ARRANCAR: z.enum(["si", "no"]).default("no"),
   /** Solo para la verificación del despliegue de la Ola 0. Se borra al terminar. */
   DIAGNOSTICO_TOKEN: z.string().min(32).optional(),
 });
