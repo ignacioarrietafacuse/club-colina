@@ -432,7 +432,15 @@ describe("pasos", () => {
     );
     expect(pasosDe(f)).toEqual(["titular", "confirmar"]);
     expect([...camposTitular(f.titular).pedir].sort()).toEqual(
-      ["nombre", "apellido", "telefono", "fecha_nacimiento", "disciplina", "numero_camiseta", "foto"].sort(),
+      [
+        "nombre",
+        "apellido",
+        "telefono",
+        "fecha_nacimiento",
+        "disciplina",
+        "numero_camiseta",
+        "foto",
+      ].sort(),
     );
   });
 
