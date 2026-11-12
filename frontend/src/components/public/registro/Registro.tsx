@@ -32,6 +32,7 @@ import {
   validarPaso,
   type Errores,
   type Formulario,
+  type OtroApoderado,
   type Hijo,
   type Paso,
 } from "./modelo";
@@ -97,9 +98,22 @@ export function Registro({ baseUrl }: { baseUrl: string }) {
         <Pasos
           formulario={pantalla.formulario}
           paso={pantalla.paso}
-          onCambio={(formulario, paso) => setPantalla({ tipo: "formulario", formulario, paso })}
+          onCambio={(cambio) =>
+            setPantalla((p) =>
+              p.tipo === "formulario" ? { ...p, formulario: cambio(p.formulario) } : p,
+            )
+          }
+          onPaso={(paso) => setPantalla((p) => (p.tipo === "formulario" ? { ...p, paso } : p))}
           onEnviado={(resultado) => setPantalla({ tipo: "listo", resultado })}
           onReiniciar={reiniciar}
+          onAtrasInicio={() =>
+            // Quien eligió su rol vuelve a esa pregunta, con el mismo RUT.
+            setPantalla(
+              pantalla.formulario.titular.lookup === null
+                ? { tipo: "elegir_rol", rut: pantalla.formulario.rut }
+                : { tipo: "rut" },
+            )
+          }
         />
       );
     case "listo":
@@ -219,14 +233,18 @@ function Pasos({
   formulario: f,
   paso,
   onCambio,
+  onPaso,
   onEnviado,
   onReiniciar,
+  onAtrasInicio,
 }: {
   formulario: Formulario;
   paso: number;
-  onCambio: (f: Formulario, paso: number) => void;
+  onCambio: (cambio: (f: Formulario) => Formulario) => void;
+  onPaso: (paso: number) => void;
   onEnviado: (r: SolicitudCreadaResponse) => void;
   onReiniciar: () => void;
+  onAtrasInicio: () => void;
 }) {
   const pasos = pasosDe(f);
   const actual = pasos[Math.min(paso, pasos.length - 1)] ?? "confirmar";
@@ -246,14 +264,12 @@ function Pasos({
     staleTime: Infinity,
   });
 
-  const cambiar = (g: Formulario) => onCambio(g, paso);
-
   async function avanzar() {
     const e = validarPaso(f, actual);
     setErrores(e);
     if (Object.keys(e).length > 0) return;
     if (actual !== "confirmar") {
-      onCambio(f, paso + 1);
+      onPaso(paso + 1);
       return;
     }
     setFallaEnvio(null);
@@ -285,13 +301,13 @@ function Pasos({
       </div>
 
       {actual === "titular" && (
-        <PasoTitular f={f} onCambio={cambiar} errores={errores} categorias={categorias.data} />
+        <PasoTitular f={f} onCambio={onCambio} errores={errores} categorias={categorias.data} />
       )}
       {actual === "hijos" && (
-        <PasoHijos f={f} onCambio={cambiar} errores={errores} categorias={categorias.data} />
+        <PasoHijos f={f} onCambio={onCambio} errores={errores} categorias={categorias.data} />
       )}
-      {actual === "otro" && <PasoOtro f={f} onCambio={cambiar} errores={errores} />}
-      {actual === "confirmar" && <PasoConfirmar f={f} onCambio={cambiar} errores={errores} />}
+      {actual === "otro" && <PasoOtro f={f} onCambio={onCambio} errores={errores} />}
+      {actual === "confirmar" && <PasoConfirmar f={f} onCambio={onCambio} errores={errores} />}
 
       {categorias.isError && pideCategoria && (
         <Aviso tono="error">No pudimos cargar las categorías. Revisa tu conexión.</Aviso>
@@ -318,8 +334,8 @@ function Pasos({
           disabled={enviando}
           onClick={() => {
             setErrores({});
-            if (paso === 0) onReiniciar();
-            else onCambio(f, paso - 1);
+            if (paso === 0) onAtrasInicio();
+            else onPaso(paso - 1);
           }}
         >
           Atrás
@@ -332,9 +348,14 @@ function Pasos({
   );
 }
 
+/**
+ * `onCambio` recibe una función del formulario más reciente al nuevo: una foto que se comprime
+ * o una búsqueda que tarda no pisan lo que la persona escribió mientras tanto. Adentro de cada
+ * `onCambio((f) => ...)`, `f` es el formulario del momento del cambio, no el del render.
+ */
 interface PropsPaso {
   f: Formulario;
-  onCambio: (f: Formulario) => void;
+  onCambio: (cambio: (f: Formulario) => Formulario) => void;
   errores: Errores;
 }
 
@@ -354,8 +375,8 @@ function PasoTitular({
         c={c}
         datos={f.datos}
         foto={f.foto}
-        onDatos={(cambio) => onCambio({ ...f, datos: { ...f.datos, ...cambio } })}
-        onFoto={(foto) => onCambio({ ...f, foto })}
+        onDatos={(cambio) => onCambio((f) => ({ ...f, datos: { ...f.datos, ...cambio } }))}
+        onFoto={(foto) => onCambio((f) => ({ ...f, foto }))}
         errores={errores}
         categorias={categorias}
         etiquetaFoto="Tu foto"
@@ -363,7 +384,7 @@ function PasoTitular({
       {esApoderado(f) && !titularYaRegistrado(f) && (
         <Casilla
           marcada={f.paga_mensualidad}
-          onCambio={(v) => onCambio({ ...f, paga_mensualidad: v })}
+          onCambio={(v) => onCambio((f) => ({ ...f, paga_mensualidad: v }))}
         >
           Soy quien paga la mensualidad.
         </Casilla>
@@ -398,7 +419,14 @@ function PasoHijos({
       const r = busquedaDesdeLookup(await api.publico.consultarRut(rut));
       if ("error" in r) setFallas((x) => ({ ...x, [h.clave]: r.error }));
       else
-        onCambio(conHijo(f, h.clave, (y) => ({ ...y, origen: { tipo: "rut", rut, busqueda: r } })));
+        // Si mientras tanto corrigió el RUT, el resultado ya no es de ese RUT: se descarta.
+        onCambio((f) =>
+          conHijo(f, h.clave, (y) =>
+            y.origen.tipo === "rut" && normalizarRut(y.origen.rut) === rut
+              ? { ...y, origen: { tipo: "rut", rut, busqueda: r } }
+              : y,
+          ),
+        );
     } catch (e) {
       setFallas((x) => ({ ...x, [h.clave]: mensajeError(e) }));
     } finally {
@@ -420,7 +448,7 @@ function PasoHijos({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => onCambio(sinHijo(f, h.clave))}
+                  onClick={() => onCambio((f) => sinHijo(f, h.clave))}
                 >
                   Quitar
                 </Button>
@@ -444,8 +472,16 @@ function PasoHijos({
                         autoComplete="off"
                         maxLength={14}
                         value={h.origen.tipo === "rut" ? h.origen.rut : ""}
+                        enterKeyHint="search"
+                        onKeyDown={(e) => {
+                          // La tecla «Ir» del celular busca el RUT en vez de enviar el paso.
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void buscar(h);
+                          }
+                        }}
                         onChange={(e) =>
-                          onCambio(
+                          onCambio((f) =>
                             conHijo(f, h.clave, (y) => ({
                               ...y,
                               origen: {
@@ -494,9 +530,11 @@ function PasoHijos({
               datos={h.datos}
               foto={h.foto}
               onDatos={(cambio) =>
-                onCambio(conHijo(f, h.clave, (y) => ({ ...y, datos: { ...y.datos, ...cambio } })))
+                onCambio((f) =>
+                  conHijo(f, h.clave, (y) => ({ ...y, datos: { ...y.datos, ...cambio } })),
+                )
               }
-              onFoto={(foto) => onCambio(conHijo(f, h.clave, (y) => ({ ...y, foto })))}
+              onFoto={(foto) => onCambio((f) => conHijo(f, h.clave, (y) => ({ ...y, foto })))}
               errores={errores}
               prefijo={p}
               categorias={categorias}
@@ -507,12 +545,12 @@ function PasoHijos({
               <Casilla
                 marcada={h.ya_no_esta}
                 onCambio={(v) =>
-                  onCambio({
+                  onCambio((f) => ({
                     ...conHijo(f, h.clave, (y) => ({ ...y, ya_no_esta: v })),
                     otro: f.otro
                       ? { ...f.otro, hijos: f.otro.hijos.filter((x) => !v || x !== h.clave) }
                       : null,
-                  })
+                  }))
                 }
               >
                 Ya no está en el club
@@ -529,7 +567,7 @@ function PasoHijos({
           type="button"
           variant="outline"
           className="w-full"
-          onClick={() => onCambio({ ...f, hijos: [...f.hijos, nuevoHijoPorRut()] })}
+          onClick={() => onCambio((f) => ({ ...f, hijos: [...f.hijos, nuevoHijoPorRut()] }))}
         >
           {f.hijos.length === 0 ? "Agregar un hijo" : "Agregar otro hijo"}
         </Button>
@@ -554,7 +592,7 @@ function PasoOtro({ f, onCambio, errores }: PropsPaso) {
           className="w-full"
           disabled={candidatos.length === 0}
           onClick={() =>
-            onCambio({
+            onCambio((f) => ({
               ...f,
               otro: {
                 nombre: "",
@@ -563,7 +601,7 @@ function PasoOtro({ f, onCambio, errores }: PropsPaso) {
                 telefono: "",
                 hijos: candidatos.map((h) => h.clave),
               },
-            })
+            }))
           }
         >
           Agregar otro apoderado
@@ -574,7 +612,8 @@ function PasoOtro({ f, onCambio, errores }: PropsPaso) {
       </div>
     );
   }
-  const set = (cambio: Partial<typeof o>) => onCambio({ ...f, otro: { ...o, ...cambio } });
+  const set = (cambio: (actual: OtroApoderado) => Partial<OtroApoderado>) =>
+    onCambio((f) => (f.otro ? { ...f, otro: { ...f.otro, ...cambio(f.otro) } } : f));
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
@@ -588,7 +627,7 @@ function PasoOtro({ f, onCambio, errores }: PropsPaso) {
             className="h-10"
             maxLength={80}
             value={o.nombre}
-            onChange={(e) => set({ nombre: e.target.value })}
+            onChange={(e) => set(() => ({ nombre: e.target.value }))}
           />
         )}
       </Campo>
@@ -599,7 +638,7 @@ function PasoOtro({ f, onCambio, errores }: PropsPaso) {
             className="h-10"
             maxLength={80}
             value={o.apellido}
-            onChange={(e) => set({ apellido: e.target.value })}
+            onChange={(e) => set(() => ({ apellido: e.target.value }))}
           />
         )}
       </Campo>
@@ -611,7 +650,7 @@ function PasoOtro({ f, onCambio, errores }: PropsPaso) {
             autoComplete="off"
             maxLength={14}
             value={o.rut}
-            onChange={(e) => set({ rut: e.target.value })}
+            onChange={(e) => set(() => ({ rut: e.target.value }))}
           />
         )}
       </Campo>
@@ -628,7 +667,7 @@ function PasoOtro({ f, onCambio, errores }: PropsPaso) {
             className="h-10"
             maxLength={20}
             value={o.telefono}
-            onChange={(e) => set({ telefono: e.target.value })}
+            onChange={(e) => set(() => ({ telefono: e.target.value }))}
           />
         )}
       </Campo>
@@ -639,7 +678,11 @@ function PasoOtro({ f, onCambio, errores }: PropsPaso) {
             key={h.clave}
             marcada={o.hijos.includes(h.clave)}
             onCambio={(v) =>
-              set({ hijos: v ? [...o.hijos, h.clave] : o.hijos.filter((x) => x !== h.clave) })
+              set((actual) => ({
+                hijos: v
+                  ? [...actual.hijos.filter((x) => x !== h.clave), h.clave]
+                  : actual.hijos.filter((x) => x !== h.clave),
+              }))
             }
           >
             {nombreHijo(h, f.hijos.indexOf(h))}
@@ -649,7 +692,7 @@ function PasoOtro({ f, onCambio, errores }: PropsPaso) {
           <p className="text-sm text-destructive">{errores["otro.hijos"]}</p>
         )}
       </fieldset>
-      <Button type="button" variant="ghost" onClick={() => onCambio({ ...f, otro: null })}>
+      <Button type="button" variant="ghost" onClick={() => onCambio((f) => ({ ...f, otro: null }))}>
         No agregar otro apoderado
       </Button>
     </div>
@@ -666,7 +709,7 @@ function PasoConfirmar({ f, onCambio, errores }: PropsPaso) {
       </p>
       <Casilla
         marcada={f.consentimiento}
-        onCambio={(v) => onCambio({ ...f, consentimiento: v })}
+        onCambio={(v) => onCambio((f) => ({ ...f, consentimiento: v }))}
         error={errores["consentimiento"]}
       >
         Autorizo al Club Colina a usar estos datos y fotos para identificar a las personas
@@ -722,7 +765,11 @@ export function Listo({
 }) {
   // El link es la única vez que se entrega: avisar antes de cerrar la pestaña.
   useEffect(() => {
-    const avisar = (e: BeforeUnloadEvent) => e.preventDefault();
+    const avisar = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      // Chrome antiguo exige además returnValue.
+      e.returnValue = "";
+    };
     window.addEventListener("beforeunload", avisar);
     return () => window.removeEventListener("beforeunload", avisar);
   }, []);

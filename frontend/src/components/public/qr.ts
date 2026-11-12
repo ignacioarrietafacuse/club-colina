@@ -2,8 +2,9 @@ import { urlCredencial } from "@club-colina/shared";
 import QRCode from "qrcode";
 
 /**
- * QR de una credencial como imagen PNG (data URL). La URL que va grabada es la del sitio
- * donde se abrió la página: en producción, la misma que PUBLIC_BASE_URL.
+ * QR de una credencial como imagen PNG (data URL). `baseUrl` es el origen donde se abrió la
+ * página: en el dominio de producción coincide con PUBLIC_BASE_URL, pero abierta desde una
+ * vista previa o un alias de Vercel grabaría ese otro dominio.
  */
 export function qrCredencial(baseUrl: string, credencialToken: string): Promise<string> {
   return QRCode.toDataURL(urlCredencial(baseUrl, credencialToken), {

@@ -15,16 +15,22 @@ const ROL = { jugador: "Jugador", apoderado: "Apoderado" } as const;
 
 /** Link privado de la familia: estado de la solicitud y los QR de quienes ya están activos. */
 export function VistaFamilia({ datos, baseUrl }: { datos: FamiliaResponse; baseUrl: string }) {
-  const hayPendientes = datos.personas.some((p) => p.estado === "pendiente");
+  const enRevision =
+    datos.estado_solicitud === "pendiente" || datos.personas.some((p) => p.estado === "pendiente");
+  const hayActivas = datos.personas.some((p) => p.estado === "activo" && p.credencial_token);
   return (
     <div className="space-y-4">
-      {hayPendientes ? (
+      {enRevision && (
         <Aviso tono="atencion">
           El club está revisando tu registro. Cuando lo apruebe, aquí aparecerán los códigos QR.
           Guarda este link para volver.
         </Aviso>
-      ) : (
-        <Aviso>Muestra el código QR de cada persona al entrar al Pucalán.</Aviso>
+      )}
+      {hayActivas && <Aviso>Muestra el código QR de cada persona al entrar al Pucalán.</Aviso>}
+      {!enRevision && !hayActivas && (
+        <Aviso>
+          No hay credenciales activas en este registro. Si crees que es un error, escríbele al club.
+        </Aviso>
       )}
 
       <ul className="space-y-3">

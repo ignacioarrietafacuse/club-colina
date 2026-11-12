@@ -189,13 +189,9 @@ export function CamposPersona({
       )}
       {c.pedir.has("categoria") && (
         <Campo
-          etiqueta={c.categoriaObligatoria ? "Categoría" : "Categoría (opcional)"}
+          etiqueta="Categoría"
           error={e("categoria_id")}
-          ayuda={
-            c.categoriaObligatoria
-              ? "No pudimos calcularla con la fecha de nacimiento que tenemos."
-              : "Se calcula sola por el año de nacimiento. Elígela solo si sabes que es otra."
-          }
+          ayuda="No pudimos calcularla con la fecha de nacimiento que tenemos."
         >
           {(id) => (
             <select
@@ -204,9 +200,7 @@ export function CamposPersona({
               value={datos.categoria_id}
               onChange={(ev) => onDatos({ categoria_id: ev.target.value })}
             >
-              <option value="">
-                {c.categoriaObligatoria ? "Elige una categoría" : "Calcular por año"}
-              </option>
+              <option value="">Elige una categoría</option>
               {opcionesCategoria.map((cat) => (
                 <option key={cat.id} value={String(cat.id)}>
                   {cat.nombre} · {NOMBRE_DISCIPLINA[cat.disciplina]}

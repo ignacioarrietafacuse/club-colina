@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
+import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { mensajeError } from "@/components/public/api";
 import { esNoEncontrado, tokenConForma } from "@/components/public/estados";
@@ -26,9 +27,16 @@ export function FamiliaPage() {
       ) : consulta.isPending ? (
         <Cargando />
       ) : consulta.isError ? (
-        <Aviso tono="error">
-          {esNoEncontrado(consulta.error) ? LINK_INVALIDO : mensajeError(consulta.error)}
-        </Aviso>
+        esNoEncontrado(consulta.error) ? (
+          <Aviso tono="error">{LINK_INVALIDO}</Aviso>
+        ) : (
+          <div className="space-y-3">
+            <Aviso tono="error">{mensajeError(consulta.error)}</Aviso>
+            <Button variant="outline" onClick={() => void consulta.refetch()}>
+              Reintentar
+            </Button>
+          </div>
+        )
       ) : (
         <VistaFamilia datos={consulta.data} baseUrl={window.location.origin} />
       )}

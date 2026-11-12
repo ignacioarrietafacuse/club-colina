@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
+import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { mensajeError } from "@/components/public/api";
 import { FormularioCompletar } from "@/components/public/Completar";
@@ -28,9 +29,16 @@ export function CompletarPage() {
       ) : consulta.isPending ? (
         <Cargando />
       ) : consulta.isError ? (
-        <Aviso tono="error">
-          {esNoEncontrado(consulta.error) ? LINK_INVALIDO : mensajeError(consulta.error)}
-        </Aviso>
+        esNoEncontrado(consulta.error) ? (
+          <Aviso tono="error">{LINK_INVALIDO}</Aviso>
+        ) : (
+          <div className="space-y-3">
+            <Aviso tono="error">{mensajeError(consulta.error)}</Aviso>
+            <Button variant="outline" onClick={() => void consulta.refetch()}>
+              Reintentar
+            </Button>
+          </div>
+        )
       ) : consulta.data.foto_subida ? (
         <Aviso tono="ok">
           Listo, {consulta.data.primer_nombre}: ya tenemos tu foto. El club la revisará antes de

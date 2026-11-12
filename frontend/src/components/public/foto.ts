@@ -22,13 +22,11 @@ export function calcularDimensiones(ancho: number, alto: number, max = LADO_MAYO
 }
 
 /** Lo que hace falta del navegador. Se inyecta para poder probarlo sin un navegador. */
-export interface Lienzo {
+export interface Lienzo<F = CanvasImageSource> {
   /** Decodifica la imagen ya girada según su EXIF. */
-  decodificar(
-    archivo: Blob,
-  ): Promise<{ ancho: number; alto: number; fuente: CanvasImageSource; liberar(): void }>;
+  decodificar(archivo: Blob): Promise<{ ancho: number; alto: number; fuente: F; liberar(): void }>;
   /** Dibuja en un lienzo del tamaño dado y lo exporta en JPEG. */
-  exportar(fuente: CanvasImageSource, ancho: number, alto: number, calidad: number): Promise<Blob>;
+  exportar(fuente: F, ancho: number, alto: number, calidad: number): Promise<Blob>;
 }
 
 /**
@@ -36,11 +34,14 @@ export interface Lienzo {
  * Volver a dibujarla en un lienzo descarta sus metadatos (EXIF, GPS), así que la ubicación
  * nunca sale del teléfono. Si aun así pesa más que el límite, baja la calidad.
  */
-export async function comprimirFoto(
-  archivo: Blob,
-  lienzo: Lienzo = lienzoNavegador(),
-): Promise<File> {
-  if (!archivo.type.startsWith("image/")) {
+export function comprimirFoto(archivo: Blob): Promise<File> {
+  return comprimirFotoCon(archivo, lienzoNavegador());
+}
+
+/** Lo mismo que `comprimirFoto`, con el lienzo inyectado (los tests no tienen navegador). */
+export async function comprimirFotoCon<F>(archivo: Blob, lienzo: Lienzo<F>): Promise<File> {
+  // Algunos gestores de archivos de Android no informan el tipo: se intenta decodificar igual.
+  if (archivo.type !== "" && !archivo.type.startsWith("image/")) {
     throw new ErrorFoto("El archivo no es una foto.");
   }
   let imagen;
@@ -66,15 +67,20 @@ export async function comprimirFoto(
 function lienzoNavegador(): Lienzo {
   return {
     async decodificar(archivo) {
-      // createImageBitmap respeta la orientación EXIF; si no existe, una <img>, que también.
+      // createImageBitmap respeta la orientación EXIF. Si no existe o falla (Safari antiguo,
+      // algunos HEIC), se intenta con una <img>, que también la respeta.
       if (typeof createImageBitmap === "function") {
-        const bitmap = await createImageBitmap(archivo, { imageOrientation: "from-image" });
-        return {
-          ancho: bitmap.width,
-          alto: bitmap.height,
-          fuente: bitmap,
-          liberar: () => bitmap.close(),
-        };
+        try {
+          const bitmap = await createImageBitmap(archivo, { imageOrientation: "from-image" });
+          return {
+            ancho: bitmap.width,
+            alto: bitmap.height,
+            fuente: bitmap,
+            liberar: () => bitmap.close(),
+          };
+        } catch {
+          // Sigue con la <img>.
+        }
       }
       const url = URL.createObjectURL(archivo);
       try {

@@ -7,6 +7,7 @@ import {
   camposTitular,
   iniciarFormulario,
   nuevoFormulario,
+  nombreHijo,
   nuevoHijoPorRut,
   pasosDe,
   sinHijo,
@@ -24,6 +25,13 @@ const RUT_HIJO = generarRutFicticio(2);
 const RUT_OTRO = generarRutFicticio(3);
 const HOY = new Date("2026-11-12T12:00:00Z");
 const foto = () => new File([new Uint8Array([1, 2, 3])], "x.jpg", { type: "image/jpeg" });
+
+/** Los tres hijos precargados de `apoderadoBase`, sin `as`. */
+function tresHijos(f: Formulario): [Hijo, Hijo, Hijo] {
+  const [a, b, c] = f.hijos;
+  if (!a || !b || !c) throw new Error("faltan hijos");
+  return [a, b, c];
+}
 
 function formulario(inicio: ReturnType<typeof iniciarFormulario>): Formulario {
   if (inicio.tipo !== "formulario") throw new Error(`esperaba formulario, vino ${inicio.tipo}`);
@@ -97,22 +105,56 @@ describe("inicio según la consulta del RUT", () => {
 });
 
 describe("qué se pregunta", () => {
-  it("persona nueva: todo, con la categoría opcional", () => {
+  it("persona nueva: todo menos la categoría, que calcula el servidor", () => {
     const c = camposTitular({ tipo: "jugador_adulto", lookup: null });
     expect(c.pedir.has("disciplina")).toBe(true);
-    expect(c.pedir.has("categoria")).toBe(true);
-    expect(c.categoriaObligatoria).toBe(false);
+    expect(c.pedir.has("categoria")).toBe(false);
+    const h = nuevoHijoPorRut();
+    h.origen = { tipo: "rut", rut: RUT_HIJO, busqueda: { estado: "nuevo" } };
+    expect(camposHijo(h).pedir.has("categoria")).toBe(false);
     expect(camposTitular({ tipo: "apoderado", lookup: null }).pedir.has("numero_camiseta")).toBe(
       false,
     );
   });
 
-  it("precargado: solo lo que falta; la categoría es obligatoria si el servidor dice que falta", () => {
+  it("precargado: solo lo que falta; la categoría, si el servidor dice que falta, es obligatoria", () => {
     const f = formulario(iniciarFormulario(RUT, apoderadoBase));
-    const [ana, beto, caro] = f.hijos as [Hijo, Hijo, Hijo];
+    const [ana, beto, caro] = tresHijos(f);
     expect([...camposHijo(ana).pedir].sort()).toEqual(["foto", "numero_camiseta"]);
-    expect(camposHijo(beto).categoriaObligatoria).toBe(true);
+    expect(camposHijo(beto).pedir.has("categoria")).toBe(true);
     expect(camposHijo(caro).pedir.size).toBe(0);
+    expect(validarHijos(f, HOY)[`hijo.${beto.clave}.categoria_id`]).toMatch(/categoría/);
+  });
+
+  it("a un hijo por RUT nunca se le pide teléfono, aunque el servidor lo trate como adulto", () => {
+    const b = busquedaDesdeLookup({
+      encontrado: true,
+      tipo: "jugador",
+      primer_nombre: "Dani",
+      adulto: true,
+      ya_registrado: false,
+      faltantes: ["telefono", "foto", "fecha_nacimiento"],
+    });
+    expect(b).toEqual({
+      estado: "precargado",
+      primer_nombre: "Dani",
+      ya_registrado: false,
+      faltantes: ["foto", "fecha_nacimiento"],
+    });
+  });
+
+  it("el nombre de un hijo es el que escribió la familia, si se le pidió", () => {
+    const f = formulario(
+      iniciarFormulario(RUT, {
+        ...apoderadoBase,
+        hijos: [{ posicion: 0, primer_nombre: "", ya_registrado: false, faltantes: ["nombre"] }],
+      }),
+    );
+    const [h] = f.hijos;
+    if (!h) throw new Error("falta el hijo");
+    expect(nombreHijo(h, 0)).toBe("Hijo 1");
+    h.datos.nombre = "Dani";
+    expect(nombreHijo(h, 0)).toBe("Dani");
   });
 
   it("apoderado ya registrado: no se le piden sus datos", () => {
@@ -124,7 +166,7 @@ describe("qué se pregunta", () => {
 
   it("hijo marcado «ya no está»: nada más", () => {
     const f = formulario(iniciarFormulario(RUT, apoderadoBase));
-    const ana = f.hijos[0] as Hijo;
+    const [ana] = tresHijos(f);
     ana.ya_no_esta = true;
     expect(camposHijo(ana).pedir.size).toBe(0);
   });
@@ -161,6 +203,16 @@ describe("validación", () => {
     expect(Object.keys(e).sort()).toEqual(
       ["disciplina", "fecha_nacimiento", "foto", "nombre", "numero_camiseta", "telefono"].sort(),
     );
+  });
+
+  it("jugador adulto nuevo menor de 18: lo registra su apoderado", () => {
+    const f = nuevoFormulario(RUT, { tipo: "jugador_adulto", lookup: null });
+    f.datos.fecha_nacimiento = "2010-01-01";
+    expect(validarTitular(f, HOY)["fecha_nacimiento"]).toMatch(/menor de 18/);
+    f.datos.fecha_nacimiento = "2008-11-12";
+    expect(validarTitular(f, HOY)["fecha_nacimiento"]).toBeUndefined();
+    f.datos.fecha_nacimiento = "2008-11-13";
+    expect(validarTitular(f, HOY)["fecha_nacimiento"]).toMatch(/menor de 18/);
   });
 
   it("acepta teléfono con +56, número 0 y 00, fecha válida", () => {
@@ -226,7 +278,7 @@ describe("armado de la solicitud", () => {
     const f = formulario(iniciarFormulario(RUT, apoderadoBase));
     f.foto = foto();
     f.paga_mensualidad = true;
-    const [ana, beto, caro] = f.hijos as [Hijo, Hijo, Hijo];
+    const [ana, beto, caro] = tresHijos(f);
     ana.foto = foto();
     ana.datos.numero_camiseta = "0";
     ana.datos.nombre = "No se manda";
@@ -312,7 +364,7 @@ describe("armado de la solicitud", () => {
     expect(Object.keys(fotos)).toEqual([]);
   });
 
-  it("jugador adulto nuevo: categoría elegida a mano y sin hijos", () => {
+  it("jugador adulto nuevo: sin categoría (la calcula el servidor) y sin hijos", () => {
     const f = nuevoFormulario(RUT, { tipo: "jugador_adulto", lookup: null });
     f.datos = {
       nombre: "Ana",
@@ -325,7 +377,9 @@ describe("armado de la solicitud", () => {
     };
     f.foto = foto();
     const { datos } = cumpleContrato(f);
-    expect(datos).toMatchObject({ tipo: "jugador_adulto", categoria_id: 9, hijos: [] });
+    expect(datos).toMatchObject({ tipo: "jugador_adulto", disciplina: "voleibol", hijos: [] });
+    // Aunque quedara un valor en el estado, una categoría que no se preguntó no se manda.
+    expect(datos).not.toHaveProperty("categoria_id");
     expect(datos).not.toHaveProperty("paga_mensualidad");
   });
 });

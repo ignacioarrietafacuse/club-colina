@@ -44,13 +44,12 @@ export const DATOS_VACIOS: DatosPersona = {
 };
 
 /**
- * Qué se le pregunta a una persona. `categoria` obligatoria solo cuando el servidor dice que
- * falta (precargado sin categoría); en una persona nueva va opcional, porque el servidor la
- * calcula por año de nacimiento y el formulario público no conoce los años de cada una.
+ * Qué se le pregunta a una persona. La categoría se pregunta solo cuando el servidor dice que
+ * falta (`faltantes` de un precargado): a una persona nueva el servidor se la calcula por año
+ * de nacimiento, y si no calza, la completa Mony al aprobar.
  */
 export interface Campos {
   pedir: ReadonlySet<CampoPersona>;
-  categoriaObligatoria: boolean;
 }
 
 type LookupApoderado = Extract<RutLookupResponse, { tipo: "apoderado" }>;
@@ -119,7 +118,6 @@ const TODO_ADULTO: CampoPersona[] = [
   "fecha_nacimiento",
   "disciplina",
   "numero_camiseta",
-  "categoria",
   "foto",
 ];
 const TODO_HIJO: CampoPersona[] = [
@@ -128,39 +126,38 @@ const TODO_HIJO: CampoPersona[] = [
   "fecha_nacimiento",
   "disciplina",
   "numero_camiseta",
-  "categoria",
   "foto",
 ];
 
-function campos(lista: readonly CampoPersona[], categoriaObligatoria: boolean): Campos {
-  return { pedir: new Set(lista), categoriaObligatoria };
+function campos(lista: readonly CampoPersona[]): Campos {
+  return { pedir: new Set(lista) };
 }
 
 /** Lo que se le pregunta a quien llena el formulario sobre sí mismo. */
 export function camposTitular(t: Titular): Campos {
   if (t.lookup === null) {
-    return campos(t.tipo === "apoderado" ? TODO_APODERADO : TODO_ADULTO, false);
+    return campos(t.tipo === "apoderado" ? TODO_APODERADO : TODO_ADULTO);
   }
   // Ya registrado: solo agrega hijos y otro apoderado; sus datos no se piden ni se cambian.
-  if (t.lookup.ya_registrado) return campos([], false);
+  if (t.lookup.ya_registrado) return campos([]);
   const faltantes: readonly CampoPersona[] = t.lookup.faltantes;
-  return campos(faltantes, faltantes.includes("categoria"));
+  return campos(faltantes);
 }
 
 /** Lo que se pregunta de un hijo. Uno marcado "ya no está" no lleva nada más. */
 export function camposHijo(h: Hijo): Campos {
-  if (h.ya_no_esta) return campos([], false);
+  if (h.ya_no_esta) return campos([]);
   // Un hijo que ya se registró (por otro apoderado o antes) no lleva datos: solo se vincula.
   if (h.origen.tipo === "precargado") {
     const { ya_registrado, faltantes } = h.origen.hijo;
-    return ya_registrado ? campos([], false) : campos(faltantes, faltantes.includes("categoria"));
+    return ya_registrado ? campos([]) : campos(faltantes);
   }
   const b = h.origen.busqueda;
-  if (b.estado === "nuevo") return campos(TODO_HIJO, false);
+  if (b.estado === "nuevo") return campos(TODO_HIJO);
   if (b.estado === "precargado" && !b.ya_registrado) {
-    return campos(b.faltantes, b.faltantes.includes("categoria"));
+    return campos(b.faltantes);
   }
-  return campos([], false);
+  return campos([]);
 }
 
 export function esApoderado(f: Formulario): boolean {
@@ -179,10 +176,11 @@ export function puedeMarcarYaNoEsta(h: Hijo): boolean {
 
 /** Nombre con que se muestra un hijo en el formulario. */
 export function nombreHijo(h: Hijo, indice: number): string {
-  if (h.origen.tipo === "precargado") return h.origen.hijo.primer_nombre;
+  const escrito = camposHijo(h).pedir.has("nombre") ? h.datos.nombre.trim() : "";
+  if (escrito) return escrito;
+  if (h.origen.tipo === "precargado") return h.origen.hijo.primer_nombre || `Hijo ${indice + 1}`;
   if (h.origen.busqueda.estado === "precargado") return h.origen.busqueda.primer_nombre;
-  const nombre = h.datos.nombre.trim();
-  return nombre || `Hijo ${indice + 1}`;
+  return `Hijo ${indice + 1}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +256,9 @@ export function busquedaDesdeLookup(lookup: RutLookupResponse): BusquedaHijo | {
     estado: "precargado",
     primer_nombre: lookup.primer_nombre,
     ya_registrado: lookup.ya_registrado,
-    faltantes: lookup.faltantes,
+    // El contrato no lleva teléfono para un hijo: si el servidor lo trata como adulto (o no
+    // sabe su edad), igual no se le pide a la familia.
+    faltantes: lookup.faltantes.filter((x) => x !== "telefono"),
   };
 }
 
@@ -310,15 +310,33 @@ function validarPersona(
     errores[p("numero_camiseta")] =
       "Escribe un número de 1 o 2 dígitos. Si aún no tiene, escribe 99.";
   }
-  if (c.pedir.has("categoria") && c.categoriaObligatoria && !datos.categoria_id) {
+  if (c.pedir.has("categoria") && !datos.categoria_id) {
     errores[p("categoria_id")] = "Elige la categoría.";
   }
   if (c.pedir.has("foto") && !foto) errores[p("foto")] = "Falta la foto.";
 }
 
+/** Años cumplidos a `hoy` de alguien nacido en `fecha` (`AAAA-MM-DD`). */
+export function edadEn(fecha: string, hoy: Date): number {
+  const [a, m, d] = fecha.split("-").map(Number);
+  if (a === undefined || m === undefined || d === undefined) return Number.NaN;
+  const cumplio = hoy.getMonth() + 1 > m || (hoy.getMonth() + 1 === m && hoy.getDate() >= d);
+  return hoy.getFullYear() - a - (cumplio ? 0 : 1);
+}
+
 export function validarTitular(f: Formulario, hoy = new Date()): Errores {
   const errores: Errores = {};
-  validarPersona("", camposTitular(f.titular), f.datos, f.foto, errores, hoy);
+  const c = camposTitular(f.titular);
+  validarPersona("", c, f.datos, f.foto, errores, hoy);
+  if (
+    f.titular.tipo === "jugador_adulto" &&
+    c.pedir.has("fecha_nacimiento") &&
+    !errores["fecha_nacimiento"] &&
+    edadEn(f.datos.fecha_nacimiento, hoy) < 18
+  ) {
+    errores["fecha_nacimiento"] =
+      "Si eres menor de 18 años, el registro lo hace tu apoderado con su propio RUT.";
+  }
   return errores;
 }
 
