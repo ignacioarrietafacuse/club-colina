@@ -252,7 +252,7 @@ Horarios, lugar y entrenador se agregan en la Etapa 2.
 - **Consulta de RUT del formulario:** responde solo si está o no en la base y qué campos faltan (más el primer nombre de los hijos). Nunca devuelve los datos guardados. Con límite de intentos. El RUT de un jugador que no es adulto con certeza (menor, o sin fecha en la base) responde como si no estuviera, y la lista de hijos oculta los vínculos pendientes hacia hijos de otra familia nombrados por RUT hasta que Mony los aprueba (decisión de Ignacio, 2026-11-12).
 - **Panel de Mony:**
   - Login.
-  - Solicitudes pendientes con foto y datos: aprobar / rechazar, asignar becas por jugador (mensualidad, torneos, campus/clínicas) y corregir categoría y número. Etiqueta "Coincide con la base" en las que vienen de un RUT precargado.
+  - Solicitudes pendientes con foto y datos: aprobar / rechazar, asignar becas por jugador (mensualidad, torneos, campus/clínicas) y corregir categoría y número. Etiqueta "Coincide con la base" en las que vienen de un RUT precargado. Al rechazar, un precargado vuelve a como estaba; una persona nueva (llegó por el formulario y nunca estuvo activa) se borra con su foto y sus vínculos, para liberar su RUT y no guardar datos de menores sin motivo (Ley 21.719; decisión de Ignacio, 2026-11-12).
   - Secciones Jugadores y Apoderados con datos reales. Filtros por estado (incluye "Precargado") y por "Faltan datos".
   - Ficha editable: Mony puede completar cualquier dato que falte, incluida la foto, sin esperar a la familia.
   - Lista de precargados que aún no se registran, para insistir por los grupos y detectar retirados. Mony puede marcarlos inactivos.

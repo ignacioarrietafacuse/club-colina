@@ -595,14 +595,17 @@ async function fotoAlRestaurar(
 /**
  * Rechaza a una persona. Si ya existía antes de la solicitud (hay ficha previa), vuelve a como
  * estaba: sus campos, su foto, su estado y su `solicitud_id`, y se borra la foto que trajo la
- * solicitud (una que Mony subió después se conserva; ver `fotoAlRestaurar`). Si es nueva, queda `rechazado`. En los dos casos, sin credencial.
+ * solicitud (una que Mony subió después se conserva; ver `fotoAlRestaurar`). Si es nueva (la creó
+ * el formulario y nunca estuvo activa), devuelve true: `borrarNuevas` la borra al final del
+ * rechazo, con su foto y sus vínculos (decisión de Ignacio, 2026-11-12). Mientras tanto queda
+ * `rechazado`, sin credencial.
  */
 async function rechazarPersona(
   tx: Ejecutor,
   solicitudId: string,
   tipo: "jugador" | "apoderado",
   personaId: string,
-): Promise<void> {
+): Promise<boolean> {
   // A lo más una por persona (unique): la del estado original, antes de la primera solicitud.
   const [previa] = await tx
     .select({ datos: fichasPrevias.datos, solicitud_id: fichasPrevias.solicitud_id })
@@ -634,7 +637,7 @@ async function rechazarPersona(
     }
     if (tipo === "jugador") await tx.update(jugadores).set({ estado: "rechazado", credencial_token: null }).where(eq(jugadores.id, personaId));
     else await tx.update(apoderados).set({ estado: "rechazado", credencial_token: null }).where(eq(apoderados.id, personaId));
-    return;
+    return true;
   }
   // Si la copia no tiene la forma esperada, falla (500) y no se toca nada: denegar por defecto.
   const estadoPrevio = (tipo === "jugador" ? previoJugador : previoApoderado).parse(previa.datos).estado;
@@ -677,6 +680,66 @@ async function rechazarPersona(
   }
   const [despues] = await tx.select({ foto_id: tabla.foto_id }).from(tabla).where(eq(tabla.id, personaId));
   if (actual.foto_id && actual.foto_id !== despues?.foto_id) await borrarFoto(tx, actual.foto_id);
+  return false;
+}
+
+/**
+ * Borra a las personas nuevas que se acaban de rechazar, con su foto y sus vínculos, para liberar
+ * su RUT y no guardar datos (muchas veces de menores) sin motivo (Ley 21.719). Solo llegan aquí
+ * personas que creó el formulario, sin ficha previa y pendientes al rechazarlas: nunca estuvieron
+ * activas, porque cualquier cambio sobre una persona que ya existía pasa por `fichas_previas`.
+ * Las solicitudes que las nombraban (como titular o por un vínculo) se revisan otra vez: una que
+ * quedó sin nada pendiente se cierra.
+ */
+async function borrarNuevas(tx: Ejecutor, jugadoresIds: string[], apoderadosIds: string[]): Promise<void> {
+  if (jugadoresIds.length + apoderadosIds.length === 0) return;
+  const afectadas = new Set<string>();
+  const porVinculo = or(
+    jugadoresIds.length > 0 ? inArray(jugadorApoderado.jugador_id, jugadoresIds) : undefined,
+    apoderadosIds.length > 0 ? inArray(jugadorApoderado.apoderado_id, apoderadosIds) : undefined,
+  );
+  for (const v of await tx.select({ s: jugadorApoderado.solicitud_id }).from(jugadorApoderado).where(porVinculo)) {
+    if (v.s) afectadas.add(v.s);
+  }
+  // titular_* es restrict: la solicitud deja de tener titular (nulo = sin QR de hijos en /familia,
+  // lo mismo que con un titular rechazado).
+  if (jugadoresIds.length > 0) {
+    const filas = await tx
+      .update(solicitudesRegistro)
+      .set({ titular_jugador_id: null })
+      .where(inArray(solicitudesRegistro.titular_jugador_id, jugadoresIds))
+      .returning({ id: solicitudesRegistro.id });
+    for (const f of filas) afectadas.add(f.id);
+  }
+  if (apoderadosIds.length > 0) {
+    const filas = await tx
+      .update(solicitudesRegistro)
+      .set({ titular_apoderado_id: null })
+      .where(inArray(solicitudesRegistro.titular_apoderado_id, apoderadosIds))
+      .returning({ id: solicitudesRegistro.id });
+    for (const f of filas) afectadas.add(f.id);
+  }
+  // Los vínculos y las fichas previas se van en cascada; las fotos son restrict y se borran después.
+  const fotosJ =
+    jugadoresIds.length === 0
+      ? []
+      : await tx
+          .delete(jugadores)
+          .where(and(inArray(jugadores.id, jugadoresIds), eq(jugadores.estado, "rechazado"), eq(jugadores.origen, "formulario")))
+          .returning({ id: jugadores.id, foto_id: jugadores.foto_id });
+  const fotosA =
+    apoderadosIds.length === 0
+      ? []
+      : await tx
+          .delete(apoderados)
+          .where(and(inArray(apoderados.id, apoderadosIds), eq(apoderados.estado, "rechazado"), eq(apoderados.origen, "formulario")))
+          .returning({ id: apoderados.id, foto_id: apoderados.foto_id });
+  if (fotosJ.length !== jugadoresIds.length || fotosA.length !== apoderadosIds.length) {
+    // Denegar por defecto: si alguna no calza con lo esperado, no se borra nada.
+    throw new Error("borrarNuevas: una persona por borrar no era nueva ni estaba rechazada");
+  }
+  for (const f of [...fotosJ, ...fotosA]) if (f.foto_id) await borrarFoto(tx, f.foto_id);
+  for (const id of afectadas) await cerrarSiCorresponde(tx, id);
 }
 
 /**
@@ -799,22 +862,25 @@ export async function rechazarSolicitud(
     // origen, que es quien escribió su ficha previa.
     const rechJOrigen: string[] = [];
     const rechAOrigen: string[] = [];
+    const nuevasJ: string[] = [];
+    const nuevasA: string[] = [];
     if (origen && mOrigen) {
       const despuesOrigen = await miembros(tx, origen);
       rechJOrigen.push(...(await arrastrados(mOrigen.propiosJ, despuesOrigen.propiosJ, rechJ, jugadores)));
       rechAOrigen.push(...(await arrastrados(mOrigen.propiosA, despuesOrigen.propiosA, rechA, apoderados)));
-      for (const j of rechJOrigen) await rechazarPersona(tx, origen.id, "jugador", j);
-      for (const a of rechAOrigen) await rechazarPersona(tx, origen.id, "apoderado", a);
+      for (const j of rechJOrigen) if (await rechazarPersona(tx, origen.id, "jugador", j)) nuevasJ.push(j);
+      for (const a of rechAOrigen) if (await rechazarPersona(tx, origen.id, "apoderado", a)) nuevasA.push(a);
     }
 
-    for (const j of rechJ) await rechazarPersona(tx, s.id, "jugador", j);
-    for (const a of rechA) await rechazarPersona(tx, s.id, "apoderado", a);
+    for (const j of rechJ) if (await rechazarPersona(tx, s.id, "jugador", j)) nuevasJ.push(j);
+    for (const a of rechA) if (await rechazarPersona(tx, s.id, "apoderado", a)) nuevasA.push(a);
     rechJ.push(...rechJOrigen);
     rechA.push(...rechAOrigen);
     await borrarFichasPrevias(tx, "jugador", rechJ);
     await borrarFichasPrevias(tx, "apoderado", rechA);
     await cerrarSiCorresponde(tx, id);
     await cerrarRelacionadas(tx, s, rechJ, rechA);
+    await borrarNuevas(tx, nuevasJ, nuevasA);
   });
 }
 

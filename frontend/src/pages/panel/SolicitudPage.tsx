@@ -446,7 +446,8 @@ function DetalleSolicitud({
           {rechazaTodo.length > 0
             ? `«Rechazar todo lo pendiente» rechaza, estén marcadas o no, a ${rechazaTodo.join(", ")}, y los vínculos pendientes de la solicitud.`
             : "«Rechazar todo lo pendiente» rechaza los vínculos pendientes de la solicitud (no queda ninguna persona por decidir desde acá)."}{" "}
-          No se deshace desde el panel.
+          Las personas nuevas se borran con su foto; los precargados vuelven a como estaban. No se
+          deshace desde el panel.
         </div>
       )}
 
