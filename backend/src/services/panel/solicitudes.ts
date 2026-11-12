@@ -676,7 +676,7 @@ async function rechazarPersona(
  *   rechazado.
  * - Vínculos: pendientes y de esta solicitud. Se borran; sus personas siguen como estaban.
  * - Sin nada indicado, se borran todos los vínculos pendientes que muestra el detalle, también los
- *   que hacia personas de otras solicitudes y, en una de segundo apoderado, los que creó su origen
+ *   que van hacia personas de otras solicitudes y, en una de segundo apoderado, los que creó su origen
  *   hacia él (aunque él ya esté activo).
  */
 export async function rechazarSolicitud(
@@ -688,6 +688,10 @@ export async function rechazarSolicitud(
     await tomarCandado(tx);
     const s = await filaSolicitud(tx, id, true);
     const m = await miembros(tx, s);
+    // En una de segundo apoderado se pueden borrar vínculos que creó el origen: hay que ver también
+    // a quién deja suelto el origen.
+    const origen = s.solicitud_origen_id ? await filaSolicitud(tx, s.solicitud_origen_id) : null;
+    const mOrigen = origen ? await miembros(tx, origen) : null;
     const parcial = pedido.personas !== undefined || pedido.vinculos !== undefined;
     let candidatosJ: string[];
     let candidatosA: string[];
@@ -778,9 +782,22 @@ export async function rechazarSolicitud(
     };
     rechJ.push(...(await arrastrados(m.propiosJ, despues.propiosJ, rechJ, jugadores)));
     rechA.push(...(await arrastrados(m.propiosA, despues.propiosA, rechA, apoderados)));
+    // Los que el origen completó y quedaron sin vínculo que los muestre: se restauran a nombre del
+    // origen, que es quien escribió su ficha previa.
+    const rechJOrigen: string[] = [];
+    const rechAOrigen: string[] = [];
+    if (origen && mOrigen) {
+      const despuesOrigen = await miembros(tx, origen);
+      rechJOrigen.push(...(await arrastrados(mOrigen.propiosJ, despuesOrigen.propiosJ, rechJ, jugadores)));
+      rechAOrigen.push(...(await arrastrados(mOrigen.propiosA, despuesOrigen.propiosA, rechA, apoderados)));
+    }
 
     for (const j of rechJ) await rechazarPersona(tx, s.id, "jugador", j);
     for (const a of rechA) await rechazarPersona(tx, s.id, "apoderado", a);
+    for (const j of rechJOrigen) await rechazarPersona(tx, origen?.id ?? s.id, "jugador", j);
+    for (const a of rechAOrigen) await rechazarPersona(tx, origen?.id ?? s.id, "apoderado", a);
+    rechJ.push(...rechJOrigen);
+    rechA.push(...rechAOrigen);
     await borrarFichasPrevias(tx, "jugador", rechJ);
     await borrarFichasPrevias(tx, "apoderado", rechA);
     await cerrarSiCorresponde(tx, id);

@@ -773,7 +773,7 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
 
   it("segundo apoderado ya activo: «Rechazar todo» desde su solicitud borra el vínculo pendiente que creó el origen", async () => {
     const { app, cookies } = await appConSesion(db);
-    const { s, hijo } = await familia();
+    const { s, apo, hijo } = await familia();
     const segunda = await nuevaSolicitud({ tipo: "segundo_apoderado", solicitud_origen_id: s.id });
     const otro = await crearApoderado(db, {
       estado: "activo",
@@ -783,12 +783,57 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
       credencial_token: generarToken(),
     });
     await db.insert(jugadorApoderado).values({ jugador_id: hijo, apoderado_id: otro, solicitud_id: s.id });
+    // Un vínculo del origen hacia él que ya estaba activo no es pendiente: sobrevive.
+    const hijo2 = await crearJugador(db, { nombre: "Ana" });
+    await db.insert(jugadorApoderado).values({ jugador_id: hijo2, apoderado_id: otro, solicitud_id: s.id, estado: "activo" });
     const r = await app.inject({ method: "POST", url: `/api/panel/solicitudes/${segunda.id}/rechazar`, cookies, payload: {} });
     expect(r.statusCode).toBe(200);
     expect(await vinculo(hijo, otro)).toBeUndefined();
+    expect((await vinculo(hijo2, otro))?.estado).toBe("activo");
+    // El vínculo del titular con su hijo es del origen y no está en este detalle: no se toca.
+    expect((await vinculo(hijo, apo))?.estado).toBe("pendiente");
     // Él ya estaba activo y no es de esta decisión: sigue activo. El hijo, de la solicitud de origen, no se toca.
     expect(await estadoA(otro)).toMatchObject({ estado: "activo" });
     expect(await estadoJ(hijo)).toMatchObject({ estado: "pendiente" });
+    const estado = async (id: string) =>
+      (await db.select({ e: solicitudesRegistro.estado }).from(solicitudesRegistro).where(eq(solicitudesRegistro.id, id)))[0]?.e;
+    expect(await estado(segunda.id)).toBe("revisada");
+    expect(await estado(s.id)).toBe("pendiente");
+    await app.close();
+  });
+
+  it("segundo apoderado: si «Rechazar todo» deja suelto a un precargado que completó el origen, vuelve a como estaba", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const s = await nuevaSolicitud({ coincide_base: true });
+    const segunda = await nuevaSolicitud({ tipo: "segundo_apoderado", solicitud_origen_id: s.id });
+    const otro = await crearApoderado(db, {
+      estado: "activo",
+      origen: "formulario",
+      solicitud_id: segunda.id,
+      foto_id: await fotoPrueba(db),
+      credencial_token: generarToken(),
+    });
+    // Lo que hace S2 con un hijo precargado sin apoderado nombrado por RUT: copia, lo completa y lo
+    // deja pendiente sin solicitud_id. Su único vínculo que queda es el del otro apoderado (Mony ya
+    // rechazó el del titular desde el origen).
+    const huerfano = await crearJugador(db, { nombre: "Peque", numero_camiseta: null });
+    const antes = await estadoJ(huerfano);
+    await db.insert(fichasPrevias).values({
+      solicitud_id: s.id,
+      jugador_id: huerfano,
+      datos: { numero_camiseta: null, foto_id: null, estado: "precargado", solicitud_id: null, marcado_retiro_en: null },
+    });
+    const fotoS2 = await fotoDeLaSolicitud(s);
+    await db.update(jugadores).set({ numero_camiseta: "5", foto_id: fotoS2, estado: "pendiente" }).where(eq(jugadores.id, huerfano));
+    await db.insert(jugadorApoderado).values({ jugador_id: huerfano, apoderado_id: otro, solicitud_id: s.id });
+
+    const r = await app.inject({ method: "POST", url: `/api/panel/solicitudes/${segunda.id}/rechazar`, cookies, payload: {} });
+    expect(r.statusCode).toBe(200);
+    expect(await vinculo(huerfano, otro)).toBeUndefined();
+    const sinTiempos = <T extends { actualizado_en: Date }>(f: T | undefined) => f && { ...f, actualizado_en: null };
+    expect(sinTiempos(await estadoJ(huerfano))).toEqual(sinTiempos(antes));
+    expect(await db.select({ id: fotos.id }).from(fotos).where(eq(fotos.id, fotoS2))).toHaveLength(0);
+    expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.jugador_id, huerfano))).toHaveLength(0);
     await app.close();
   });
 
