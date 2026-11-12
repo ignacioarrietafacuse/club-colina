@@ -771,6 +771,27 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
     await app.close();
   });
 
+  it("segundo apoderado ya activo: «Rechazar todo» desde su solicitud borra el vínculo pendiente que creó el origen", async () => {
+    const { app, cookies } = await appConSesion(db);
+    const { s, hijo } = await familia();
+    const segunda = await nuevaSolicitud({ tipo: "segundo_apoderado", solicitud_origen_id: s.id });
+    const otro = await crearApoderado(db, {
+      estado: "activo",
+      origen: "formulario",
+      solicitud_id: segunda.id,
+      foto_id: await fotoPrueba(db),
+      credencial_token: generarToken(),
+    });
+    await db.insert(jugadorApoderado).values({ jugador_id: hijo, apoderado_id: otro, solicitud_id: s.id });
+    const r = await app.inject({ method: "POST", url: `/api/panel/solicitudes/${segunda.id}/rechazar`, cookies, payload: {} });
+    expect(r.statusCode).toBe(200);
+    expect(await vinculo(hijo, otro)).toBeUndefined();
+    // Él ya estaba activo y no es de esta decisión: sigue activo. El hijo, de la solicitud de origen, no se toca.
+    expect(await estadoA(otro)).toMatchObject({ estado: "activo" });
+    expect(await estadoJ(hijo)).toMatchObject({ estado: "pendiente" });
+    await app.close();
+  });
+
   it("jugador adulto sin teléfono: su contacto es un apoderado activo con el vínculo aprobado, en el mismo pedido sirve", async () => {
     const { app, cookies } = await appConSesion(db);
     const { s, apo, hijo } = await familia();

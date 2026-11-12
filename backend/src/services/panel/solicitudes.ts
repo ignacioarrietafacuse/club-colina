@@ -675,8 +675,9 @@ async function rechazarPersona(
  *   su origen) creó para ellas, también si ya estaban activos: no queda ninguno hacia alguien
  *   rechazado.
  * - Vínculos: pendientes y de esta solicitud. Se borran; sus personas siguen como estaban.
- * - Sin nada indicado, también se borran los vínculos pendientes hacia personas de otras
- *   solicitudes.
+ * - Sin nada indicado, se borran todos los vínculos pendientes que muestra el detalle, también los
+ *   que hacia personas de otras solicitudes y, en una de segundo apoderado, los que creó su origen
+ *   hacia él (aunque él ya esté activo).
  */
 export async function rechazarSolicitud(
   db: Ejecutor,
@@ -727,7 +728,9 @@ export async function rechazarSolicitud(
     const pendientesDeEsta = new Set(
       m.vinculos.filter((v) => v.estado === "pendiente").map((v) => `${v.jugador_id}|${v.apoderado_id}`),
     );
-    const vinculosPedidos = pedido.vinculos ?? [];
+    const vinculosPedidos = parcial
+      ? (pedido.vinculos ?? [])
+      : m.vinculos.filter((v) => v.estado === "pendiente");
     if (vinculosPedidos.some((v) => !pendientesDeEsta.has(`${v.jugador_id}|${v.apoderado_id}`))) {
       throw fueraDeLaSolicitud();
     }
@@ -760,12 +763,6 @@ export async function rechazarSolicitud(
           ),
         );
     }
-    if (!parcial) {
-      await tx
-        .delete(jugadorApoderado)
-        .where(and(eq(jugadorApoderado.solicitud_id, s.id), eq(jugadorApoderado.estado, "pendiente")));
-    }
-
     // Quien era de la solicitud solo por un vínculo que se acaba de borrar (un precargado que ella
     // completó, sin solicitud_id) ya no se podría decidir desde ninguna: vuelve a como estaba.
     const despues = await miembros(tx, s);
