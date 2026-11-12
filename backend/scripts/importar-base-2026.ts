@@ -1,15 +1,18 @@
 /**
  * Importación de la base de inscripciones 2026 (docs/diseno-credenciales-qr.md, "Carga inicial
  * desde la base del club"). Se corre una sola vez, en la Ola 3, con respaldo previo y el OK de
- * Ignacio. Se puede volver a correr sin duplicar: la llave es el RUT y lo que ya existe no se toca.
+ * Ignacio. Se puede volver a correr sin duplicar: la llave es el RUT, lo que ya existe no se toca
+ * y solo se vinculan personas creadas en la misma corrida.
  *
  *   pnpm --filter @club-colina/backend exec tsx scripts/importar-base-2026.ts <archivo.xlsx> \
- *     [--hoja <nombre>] [--columna campo=Encabezado ...] [--dry-run] [--produccion]
+ *     [--hoja <nombre>] [--columna campo=Encabezado ...] (--dry-run | --aplicar) [--produccion]
  *
  * - Lee DATABASE_URL del entorno. Fuera de localhost exige `--produccion` (guarda de host).
  * - `--dry-run` hace todo dentro de una transacción y la deshace: el resumen es el mismo que
  *   daría la corrida real, sin escribir nada.
- * - Todo o nada: la corrida real también va en una sola transacción.
+ * - `--aplicar` escribe de verdad. Hay que elegir uno de los dos: olvidar `--dry-run` no escribe.
+ * - Todo o nada: la corrida real también va en una sola transacción. Mientras dura, los RUT que
+ *   inserta quedan bloqueados: correrla cuando nadie esté usando el formulario.
  * - Nunca imprime datos personales: el resumen trae conteos, motivos y números de fila.
  * - La planilla nunca entra al repo; los tests usan datos sintéticos.
  */
@@ -113,18 +116,26 @@ export function ubicarColumnas(
   const faltan: Campo[] = [];
   const repetidos: Campo[] = [];
   const columnas: Partial<Columnas> = {};
+  const usadas = new Map<number, Campo>();
   for (const campo of CAMPOS) {
     const calzan = encabezados.flatMap((e, i) => (e !== "" && alias(campo).includes(e) ? [i] : []));
-    if (calzan.length === 0) faltan.push(campo);
-    else if (calzan.length > 1) repetidos.push(campo);
-    else columnas[campo] = calzan[0];
+    const indice = calzan[0];
+    if (indice === undefined) faltan.push(campo);
+    else if (calzan.length > 1 || usadas.has(indice)) repetidos.push(campo);
+    else {
+      columnas[campo] = indice;
+      usadas.set(indice, campo);
+    }
   }
   if (faltan.length > 0 || repetidos.length > 0) {
+    // Solo los encabezados reconocidos: si la fila elegida fuera de datos (un --columna mal puesto),
+    // el mensaje no la imprime.
+    const reconocidos = [...usadas.entries()].map(([i, campo]) => `${campo}="${encabezados[i] ?? ""}"`);
     const partes = [
       faltan.length > 0 ? `faltan: ${faltan.join(", ")}` : "",
-      repetidos.length > 0 ? `más de una columna calza con: ${repetidos.join(", ")}` : "",
-      `encabezados de la planilla (fila ${filaEncabezado + 1}): ${encabezados.map((e) => `"${e}"`).join(", ")}`,
-      "Usa --columna campo=Encabezado para indicarlos.",
+      repetidos.length > 0 ? `más de una columna calza con (o comparten columna): ${repetidos.join(", ")}` : "",
+      `reconocidos en la fila ${filaEncabezado + 1}: ${reconocidos.join(", ") || "ninguno"}`,
+      "Abre la planilla, mira el encabezado exacto y usa --columna campo=Encabezado.",
     ];
     throw new ErrorImportacion(`Columnas no reconocidas. ${partes.filter(Boolean).join(". ")}`);
   }
@@ -181,7 +192,8 @@ export function normalizarTelefono(valor: unknown): string | null {
 }
 
 /** Dominios mal escritos frecuentes: el correo se deja vacío para que la familia lo corrija. */
-const DOMINIOS_MAL_ESCRITOS = /(^|\.)(gmial|gmai|gamil|gmal|hotmial|hotmai|hotmal|outlok|yaho)\.|\.(con|cmo|comm|cm)$/;
+const DOMINIOS_MAL_ESCRITOS =
+  /(^|\.)(gmial|gmai|gamil|gmal|hotmial|hotmai|hotmal|outlok|yaho)\.|\.(con|cmo|comm|cm)$|^(gmail|hotmail|outlook|yahoo|live)\.co$/;
 
 export function normalizarEmail(valor: unknown): string | null {
   const t = texto(valor);
@@ -397,6 +409,11 @@ export function planificar(
     notas: {},
   };
   const vinculosVistos = new Set<string>();
+  /** Adultos sin apoderado (su contacto va en su ficha). */
+  const adultosPropios = new Set<string>();
+  /** Por apoderado: filas que lo nombran y campos de contacto con un valor no confiable. */
+  const filasApoderado = new Map<string, number[]>();
+  const contactoMalo = new Map<string, { telefono?: number; correo?: number; pago?: number }>();
   const celda = (fila: readonly unknown[], campo: Campo) => fila[columnas[campo]];
 
   for (let i = filaEncabezado + 1; i < filas.length; i++) {
@@ -449,18 +466,33 @@ export function planificar(
       }
     }
 
-    // Los datos de contacto solo se usan si van a parar a alguna ficha.
-    const contactoUsado = adultoSinApoderado || apoderadoValido;
-    if (contactoUsado) {
+    // Contacto del adulto sin apoderado: se anota ahora. El del apoderado, al final, porque otra
+    // fila del mismo apoderado (hermanos) puede completar el dato.
+    if (adultoSinApoderado) {
       if (telefonoTexto !== null && telefono === null) anotar(plan.camposVacios, "telefono_invalido", n);
       if (emailTexto !== null && email === null) anotar(plan.camposVacios, "correo_invalido", n);
       if (pagoTexto !== null && metodoPago === null) anotar(plan.camposVacios, "metodo_pago_ambiguo", n);
+    } else if (apoderadoValido && rutApoderado !== null) {
+      const malo = contactoMalo.get(rutApoderado) ?? {};
+      if (telefonoTexto !== null && telefono === null) malo.telefono ??= n;
+      if (emailTexto !== null && email === null) malo.correo ??= n;
+      if (pagoTexto !== null && metodoPago === null) malo.pago ??= n;
+      contactoMalo.set(rutApoderado, malo);
+    } else if (jugadorValido && rutApoderado !== null && rutApoderado === rutJugador) {
+      // Se puso a sí mismo como apoderado, pero sin fecha confiable no se sabe si es adulto.
+      anotar(plan.notas, "contacto_descartado_rut_propio_sin_fecha", n);
     }
 
     if (jugadorValido && rutJugador !== null && disciplina !== null) {
-      if (plan.jugadores.has(rutJugador)) {
+      const previoJugador = plan.jugadores.get(rutJugador);
+      if (previoJugador !== undefined) {
         // Mismo jugador en otra fila: se conserva la primera; el apoderado de esta igual se vincula.
-        anotar(plan.notas, "jugador_repetido_en_otra_fila", n);
+        // El esquema admite una sola rama: si la otra fila es de la otra rama, Mony lo decide.
+        anotar(
+          plan.notas,
+          previoJugador.disciplina === disciplina ? "jugador_repetido_en_otra_fila" : "jugador_en_dos_ramas",
+          n,
+        );
       } else {
         if (texto(celda(fila, "fecha_nacimiento")) !== null || celda(fila, "fecha_nacimiento") instanceof Date) {
           if (fecha === null) anotar(plan.camposVacios, "fecha_nacimiento_erronea", n);
@@ -492,15 +524,15 @@ export function planificar(
           metodo_pago: adultoSinApoderado ? metodoPago : null,
         });
         if (adultoSinApoderado) {
+          adultosPropios.add(rutJugador);
           anotar(plan.notas, "adulto_con_contacto_propio", n);
           if (telefono === null) anotar(plan.notas, "adulto_sin_telefono", n);
-        } else if (!apoderadoValido) {
-          anotar(plan.notas, "jugador_sin_apoderado", n);
         }
       }
     }
 
     if (apoderadoValido && rutApoderado !== null) {
+      filasApoderado.set(rutApoderado, [...(filasApoderado.get(rutApoderado) ?? []), n]);
       const { nombre, apellido } = separarNombre(celda(fila, "apoderado_nombre"));
       const previo = plan.apoderados.get(rutApoderado);
       if (previo === undefined) {
@@ -528,16 +560,46 @@ export function planificar(
         const clave = `${rutJugador}|${rutApoderado}`;
         if (!vinculosVistos.has(clave)) {
           vinculosVistos.add(clave);
-          // El primer apoderado de cada jugador es quien paga la mensualidad.
-          const yaTienePagador = plan.vinculos.some((v) => v.jugadorRut === rutJugador && v.paga_mensualidad);
-          plan.vinculos.push({ jugadorRut: rutJugador, apoderadoRut: rutApoderado, paga_mensualidad: !yaTienePagador });
+          plan.vinculos.push({ jugadorRut: rutJugador, apoderadoRut: rutApoderado, paga_mensualidad: false });
         }
       }
     }
   }
+
+  // Un apoderado cuyo RUT es el de un jugador menor (o sin fecha) de cualquier fila, por ejemplo
+  // el RUT de un hermano escrito por error, no se carga: entraría al formulario como apoderado.
+  for (const rutApoderado of [...plan.apoderados.keys()]) {
+    const jugador = plan.jugadores.get(rutApoderado);
+    if (jugador === undefined) continue;
+    const esAdulto = jugador.fecha_nacimiento !== null && edad(jugador.fecha_nacimiento, hoy) >= 18;
+    if (esAdulto) continue;
+    plan.apoderados.delete(rutApoderado);
+    plan.vinculos = plan.vinculos.filter((v) => v.apoderadoRut !== rutApoderado);
+    for (const fila of filasApoderado.get(rutApoderado) ?? []) {
+      anotar(plan.apoderadosOmitidos, "rut_es_de_un_jugador_menor_o_sin_fecha", fila);
+    }
+  }
+
+  // El primer apoderado de cada jugador (en el orden de la planilla) es quien paga la mensualidad.
+  const conPagador = new Set<string>();
+  for (const v of plan.vinculos) {
+    v.paga_mensualidad = !conPagador.has(v.jugadorRut);
+    conPagador.add(v.jugadorRut);
+  }
+
+  for (const j of plan.jugadores.values()) {
+    if (!conPagador.has(j.rut) && !adultosPropios.has(j.rut)) anotar(plan.notas, "jugador_sin_apoderado", j.fila);
+  }
   for (const a of plan.apoderados.values()) {
     if (a.nombre === null) anotar(plan.camposVacios, "nombre_apoderado_faltante", a.fila);
+    const malo = contactoMalo.get(a.rut) ?? {};
+    if (a.telefono === null && malo.telefono !== undefined) anotar(plan.camposVacios, "telefono_invalido", malo.telefono);
+    if (a.email === null && malo.correo !== undefined) anotar(plan.camposVacios, "correo_invalido", malo.correo);
+    if (a.metodo_pago === null && malo.pago !== undefined) anotar(plan.camposVacios, "metodo_pago_ambiguo", malo.pago);
   }
+  for (const filas of Object.values(plan.camposVacios)) filas.sort((a, b) => a - b);
+  for (const filas of Object.values(plan.apoderadosOmitidos)) filas.sort((a, b) => a - b);
+  for (const filas of Object.values(plan.notas)) filas.sort((a, b) => a - b);
   return plan;
 }
 
@@ -551,7 +613,7 @@ export type Resumen = {
   filasVacias: number;
   jugadores: { cargados: number; yaExistian: number[]; omitidos: PorMotivo };
   apoderados: { cargados: number; yaExistian: number[]; omitidos: PorMotivo };
-  vinculos: { creados: number; yaExistian: number; omitidos: Record<string, number> };
+  vinculos: { creados: number; omitidos: Record<string, number> };
   camposVacios: PorMotivo;
   notas: PorMotivo;
 };
@@ -560,9 +622,10 @@ export type Resumen = {
 class Simulacion extends Error {}
 
 /**
- * Escribe el plan en una sola transacción. Lo que ya existe (por RUT) no se toca. Un vínculo
- * solo se crea entre dos personas que vienen de la base 2026: nunca se cuelga un apoderado de la
- * base a alguien que llegó por el formulario sin que Mony lo apruebe.
+ * Escribe el plan en una sola transacción. Lo que ya existe (por RUT) no se toca, y un vínculo
+ * solo se crea entre dos personas que se crearon en esta misma corrida. Así, volver a correr el
+ * script nunca recrea un vínculo que Mony borró ni cuelga un apoderado de la base a alguien que
+ * llegó por el formulario: esos vínculos los aprueba Mony.
  */
 export async function importar(db: Db, plan: Plan, opciones: { dryRun: boolean }): Promise<Resumen> {
   const resumen: Resumen = {
@@ -571,7 +634,7 @@ export async function importar(db: Db, plan: Plan, opciones: { dryRun: boolean }
     filasVacias: plan.filasVacias,
     jugadores: { cargados: 0, yaExistian: [], omitidos: plan.jugadoresOmitidos },
     apoderados: { cargados: 0, yaExistian: [], omitidos: plan.apoderadosOmitidos },
-    vinculos: { creados: 0, yaExistian: 0, omitidos: {} },
+    vinculos: { creados: 0, omitidos: {} },
     camposVacios: plan.camposVacios,
     notas: plan.notas,
   };
@@ -590,18 +653,20 @@ async function escribir(tx: Ejecutor, plan: Plan, resumen: Resumen) {
   const rutsJugadores = [...plan.jugadores.keys()];
   const rutsApoderados = [...plan.apoderados.keys()];
 
-  const jugadoresExistentes = new Map<string, { id: string; origen: string }>();
+  const jugadoresExistentes = new Map<string, { id: string }>();
+  const jugadoresCreados = new Map<string, string>();
+  const apoderadosCreados = new Map<string, string>();
   if (rutsJugadores.length > 0) {
     const existentes = await tx
-      .select({ id: jugadores.id, rut: jugadores.rut, origen: jugadores.origen })
+      .select({ id: jugadores.id, rut: jugadores.rut })
       .from(jugadores)
       .where(inArray(jugadores.rut, rutsJugadores));
     for (const j of existentes) jugadoresExistentes.set(j.rut, j);
   }
-  const apoderadosExistentes = new Map<string, { id: string; origen: string }>();
+  const apoderadosExistentes = new Map<string, { id: string }>();
   if (rutsApoderados.length > 0) {
     const existentes = await tx
-      .select({ id: apoderados.id, rut: apoderados.rut, origen: apoderados.origen })
+      .select({ id: apoderados.id, rut: apoderados.rut })
       .from(apoderados)
       .where(inArray(apoderados.rut, rutsApoderados));
     for (const a of existentes) apoderadosExistentes.set(a.rut, a);
@@ -632,7 +697,7 @@ async function escribir(tx: Ejecutor, plan: Plan, resumen: Resumen) {
       })
       .returning({ id: jugadores.id });
     if (creado === undefined) throw new Error("insert de jugador sin fila");
-    jugadoresExistentes.set(j.rut, { id: creado.id, origen: "base_2026" });
+    jugadoresCreados.set(j.rut, creado.id);
     resumen.jugadores.cargados++;
   }
 
@@ -655,32 +720,28 @@ async function escribir(tx: Ejecutor, plan: Plan, resumen: Resumen) {
       })
       .returning({ id: apoderados.id });
     if (creado === undefined) throw new Error("insert de apoderado sin fila");
-    apoderadosExistentes.set(a.rut, { id: creado.id, origen: "base_2026" });
+    apoderadosCreados.set(a.rut, creado.id);
     resumen.apoderados.cargados++;
   }
 
   for (const v of plan.vinculos) {
-    const jugador = jugadoresExistentes.get(v.jugadorRut);
-    const apoderado = apoderadosExistentes.get(v.apoderadoRut);
-    if (jugador === undefined || apoderado === undefined) throw new Error("vínculo sin persona");
-    if (jugador.origen !== "base_2026" || apoderado.origen !== "base_2026") {
-      resumen.vinculos.omitidos.persona_del_formulario = (resumen.vinculos.omitidos.persona_del_formulario ?? 0) + 1;
+    const jugadorId = jugadoresCreados.get(v.jugadorRut);
+    const apoderadoId = apoderadosCreados.get(v.apoderadoRut);
+    if (jugadorId === undefined || apoderadoId === undefined) {
+      resumen.vinculos.omitidos.persona_ya_existia = (resumen.vinculos.omitidos.persona_ya_existia ?? 0) + 1;
       continue;
     }
-    const creados = await tx
+    await tx
       .insert(jugadorApoderado)
       .values({
-        jugador_id: jugador.id,
-        apoderado_id: apoderado.id,
+        jugador_id: jugadorId,
+        apoderado_id: apoderadoId,
         paga_mensualidad: v.paga_mensualidad,
         // Vínculo que trae la base del club: no es un vínculo nuevo que Mony deba aprobar.
         estado: "activo",
         solicitud_id: null,
-      })
-      .onConflictDoNothing()
-      .returning({ jugador_id: jugadorApoderado.jugador_id });
-    if (creados.length > 0) resumen.vinculos.creados++;
-    else resumen.vinculos.yaExistian++;
+      });
+    resumen.vinculos.creados++;
   }
 }
 
@@ -736,7 +797,6 @@ export function formatearResumen(r: Resumen): string {
     ...bloque("Apoderados no cargados", r.apoderados.omitidos),
     "",
     `Vínculos creados: ${r.vinculos.creados}`,
-    `Vínculos que ya existían: ${r.vinculos.yaExistian}`,
     ...Object.entries(r.vinculos.omitidos).map(([motivo, n]) => `Vínculos omitidos (${motivo}): ${n}`),
     "",
     ...bloque("Campos que quedaron vacíos (el formulario los pregunta)", r.camposVacios),
@@ -757,15 +817,20 @@ export type Argumentos = {
   dryRun: boolean;
 };
 
+const USO =
+  "Uso: importar-base-2026.ts <archivo.xlsx> [--hoja <nombre>] [--columna campo=Encabezado] (--dry-run | --aplicar) [--produccion]";
+
 function esCampo(valor: string): valor is Campo {
   return CAMPOS.some((c) => c === valor);
 }
 
 export function leerArgumentos(argv: readonly string[]): Argumentos {
   const resultado: Argumentos = { archivo: "", hoja: null, columnas: {}, dryRun: false };
+  let aplicar = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] ?? "";
     if (arg === "--dry-run") resultado.dryRun = true;
+    else if (arg === "--aplicar") aplicar = true;
     else if (arg === "--produccion") continue; // Lo lee verificarHostDestino.
     else if (arg === "--hoja") resultado.hoja = argv[++i] ?? null;
     else if (arg === "--columna") {
@@ -781,11 +846,9 @@ export function leerArgumentos(argv: readonly string[]): Argumentos {
     } else if (resultado.archivo === "") resultado.archivo = arg;
     else throw new ErrorImportacion("Se espera un solo archivo");
   }
-  if (resultado.archivo === "") {
-    throw new ErrorImportacion(
-      "Uso: importar-base-2026.ts <archivo.xlsx> [--hoja <nombre>] [--columna campo=Encabezado] [--dry-run] [--produccion]",
-    );
-  }
+  if (resultado.archivo === "") throw new ErrorImportacion(USO);
+  // La corrida real es una decisión aparte de la simulación: olvidar --dry-run no escribe.
+  if (resultado.dryRun === aplicar) throw new ErrorImportacion(`Indica --dry-run o --aplicar (uno solo). ${USO}`);
   if (resultado.hoja === "") throw new ErrorImportacion("--hoja necesita un nombre");
   return resultado;
 }

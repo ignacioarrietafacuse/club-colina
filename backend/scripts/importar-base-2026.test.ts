@@ -19,6 +19,7 @@ import {
   importar,
   leerArgumentos,
   leerCategorias,
+  leerPlanilla,
   main,
   normalizarDisciplina,
   normalizarEmail,
@@ -138,6 +139,8 @@ describe("normalización de celdas", () => {
     expect(normalizarEmail("ana@gmial.com")).toBeNull();
     expect(normalizarEmail("ana.gmail.com")).toBeNull();
     expect(normalizarEmail("ana@ejemplo")).toBeNull();
+    expect(normalizarEmail("ana@gmail.co")).toBeNull();
+    expect(normalizarEmail("ana@empresa.co")).toBe("ana@empresa.co");
   });
 
   it("fecha: celda de fecha, serie de Excel y textos; errónea queda vacía", () => {
@@ -208,6 +211,23 @@ describe("columnas", () => {
     const hoja = planilla([]);
     hoja[1] = [...ENCABEZADOS, "Correo"];
     expect(() => ubicarColumnas(hoja)).toThrow(/apoderado_email/);
+  });
+
+  it("dos campos apuntando a la misma columna es un error", () => {
+    expect(() => ubicarColumnas(planilla([]), { metodo_pago: "Correo apoderado" })).toThrow(/metodo_pago/);
+  });
+
+  it("si --columna hace calzar una fila de datos, el error no la imprime", () => {
+    const hoja = planilla([{ rut: rut(0), nombre: "Nombreunico", correo: "unico@ejemplo.cl" }]);
+    let mensaje = "";
+    try {
+      ubicarColumnas(hoja, { jugador_rut: rut(0) });
+    } catch (error) {
+      mensaje = error instanceof Error ? error.message : "";
+    }
+    expect(mensaje).toContain("faltan");
+    expect(mensaje).not.toContain("nombreunico");
+    expect(mensaje).not.toContain("unico@ejemplo");
   });
 });
 
@@ -289,7 +309,57 @@ describe("reglas de la carga inicial", () => {
     expect(p.apoderados.size).toBe(1);
     expect(p.apoderados.get(rut(3))).toMatchObject({ telefono: "987654321", email: "a@ejemplo.cl" });
     expect(p.vinculos.map((v) => v.jugadorRut)).toEqual([rut(1), rut(2)]);
+    // Otra fila completó el teléfono: no se reporta como vacío.
+    expect(p.camposVacios.telefono_invalido).toBeUndefined();
+  });
+
+  it("hermanos con el teléfono malo en todas las filas: se reporta una vez", async () => {
+    const p = await plan([
+      { rut: rut(1), rutApoderado: rut(3), telefono: "123" },
+      { rut: rut(2), rutApoderado: rut(3), telefono: "456" },
+    ]);
+    expect(p.apoderados.get(rut(3))?.telefono).toBeNull();
     expect(p.camposVacios.telefono_invalido).toEqual([3]);
+  });
+
+  it("apoderado con el RUT de un hermano menor de otra fila: no se carga y paga el siguiente", async () => {
+    const p = await plan([
+      { rut: rut(1), rutApoderado: rut(5) },
+      { rut: rut(2), rutApoderado: rut(1) },
+      { rut: rut(2), rutApoderado: rut(6) },
+    ]);
+    expect(p.apoderados.has(rut(1))).toBe(false);
+    expect(p.apoderadosOmitidos).toEqual({ rut_es_de_un_jugador_menor_o_sin_fecha: [4] });
+    expect(p.vinculos).toEqual([
+      { jugadorRut: rut(1), apoderadoRut: rut(5), paga_mensualidad: true },
+      { jugadorRut: rut(2), apoderadoRut: rut(6), paga_mensualidad: true },
+    ]);
+  });
+
+  it("apoderado que además es jugador adulto: se carga en las dos fichas", async () => {
+    const p = await plan([
+      { rut: rut(1), fecha: "01-01-2000", categoria: "U21", rutApoderado: rut(1) },
+      { rut: rut(2), rutApoderado: rut(1) },
+    ]);
+    expect(p.jugadores.has(rut(1))).toBe(true);
+    expect(p.apoderados.has(rut(1))).toBe(true);
+    expect(p.vinculos).toEqual([{ jugadorRut: rut(2), apoderadoRut: rut(1), paga_mensualidad: true }]);
+  });
+
+  it("se puso a sí mismo como apoderado sin fecha confiable: el contacto se descarta y se anota", async () => {
+    const p = await plan([{ rut: rut(1), fecha: "", rutApoderado: rut(1) }]);
+    expect(p.jugadores.get(rut(1))?.telefono).toBeNull();
+    expect(p.notas.contacto_descartado_rut_propio_sin_fecha).toEqual([3]);
+    expect(p.notas.jugador_sin_apoderado).toEqual([3]);
+  });
+
+  it("mismo jugador en las dos ramas: queda la primera y se anota aparte", async () => {
+    const p = await plan([
+      { rut: rut(1), rutApoderado: rut(2) },
+      { rut: rut(1), rutApoderado: rut(2), rama: "Vóley" },
+    ]);
+    expect(p.jugadores.get(rut(1))?.disciplina).toBe("basketball");
+    expect(p.notas.jugador_en_dos_ramas).toEqual([4]);
   });
 
   it("mismo jugador en dos filas: se carga una vez y paga solo el primer apoderado", async () => {
@@ -409,7 +479,7 @@ describe("escritura en la base", () => {
     expect(r.jugadores.cargados).toBe(0);
     expect(r.jugadores.yaExistian).toEqual([3, 4, 5]);
     expect(r.apoderados.cargados).toBe(0);
-    expect(r.vinculos).toEqual({ creados: 0, yaExistian: 2, omitidos: {} });
+    expect(r.vinculos).toEqual({ creados: 0, omitidos: { persona_ya_existia: 2 } });
     expect(await db.select().from(jugadores).where(inArray(jugadores.rut, RUTS))).toHaveLength(3);
     const [apoderado] = await db.select().from(apoderados).where(eq(apoderados.rut, rut(10)));
     expect(apoderado?.telefono).toBe("911111111");
@@ -423,10 +493,24 @@ describe("escritura en la base", () => {
     expect({ ...simulado, dryRun: false }).toEqual(real);
   });
 
+  it("volver a correr no recrea un vínculo que Mony borró", async () => {
+    await importar(db, await plan(FILAS), { dryRun: false });
+    const [apoderado] = await db.select().from(apoderados).where(eq(apoderados.rut, rut(10)));
+    await db.delete(jugadorApoderado).where(eq(jugadorApoderado.apoderado_id, apoderado?.id ?? ""));
+    const r = await importar(db, await plan(FILAS), { dryRun: false });
+    expect(r.vinculos.creados).toBe(0);
+    const vinculos = await db
+      .select()
+      .from(jugadorApoderado)
+      .where(eq(jugadorApoderado.apoderado_id, apoderado?.id ?? ""));
+    expect(vinculos).toHaveLength(0);
+  });
+
   it("no vincula un apoderado de la base con alguien que llegó por el formulario", async () => {
     await db.insert(jugadores).values({ rut: rut(1), disciplina: "basketball", origen: "formulario", estado: "pendiente" });
     const r = await importar(db, await plan([{ rut: rut(1), rutApoderado: rut(10) }]), { dryRun: false });
-    expect(r.vinculos).toEqual({ creados: 0, yaExistian: 0, omitidos: { persona_del_formulario: 1 } });
+    expect(r.apoderados.cargados).toBe(1);
+    expect(r.vinculos).toEqual({ creados: 0, omitidos: { persona_ya_existia: 1 } });
     const [jugador] = await db.select().from(jugadores).where(eq(jugadores.rut, rut(1)));
     expect(jugador).toMatchObject({ origen: "formulario", estado: "pendiente" });
   });
@@ -495,6 +579,11 @@ function hojaXml(filas: unknown[][]): string {
         .map((v, c) => {
           const ref = `${col(c)}${r + 1}`;
           if (typeof v === "number") return `<c r="${ref}"><v>${v}</v></c>`;
+          if (v instanceof Date) {
+            // Celda con formato de fecha (estilo 1 = numFmt 14): así la entrega Excel.
+            const serie = (v.getTime() - Date.UTC(1899, 11, 30)) / 86_400_000;
+            return `<c r="${ref}" s="1"><v>${serie}</v></c>`;
+          }
           if (typeof v === "string" && v !== "") return `<c r="${ref}" t="inlineStr"><is><t>${xml(v)}</t></is></c>`;
           return "";
         })
@@ -512,6 +601,7 @@ function xlsx(hojas: Record<string, unknown[][]>): Buffer {
       `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
       `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
       `<Default Extension="xml" ContentType="application/xml"/>` +
+      `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` +
       `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
       nombres
         .map(
@@ -535,7 +625,11 @@ function xlsx(hojas: Record<string, unknown[][]>): Buffer {
             `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`,
         )
         .join("") +
+      `<Relationship Id="rIdEstilos" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>` +
       `</Relationships>`,
+    "xl/styles.xml":
+      `<?xml version="1.0" encoding="UTF-8"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+      `<cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14" applyNumberFormat="1"/></cellXfs></styleSheet>`,
   };
   nombres.forEach((n, i) => {
     archivos[`xl/worksheets/sheet${i + 1}.xml`] = hojaXml(hojas[n] ?? []);
@@ -553,6 +647,7 @@ describe("línea de comandos", () => {
       Base: planilla([
         { rut: rut(1), rutApoderado: rut(10) },
         { rut: rut(2), rutApoderado: rut(10), fecha: 41713 },
+        { rut: rut(3), rutApoderado: rut(10), fecha: new Date(Date.UTC(2013, 6, 4)) },
       ]),
       "Por revisar": [["no se lee"]],
     }),
@@ -560,6 +655,9 @@ describe("línea de comandos", () => {
   const env = { DATABASE_URL: urlTest() };
 
   it("lee las opciones y rechaza las desconocidas", () => {
+    expect(leerArgumentos(["a.xlsx", "--aplicar"]).dryRun).toBe(false);
+    expect(() => leerArgumentos(["a.xlsx"])).toThrow(/--dry-run o --aplicar/);
+    expect(() => leerArgumentos(["a.xlsx", "--dry-run", "--aplicar"])).toThrow(/--dry-run o --aplicar/);
     expect(leerArgumentos(["a.xlsx", "--dry-run", "--hoja", "Base", "--columna", "metodo_pago=Pago"])).toEqual({
       archivo: "a.xlsx",
       hoja: "Base",
@@ -567,13 +665,13 @@ describe("línea de comandos", () => {
       dryRun: true,
     });
     expect(() => leerArgumentos([])).toThrow(/Uso/);
-    expect(() => leerArgumentos(["a.xlsx", "--borrar"])).toThrow(/desconocida/);
-    expect(() => leerArgumentos(["a.xlsx", "--columna", "otra=X"])).toThrow(/campo=Encabezado/);
+    expect(() => leerArgumentos(["a.xlsx", "--dry-run", "--borrar"])).toThrow(/desconocida/);
+    expect(() => leerArgumentos(["a.xlsx", "--dry-run", "--columna", "otra=X"])).toThrow(/campo=Encabezado/);
   });
 
   it("se niega a escribir fuera de localhost sin --produccion, antes de leer el archivo", async () => {
     await expect(
-      main([join(dir, "no-existe.xlsx")], { DATABASE_URL: "postgres://club@db.ejemplo.net:5432/club" }),
+      main([join(dir, "no-existe.xlsx"), "--aplicar"], { DATABASE_URL: "postgres://club@db.ejemplo.net:5432/club" }),
     ).rejects.toThrow(/--produccion/);
   });
 
@@ -584,12 +682,14 @@ describe("línea de comandos", () => {
   it("--dry-run lee el .xlsx y no escribe; la corrida real carga", async () => {
     const simulado = await main([archivo, "--hoja", "Base", "--dry-run"], env);
     expect(simulado).toContain("SIMULACIÓN");
-    expect(simulado).toContain("Jugadores cargados: 2");
+    expect(simulado).toContain("Jugadores cargados: 3");
     expect(await db.select().from(jugadores).where(inArray(jugadores.rut, RUTS))).toHaveLength(0);
 
-    const real = await main([archivo, "--hoja", "Base"], env);
+    const crudas = await leerPlanilla(archivo, "Base");
+    expect(crudas[4]?.[3]).toBeInstanceOf(Date);
+    const real = await main([archivo, "--hoja", "Base", "--aplicar"], env);
     expect(real).toContain("IMPORTACIÓN APLICADA");
     const cargados = await db.select().from(jugadores).where(inArray(jugadores.rut, RUTS));
-    expect(cargados.map((j) => j.fecha_nacimiento).sort()).toEqual(["2014-03-15", "2014-03-15"]);
+    expect(cargados.map((j) => j.fecha_nacimiento).sort()).toEqual(["2013-07-04", "2014-03-15", "2014-03-15"]);
   });
 });
