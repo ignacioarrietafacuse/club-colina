@@ -1,5 +1,6 @@
 import {
   generarRutFicticio,
+  type EntrenadorDetalle,
   type ApoderadoDetalle,
   type JugadorDetalle,
 } from "@club-colina/shared";
@@ -7,7 +8,16 @@ import { describe, expect, it } from "vitest";
 import { accionesEstado } from "@/components/panel/estado";
 import { medidasReducidas, esTipoFotoAceptado } from "@/components/panel/foto";
 import { nombreArchivoQr, qrPng, urlDelQr } from "@/components/panel/qr";
-import { cambiosApoderado, cambiosJugador, formApoderado, formJugador } from "./edicion";
+import {
+  cambiosApoderado,
+  cambiosEntrenador,
+  cambiosJugador,
+  datosEntrenadorNuevo,
+  FORM_ENTRENADOR_VACIO,
+  formApoderado,
+  formEntrenador,
+  formJugador,
+} from "./edicion";
 import { filtrosApoderados, filtrosJugadores } from "./filtros";
 
 // Datos siempre ficticios.
@@ -197,5 +207,69 @@ describe("estado, foto y QR", () => {
   it("el archivo del QR se nombra sin tildes ni símbolos", () => {
     expect(nombreArchivoQr("José Peña Ñúñez")).toBe("qr-jose-pena-nunez.png");
     expect(nombreArchivoQr("")).toBe("qr-credencial.png");
+  });
+});
+
+describe("entrenadores", () => {
+  const entrenador: EntrenadorDetalle = {
+    id: ID,
+    nombre: "Luis",
+    apellido: "Rojas",
+    rut: RUT,
+    telefono: "912345678",
+    disciplina: "voleibol",
+    tiene_foto: true,
+    credencial_token: TOKEN,
+    estado: "activo",
+    creado_en: AHORA,
+    actualizado_en: AHORA,
+  };
+
+  it("el alta exige todos los campos", () => {
+    const r = datosEntrenadorNuevo(FORM_ENTRENADOR_VACIO);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.errores).toEqual(
+        expect.arrayContaining([
+          "Revisa nombre.",
+          "Revisa RUT.",
+          "Revisa teléfono.",
+          "Revisa disciplina.",
+        ]),
+      );
+    }
+  });
+
+  it("el alta normaliza RUT y teléfono", () => {
+    const [cuerpo, dv] = RUT.split("-");
+    const r = datosEntrenadorNuevo({
+      nombre: " Luis ",
+      apellido: "Rojas",
+      rut: `${Number(cuerpo).toLocaleString("es-CL")}-${dv}`,
+      telefono: "+56 9 1234 5678",
+      disciplina: "basketball",
+    });
+    expect(r).toEqual({
+      ok: true,
+      datos: {
+        nombre: "Luis",
+        apellido: "Rojas",
+        rut: RUT,
+        telefono: "912345678",
+        disciplina: "basketball",
+      },
+    });
+  });
+
+  it("la edición envía solo lo que cambió y no deja vaciar un obligatorio", () => {
+    expect(
+      cambiosEntrenador(entrenador, { ...formEntrenador(entrenador), disciplina: "basketball" }),
+    ).toEqual({
+      ok: true,
+      datos: { disciplina: "basketball" },
+    });
+    expect(cambiosEntrenador(entrenador, { ...formEntrenador(entrenador), telefono: "" }).ok).toBe(
+      false,
+    );
   });
 });

@@ -2,7 +2,7 @@
 
 SPA con Vite, React 19, TanStack Router (rutas por archivo en `src/routes/`), TanStack
 Query, Tailwind 4 y shadcn/ui. Origen del diseño: el proyecto de Lovable `cc-frontend`
-(ya desconectado; ver `src/pages/panel/_lovable/`).
+(ya desconectado; sus pantallas de referencia y datos de ejemplo se borraron en la Ola 1).
 
 - `src/routes/`: archivos de ruta delgados, fijados en la Ola 0. Solo importan páginas.
 - `src/pages/panel/` y `src/components/panel/`: panel (sesión S4).

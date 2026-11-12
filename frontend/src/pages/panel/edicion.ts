@@ -1,5 +1,10 @@
 import {
   apoderadoPatch,
+  entrenadorCrear,
+  entrenadorPatch,
+  type EntrenadorCrear,
+  type EntrenadorDetalle,
+  type EntrenadorPatch,
   jugadorPatch,
   normalizarRut,
   type ApoderadoDetalle,
@@ -188,4 +193,65 @@ export function cambiosApoderado(
   siCambia(d, "email", f.email, a.email, id, { anulable: true, igual: mismoEmail });
   siCambia(d, "metodo_pago", f.metodo_pago, a.metodo_pago, id, { anulable: true });
   return validar(apoderadoPatch, d);
+}
+
+// --- Entrenador ------------------------------------------------------------
+
+export interface FormEntrenadorFicha {
+  nombre: string;
+  apellido: string;
+  rut: string;
+  telefono: string;
+  disciplina: string;
+}
+
+export const FORM_ENTRENADOR_VACIO: FormEntrenadorFicha = {
+  nombre: "",
+  apellido: "",
+  rut: "",
+  telefono: "",
+  disciplina: "",
+};
+
+export function formEntrenador(e: EntrenadorDetalle): FormEntrenadorFicha {
+  return {
+    nombre: e.nombre,
+    apellido: e.apellido,
+    rut: e.rut,
+    telefono: e.telefono,
+    disciplina: e.disciplina,
+  };
+}
+
+/** Alta: todos los campos obligatorios, y la foto (la exige quien llama). */
+export function datosEntrenadorNuevo(f: FormEntrenadorFicha): Resultado<EntrenadorCrear> {
+  const datos = {
+    nombre: f.nombre.trim(),
+    apellido: f.apellido.trim(),
+    rut: f.rut.trim(),
+    telefono: f.telefono.trim(),
+    disciplina: f.disciplina,
+  };
+  const leido = entrenadorCrear.safeParse(datos);
+  if (leido.success) return { ok: true, datos: leido.data };
+  const campos = new Set(
+    leido.error.issues.map((i) => {
+      const c = i.path[0];
+      return typeof c === "string" ? (NOMBRES[c] ?? c) : "datos";
+    }),
+  );
+  return { ok: false, errores: [...campos].map((c) => `Revisa ${c}.`) };
+}
+
+export function cambiosEntrenador(
+  e: EntrenadorDetalle,
+  f: FormEntrenadorFicha,
+): Resultado<EntrenadorPatch> {
+  const d: Record<string, unknown> = {};
+  siCambia(d, "nombre", f.nombre, e.nombre, id, { anulable: false });
+  siCambia(d, "apellido", f.apellido, e.apellido, id, { anulable: false });
+  siCambia(d, "rut", f.rut, e.rut, id, { anulable: false, igual: mismoRut });
+  siCambia(d, "telefono", f.telefono, e.telefono, id, { anulable: false, igual: mismoTelefono });
+  siCambia(d, "disciplina", f.disciplina, e.disciplina, id, { anulable: false });
+  return validar(entrenadorPatch, d);
 }
