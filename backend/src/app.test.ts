@@ -1,0 +1,206 @@
+import { PassThrough } from "node:stream";
+import { afterAll, describe, expect, it } from "vitest";
+import { construirApp } from "./app";
+import { LIMITES } from "./lib/limite-intentos";
+import { configTest, dbTest, JPEG_PRUEBA } from "./test/db";
+import { generarToken } from "./lib/tokens";
+import { generarRutFicticio } from "@club-colina/shared";
+import { jugadores } from "./db/schema";
+
+const { db, cerrar } = dbTest();
+afterAll(cerrar);
+
+function multipartFoto(bytes: Buffer) {
+  const limite = "----limite" + Date.now();
+  const cuerpo = Buffer.concat([
+    Buffer.from(
+      `--${limite}\r\nContent-Disposition: form-data; name="foto"; filename="f.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`,
+    ),
+    bytes,
+    Buffer.from(`\r\n--${limite}--\r\n`),
+  ]);
+  return { payload: cuerpo, headers: { "content-type": `multipart/form-data; boundary=${limite}` } };
+}
+
+describe("app", () => {
+  it("GET /api/health responde ok con la base arriba", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const r = await app.inject({ method: "GET", url: "/api/health" });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual({ estado: "ok" });
+    await app.close();
+  });
+
+  it("lo desconocido es un 404 genérico con el formato del contrato", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    for (const url of ["/api/nada", "/api/public/credencial/abc"]) {
+      const r = await app.inject({ method: "GET", url });
+      expect(r.statusCode).toBe(404);
+      expect(r.json()).toEqual({ error: { codigo: "no_encontrado", mensaje: "No encontrado" } });
+    }
+    await app.close();
+  });
+
+  it("rechaza escrituras desde un origen ajeno y acepta el propio", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const ajeno = await app.inject({
+      method: "POST",
+      url: "/api/public/solicitudes",
+      headers: { origin: "https://otro.ejemplo.test" },
+    });
+    expect(ajeno.statusCode).toBe(403);
+    expect(ajeno.json().error.codigo).toBe("origen_no_permitido");
+    const propio = await app.inject({
+      method: "POST",
+      url: "/api/public/solicitudes",
+      headers: { origin: "https://panel.ejemplo.test" },
+    });
+    expect(propio.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("el límite de intentos responde 429 con el formato del contrato", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    app.get("/api/prueba-limite", { config: { rateLimit: { max: 2, timeWindow: "1 minute" } } }, async () => ({ ok: true }));
+    const codigos = [];
+    for (let i = 0; i < 3; i++) {
+      codigos.push((await app.inject({ method: "GET", url: "/api/prueba-limite" })).statusCode);
+    }
+    expect(codigos).toEqual([200, 200, 429]);
+    const r = await app.inject({ method: "GET", url: "/api/prueba-limite" });
+    expect(r.json().error.codigo).toBe("demasiados_intentos");
+    expect(LIMITES.rutLookup.max).toBeGreaterThan(0);
+    await app.close();
+  });
+
+  it("un error no controlado es un 500 sin detalles", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    app.get("/api/prueba-error", async () => {
+      throw new Error("detalle interno secreto");
+    });
+    const r = await app.inject({ method: "GET", url: "/api/prueba-error" });
+    expect(r.statusCode).toBe(500);
+    expect(r.body).not.toContain("secreto");
+    expect(r.json().error.codigo).toBe("error_interno");
+    await app.close();
+  });
+
+  it("los logs no llevan los tokens de las rutas públicas", async () => {
+    const salida = new PassThrough();
+    const lineas: string[] = [];
+    salida.on("data", (c: Buffer) => lineas.push(c.toString()));
+    const app = await construirApp({ config: configTest({ LOG_LEVEL: "trace" }), db, logStream: salida });
+    app.get("/api/public/familia/:token", async () => {
+      throw new Error("falla");
+    });
+    const tokens = [generarToken(), generarToken(), generarToken(), generarToken()];
+    await app.inject({ method: "GET", url: `/api/public/familia/${tokens[0]}` });
+    await app.inject({ method: "GET", url: `/api/public/completar/${tokens[1]}?x=1` });
+    await app.inject({ method: "GET", url: `/api/public/credencial/${tokens[2]}/foto` });
+    await app.inject({ method: "POST", url: `/api/public/completar/${tokens[3]}`, headers: { origin: "https://malo.test" } });
+    await app.close();
+    const log = lineas.join("");
+    expect(log).toContain("[censurado]");
+    for (const t of tokens) expect(log).not.toContain(t);
+  });
+
+  it("las rutas de diagnóstico no existen sin DIAGNOSTICO_TOKEN", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const r = await app.inject({ method: "POST", url: "/api/diagnostico/foto", ...multipartFoto(JPEG_PRUEBA) });
+    expect(r.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("con DIAGNOSTICO_TOKEN suben, leen y borran una foto, y exigen el token", async () => {
+    const secreto = generarToken();
+    const app = await construirApp({ config: configTest({ DIAGNOSTICO_TOKEN: secreto }), db });
+    const sinToken = await app.inject({ method: "POST", url: "/api/diagnostico/foto", ...multipartFoto(JPEG_PRUEBA) });
+    expect(sinToken.statusCode).toBe(404);
+
+    const { payload, headers } = multipartFoto(JPEG_PRUEBA);
+    const subida = await app.inject({
+      method: "POST",
+      url: "/api/diagnostico/foto",
+      payload,
+      headers: { ...headers, "x-diagnostico-token": secreto },
+    });
+    expect(subida.statusCode).toBe(201);
+    const { id } = subida.json();
+    const h = { "x-diagnostico-token": secreto };
+    const lectura = await app.inject({ method: "GET", url: `/api/diagnostico/foto/${id}`, headers: h });
+    expect(lectura.statusCode).toBe(200);
+    expect(lectura.headers["content-type"]).toBe("image/jpeg");
+    expect(lectura.rawPayload.equals(JPEG_PRUEBA)).toBe(true);
+    const borrado = await app.inject({ method: "DELETE", url: `/api/diagnostico/foto/${id}`, headers: h });
+    expect(borrado.statusCode).toBe(204);
+    const otra = await app.inject({ method: "GET", url: `/api/diagnostico/foto/${id}`, headers: h });
+    expect(otra.statusCode).toBe(404);
+
+    const red = await app.inject({
+      method: "GET",
+      url: "/api/diagnostico/cabeceras",
+      headers: { ...h, "x-forwarded-for": "203.0.113.7", cookie: "sesion=x" },
+    });
+    expect(red.statusCode).toBe(200);
+    expect(red.json().cabeceras).toEqual({ "x-forwarded-for": "203.0.113.7" });
+    // trustProxy: false → la IP es la del socket, no la que dice la cabecera.
+    expect(red.json().ip).not.toBe("203.0.113.7");
+
+    const noImagen = multipartFoto(Buffer.from("<svg/>"));
+    const mala = await app.inject({
+      method: "POST",
+      url: "/api/diagnostico/foto",
+      payload: noImagen.payload,
+      headers: { ...noImagen.headers, ...h },
+    });
+    expect(mala.statusCode).toBe(400);
+    expect(mala.json().error.codigo).toBe("archivo_invalido");
+    await app.close();
+  });
+
+  it("todo /api/panel niega sin sesión, también lo que no existe", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    for (const [method, url] of [
+      ["GET", "/api/panel/jugadores"],
+      ["GET", "/api/panel/dashboard"],
+      ["POST", "/api/panel/jugadores/x/activar"],
+      ["GET", "/api/panel/no-existe"],
+    ] as const) {
+      const r = await app.inject({ method, url });
+      expect(r.statusCode).toBe(401);
+      expect(r.json().error.codigo).toBe("no_autenticado");
+    }
+    await app.close();
+  });
+
+  it("toda respuesta lleva nosniff", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const r = await app.inject({ method: "GET", url: "/api/health" });
+    expect(r.headers["x-content-type-options"]).toBe("nosniff");
+    await app.close();
+  });
+
+  it("un error de base no deja datos personales en el log", async () => {
+    const salida = new PassThrough();
+    const lineas: string[] = [];
+    salida.on("data", (c: Buffer) => lineas.push(c.toString()));
+    const app = await construirApp({ config: configTest({ LOG_LEVEL: "trace" }), db, logStream: salida });
+    const rut = generarRutFicticio(901);
+    const telefono = "934567812";
+    app.get("/api/prueba-duplicado", async () => {
+      const fila = { rut, telefono, disciplina: "voleibol" as const, origen: "formulario" as const };
+      await db.insert(jugadores).values(fila);
+      await db.insert(jugadores).values(fila);
+      return { ok: true };
+    });
+    const r = await app.inject({ method: "GET", url: "/api/prueba-duplicado" });
+    await app.close();
+    expect(r.statusCode).toBe(500);
+    const log = lineas.join("");
+    expect(log).toContain("23505");
+    expect(log).toContain("jugadores_rut_unique");
+    expect(log).not.toContain(rut);
+    expect(log).not.toContain(telefono);
+    expect(log).not.toContain("params");
+  });
+});

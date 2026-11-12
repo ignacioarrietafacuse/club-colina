@@ -1,0 +1,17 @@
+# Postgres para desarrollo local. Datos siempre ficticios.
+#   docker compose up -d
+# Crea club_colina (desarrollo) y club_colina_test (tests).
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: club
+      POSTGRES_PASSWORD: club
+      POSTGRES_DB: club_colina
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+volumes:
+  postgres:

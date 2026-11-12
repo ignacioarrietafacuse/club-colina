@@ -1,0 +1,13 @@
+packages:
+  - frontend
+  - backend
+  - shared
+
+# Resguardo contra paquetes recién publicados (heredado de cc-frontend):
+# no se instala ninguna versión con menos de 24 horas.
+minimumReleaseAge: 1440
+
+# Únicos paquetes autorizados a correr scripts de instalación.
+allowBuilds:
+  "@railway/cli": true
+  esbuild: true
