@@ -13,6 +13,7 @@ import {
   customType,
   date,
   index,
+  jsonb,
   pgTable,
   primaryKey,
   smallint,
@@ -99,6 +100,17 @@ export const solicitudesRegistro = pgTable(
     tipo: text("tipo", { enum: TIPOS_SOLICITUD }).notNull().default("formulario"),
     coincide_base: boolean("coincide_base").notNull().default(false),
     /** Casos que Mony debe mirar antes de aprobar (`AVISOS_SOLICITUD`). */
+    /**
+     * Quién llenó el formulario: el apoderado, o el jugador adulto. Lo escribe S2 al recibir la
+     * solicitud; el panel lo muestra como titular y desde ahí busca a los hijos marcados "ya no
+     * está". Nulo en una solicitud de segundo apoderado (su apoderado tiene `solicitud_id`).
+     */
+    titular_apoderado_id: uuid("titular_apoderado_id").references((): AnyPgColumn => apoderados.id, {
+      onDelete: "restrict",
+    }),
+    titular_jugador_id: uuid("titular_jugador_id").references((): AnyPgColumn => jugadores.id, {
+      onDelete: "restrict",
+    }),
     avisos: text("avisos", { enum: AVISOS_SOLICITUD })
       .array()
       .notNull()
@@ -122,6 +134,10 @@ export const solicitudesRegistro = pgTable(
       sql.raw(`"tipo" = 'segundo_apoderado' OR "consentimiento_en" IS NOT NULL`),
     ),
     index("solicitudes_estado_idx").on(t.estado),
+    check(
+      "solicitudes_un_titular_check",
+      sql.raw(`num_nonnulls("titular_apoderado_id", "titular_jugador_id") <= 1`),
+    ),
   ],
 );
 
@@ -324,5 +340,34 @@ export const sesiones = pgTable(
   (t) => [
     index("sesiones_usuario_idx").on(t.usuario_id),
     index("sesiones_expira_idx").on(t.expira_en),
+  ],
+);
+
+/**
+ * Cómo estaba la ficha de una persona que ya existía antes de que una solicitud la modificara
+ * (un precargado de la base 2026 al que el formulario le completó datos o le puso foto). La
+ * escribe S2 en la misma transacción en que modifica la ficha. Si Mony rechaza a esa persona,
+ * S1 la deja como estaba con estos datos.
+ *
+ * Es una copia de datos personales: cada fila se borra en la misma transacción en que se decide
+ * a esa persona (aprobada: ya no hace falta; rechazada: después de restaurar).
+ */
+export const fichasPrevias = pgTable(
+  "fichas_previas",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    solicitud_id: uuid("solicitud_id")
+      .notNull()
+      .references(() => solicitudesRegistro.id, { onDelete: "restrict" }),
+    tipo: text("tipo", { enum: ["jugador", "apoderado"] }).notNull(),
+    persona_id: uuid("persona_id").notNull(),
+    /** Las columnas de la ficha antes del cambio (sin id ni tiempos), con sus nombres de la base. */
+    datos: jsonb("datos").notNull(),
+    creado_en: timestamp("creado_en", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("fichas_previas_solicitud_persona_key").on(t.solicitud_id, t.tipo, t.persona_id),
+    check("fichas_previas_tipo_check", sql.raw(`"tipo" IN ('jugador', 'apoderado')`)),
+    index("fichas_previas_persona_idx").on(t.persona_id),
   ],
 );
