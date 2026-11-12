@@ -929,6 +929,12 @@ describe("solicitudes: fotos al restaurar, propia y topes", () => {
       expect(r.json().error.codigo).toBe("validacion");
     }
     expect(await estadoA(apo)).toMatchObject({ estado: "pendiente" });
+    // 50 sí pasa la validación (y choca después: no son de la solicitud).
+    const cincuenta = Array.from({ length: 50 }, () => ({ jugador_id: apo, apoderado_id: apo }));
+    for (const accion of ["aprobar", "rechazar"] as const) {
+      const r = await app.inject({ method: "POST", url: `/api/panel/solicitudes/${s.id}/${accion}`, cookies, payload: { vinculos: cincuenta } });
+      expect(r.statusCode, accion).toBe(409);
+    }
     await app.close();
   });
 });

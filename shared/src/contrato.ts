@@ -547,7 +547,8 @@ export const solicitudDetalle = z.object({
   /**
    * `propia`: true si la persona se aprueba o rechaza desde esta solicitud. Las demás (el titular
    * que ya estaba activo, un hijo de otra solicitud nombrado por RUT, un hijo marcado "ya no
-   * está") solo se muestran; desde aquí se decide, a lo más, su vínculo.
+   * está") solo se muestran; desde aquí se decide, a lo más, su vínculo. Se aprueba o rechaza
+   * con `propia && estado === "pendiente"`: una propia ya decidida sigue `propia` pero responde 409.
    */
   jugadores: z.array(jugadorDetalle.extend({ propia: z.boolean() })),
   apoderados: z.array(apoderadoDetalle.extend({ propia: z.boolean() })),

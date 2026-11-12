@@ -22,7 +22,7 @@ const A1 = "33333333-3333-4333-8333-333333333333";
 const S = "44444444-4444-4444-8444-444444444444";
 const AHORA = "2026-11-12T10:00:00.000Z";
 
-// `propia` viene en el detalle de la solicitud desde el #28 (S1); aquí todos son propios.
+// `propia` viene en el detalle de la solicitud desde el #29 (S1); aquí todos son propios.
 type JugadorDeSolicitud = SolicitudDetalle["jugadores"][number];
 function jugador(id: string, cambios: Partial<JugadorDeSolicitud> = {}): JugadorDeSolicitud {
   return {
