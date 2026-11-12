@@ -121,6 +121,14 @@ describe("login y sesiones", () => {
     await app.close();
   });
 
+  it("/me sin sesión: 401 y sin caché", async () => {
+    const app = await construirApp({ config: configTest(), db });
+    const r = await app.inject({ method: "GET", url: "/api/auth/me" });
+    expect(r.statusCode).toBe(401);
+    expect(r.headers["cache-control"]).toBe("private, no-store");
+    await app.close();
+  });
+
   it("un cuerpo inválido es 400 validacion", async () => {
     const app = await construirApp({ config: configTest(), db });
     const r = await app.inject({ method: "POST", url: "/api/auth/login", payload: { usuario: "x" } });
