@@ -8,7 +8,7 @@ import {
 import { and, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
 import type { z } from "zod";
 import type { Db, Ejecutor } from "../../db/cliente";
-import { apoderados, categorias, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
+import { apoderados, categorias, fichasPrevias, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
 import { ErrorApi } from "../../lib/errores";
 import { guardarFoto } from "../../lib/fotos";
 import { generarToken, hashToken } from "../../lib/tokens";
@@ -111,6 +111,8 @@ class Proceso {
   private readonly apoderadosInvolucrados = new Set<string>();
   private readonly jugadoresInvolucrados = new Set<string>();
   private readonly propias = new Set<string>();
+  /** Solicitudes con una copia previa de alguien que esta solicitud no pudo modificar. */
+  private readonly conCopiaAjena = new Set<string>();
   private solicitudId = "";
   private coincideBase = false;
   /** Quién llenó el formulario: con esto /familia sabe de quién son los hijos que muestra. */
@@ -154,6 +156,63 @@ class Proceso {
       })
       .where(eq(solicitudesRegistro.id, this.solicitudId));
     return { token_acceso: tokenAcceso, otros_apoderados: otros };
+  }
+
+  /**
+   * Antes de modificar la ficha de alguien que ya existía, guarda cómo estaba (`fichas_previas`),
+   * para que S1 la restaure si Mony la rechaza. Solo la primera solicitud guarda la copia: si ya
+   * hay una de otra solicitud, esta no modifica la ficha (devuelve false), solo vincula, y la
+   * otra recibe `hay_solicitud_posterior`. Así ninguna pisa los cambios de la otra.
+   */
+  private async copiaPrevia(p: { jugador: Jugador } | { apoderado: Apoderado }): Promise<boolean> {
+    const [copia] = await this.tx
+      .select({ solicitud_id: fichasPrevias.solicitud_id })
+      .from(fichasPrevias)
+      .where("jugador" in p ? eq(fichasPrevias.jugador_id, p.jugador.id) : eq(fichasPrevias.apoderado_id, p.apoderado.id));
+    if (copia) {
+      if (copia.solicitud_id === this.solicitudId) return true;
+      this.conCopiaAjena.add(copia.solicitud_id);
+      return false;
+    }
+    if ("jugador" in p) {
+      const j = p.jugador;
+      await this.tx.insert(fichasPrevias).values({
+        solicitud_id: this.solicitudId,
+        jugador_id: j.id,
+        datos: {
+          nombre: j.nombre,
+          apellido: j.apellido,
+          fecha_nacimiento: j.fecha_nacimiento,
+          disciplina: j.disciplina,
+          categoria_id: j.categoria_id,
+          numero_camiseta: j.numero_camiseta,
+          telefono: j.telefono,
+          email: j.email,
+          metodo_pago: j.metodo_pago,
+          foto_id: j.foto_id,
+          estado: j.estado,
+          solicitud_id: j.solicitud_id,
+          marcado_retiro_en: j.marcado_retiro_en?.toISOString() ?? null,
+        },
+      });
+    } else {
+      const a = p.apoderado;
+      await this.tx.insert(fichasPrevias).values({
+        solicitud_id: this.solicitudId,
+        apoderado_id: a.id,
+        datos: {
+          nombre: a.nombre,
+          apellido: a.apellido,
+          telefono: a.telefono,
+          email: a.email,
+          metodo_pago: a.metodo_pago,
+          foto_id: a.foto_id,
+          estado: a.estado,
+          solicitud_id: a.solicitud_id,
+        },
+      });
+    }
+    return true;
   }
 
   private async foto(clave: string): Promise<string> {
@@ -238,6 +297,7 @@ class Proceso {
     const telefono = this.telefono(existente.telefono, faltan, "telefono");
     const foto = existente.foto_id === null ? faltan.exigir(d.foto, "foto") : undefined;
     faltan.lanzarSiHay();
+    if (!(await this.copiaPrevia({ apoderado: existente }))) return existente;
     const [actualizado] = await this.tx
       .update(apoderados)
       .set({
@@ -317,11 +377,14 @@ class Proceso {
     this.titularJugadorId = existente.id;
     this.coincideBase = true;
     const telefonoNuevo = this.telefono(existente.telefono, new Faltantes(), "telefono");
-    const cambios = await this.completarJugador(existente, d, "", new Faltantes());
+    const { cambios, foto: fotoFaltante } = await this.completarJugador(existente, d, "", new Faltantes());
+    // Otra solicitud ya la modificó y Mony no la decidió: no se pisa.
+    if (!(await this.copiaPrevia({ jugador: existente }))) throw conflicto();
     await this.tx
       .update(jugadores)
       .set({
         ...cambios,
+        ...(fotoFaltante !== undefined && { foto_id: await this.foto(fotoFaltante) }),
         ...(telefonoNuevo !== undefined && { telefono: telefonoNuevo }),
         estado: "pendiente",
         solicitud_id: this.solicitudId,
@@ -354,8 +417,9 @@ class Proceso {
   }
 
   /**
-   * Completa lo que le falta a un jugador precargado, sin cambiar lo que ya trae la base. Lanza
-   * 400 con los campos que faltan (`prefijo` = "hijos.N." o "" para el adulto).
+   * Lo que le falta a un jugador precargado, sin cambiar lo que ya trae la base. Lanza 400 con los
+   * campos que faltan (`prefijo` = "hijos.N." o "" para el adulto). No escribe nada: la foto se
+   * devuelve como clave y se guarda solo si la ficha se modifica (ver `copiaPrevia`).
    */
   private async completarJugador(
     j: Jugador,
@@ -376,13 +440,33 @@ class Proceso {
         : null;
     faltan.lanzarSiHay();
     return {
-      ...(nombre !== undefined && { nombre }),
-      ...(apellido !== undefined && { apellido }),
-      ...(fecha !== undefined && { fecha_nacimiento: fecha }),
-      ...(numero !== undefined && { numero_camiseta: numero }),
-      ...(categoria !== null && { categoria_id: categoria }),
-      ...(foto !== undefined && { foto_id: await this.foto(foto) }),
+      cambios: {
+        ...(nombre !== undefined && { nombre }),
+        ...(apellido !== undefined && { apellido }),
+        ...(fecha !== undefined && { fecha_nacimiento: fecha }),
+        ...(numero !== undefined && { numero_camiseta: numero }),
+        ...(categoria !== null && { categoria_id: categoria }),
+      },
+      foto,
     };
+  }
+
+  /** Aplica lo completado a un jugador que ya existía, si `copiaPrevia` lo permite. */
+  private async completarExistente(
+    j: Jugador,
+    completado: Awaited<ReturnType<Proceso["completarJugador"]>>,
+    extra: { solicitud_id?: string },
+  ) {
+    if (!(await this.copiaPrevia({ jugador: j }))) return;
+    await this.tx
+      .update(jugadores)
+      .set({
+        ...completado.cambios,
+        ...(completado.foto !== undefined && { foto_id: await this.foto(completado.foto) }),
+        estado: "pendiente",
+        ...extra,
+      })
+      .where(eq(jugadores.id, j.id));
   }
 
   // -------------------------------------------------------------------------
@@ -443,7 +527,7 @@ class Proceso {
         // Solo se puede marcar a un hijo propio. Queda marcado para que Mony lo confirme, sin
         // `solicitud_id`: no aparece en /familia.
         if (!jugador || !enLista) throw invalido([`${p}ya_no_esta`]);
-        if (jugador.marcado_retiro_en === null) {
+        if (jugador.marcado_retiro_en === null && (await this.copiaPrevia({ jugador }))) {
           await this.tx
             .update(jugadores)
             .set({ marcado_retiro_en: this.ahora })
@@ -462,11 +546,8 @@ class Proceso {
       if (enLista) {
         // Hijo del RUT de quien llena: se completa y llega en esta solicitud.
         if (jugador.estado === "precargado") {
-          const cambios = await this.completarJugador(jugador, h, p, new Faltantes());
-          await this.tx
-            .update(jugadores)
-            .set({ ...cambios, estado: "pendiente", solicitud_id: jugador.solicitud_id ?? this.solicitudId })
-            .where(eq(jugadores.id, jugador.id));
+          const completado = await this.completarJugador(jugador, h, p, new Faltantes());
+          await this.completarExistente(jugador, completado, { solicitud_id: jugador.solicitud_id ?? this.solicitudId });
         }
         if (titularEraPrecargado && d.paga_mensualidad !== undefined) {
           await this.tx
@@ -487,11 +568,8 @@ class Proceso {
       } else if (cantidad === 0) {
         // Hijo precargado sin apoderado en la base: se le pide solo lo que falta (diseño, "Carga
         // inicial"). La ficha queda pendiente; la solicitud sigue sin ser suya.
-        const cambios = await this.completarJugador(jugador, h, p, new Faltantes());
-        await this.tx
-          .update(jugadores)
-          .set({ ...cambios, estado: "pendiente" })
-          .where(eq(jugadores.id, jugador.id));
+        const completado = await this.completarJugador(jugador, h, p, new Faltantes());
+        await this.completarExistente(jugador, completado, {});
       }
       await this.vincular(jugador.id, titular.id, paga);
       resueltos.push(jugador.id);
@@ -642,6 +720,7 @@ class Proceso {
           .where(inArray(jugadorApoderado.jugador_id, jus)),
       );
     }
+    for (const id of this.conCopiaAjena) ids.add(id);
     const anteriores = [...ids].filter((id) => !this.propias.has(id));
     if (anteriores.length === 0) return;
     await this.tx
