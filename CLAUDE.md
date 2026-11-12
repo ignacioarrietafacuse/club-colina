@@ -119,10 +119,11 @@ lo pide.
   activa con `config: { rateLimit: LIMITES.x }`. La llave es `ipCliente()`: `x-club-colina-ip` solo
   si la petición trae el secreto del middleware de Vercel (`frontend/middleware.ts`, `PROXY_SECRETO`
   en Railway y en Vercel Production); si no, `x-real-ip`, que pone el borde de Railway. IPv6 se
-  agrupa por /64. Nunca `X-Forwarded-For` ni `trustProxy`. El login lleva los dos límites:
-  `config: { rateLimit: LIMITES.login }` (usuario + IP) y `onRequest: app.rateLimit(LIMITES.loginPorIp)`;
-  el trabajo caro (argon2, la base) va en el handler. S1 normaliza el usuario igual que la llave
-  (`trim().toLowerCase()`).
+  agrupa por /64. Nunca `X-Forwarded-For` ni `trustProxy`. El login usa
+  `config: { rateLimit: LIMITES.login }` (usuario + IP); el trabajo caro (argon2, la base) va en el
+  handler. S1 normaliza el usuario igual que la llave (`trim().toLowerCase()`) y agrega el tope solo
+  por IP (ver el alcance de S1 en el roadmap): dos límites en la misma ruta se anulan si se suman
+  sin cuidado.
   Las rutas multipart de S1 y S2 traen tests por `app.inject` con el 400 `archivo_invalido` y el 413.
 - **Escrituras:** el backend rechaza POST/PUT/PATCH/DELETE con un `Origin` que no sea
   `PUBLIC_BASE_URL` u `ORIGENES_PERMITIDOS`. Las vistas previas de Vercel quedan en solo lectura y

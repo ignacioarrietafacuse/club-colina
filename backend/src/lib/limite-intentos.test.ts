@@ -18,14 +18,6 @@ async function appConRuta(secreto?: string) {
   app.post("/api/prueba-login", { config: { rateLimit: { ...LIMITES.login, max: 2 } } }, async () => ({
     ok: true,
   }));
-  app.post(
-    "/api/prueba-login-ip",
-    {
-      onRequest: app.rateLimit({ ...LIMITES.loginPorIp, max: 3 }),
-      config: { rateLimit: { ...LIMITES.login, max: 2 } },
-    },
-    async () => ({ ok: true }),
-  );
   return app;
 }
 
@@ -146,22 +138,6 @@ describe("límite de intentos: la llave es la IP real", () => {
     expect((await login("mony")).statusCode).toBe(429);
     // Otro usuario desde la misma IP tiene su propio contador.
     expect((await login("otro")).statusCode).toBe(200);
-    await app.close();
-  });
-
-  it("el login también tiene un tope solo por IP, aunque cambie el usuario", async () => {
-    const app = await appConRuta();
-    const r: number[] = [];
-    for (const usuario of ["a", "b", "c", "d"]) {
-      const res = await app.inject({
-        method: "POST",
-        url: "/api/prueba-login-ip",
-        headers: { origin: "https://panel.ejemplo.test", "x-real-ip": "198.51.100.40" },
-        payload: { usuario, password: "x" },
-      });
-      r.push(res.statusCode);
-    }
-    expect(r).toEqual([200, 200, 200, 429]);
     await app.close();
   });
 });

@@ -229,6 +229,10 @@ Además de lo que dice `roadmap-etapa1.md`:
 - Railway: despliegue automático desde `main`, "Wait for CI", healthcheck en `/api/health`, variables `NODE_ENV=production`, `MIGRAR_AL_ARRANCAR=si` y `PROXY_SECRETO` (el mismo valor que en Vercel), y respaldos diario y semanal en el volumen de Postgres. Build y arranque los detecta Railpack desde los scripts `build` y `start` de la raíz. Las migraciones no se configuran en Railway: las corre el backend al arrancar.
 - Vercel: confirmar que solo `main` publica a producción. `PROXY_SECRETO` (sensible) solo en Production, nunca en Preview: las vistas previas corren código no fusionado. Un cambio de variable en Vercel llega al middleware recién con un despliegue nuevo. Para rotarlo: cambiarlo en Railway y en Vercel y redesplegar los dos; mientras no coincidan, todo el tráfico comparte un contador (el log muestra `"proxy":false`). Para volver atrás: quitarlo en Vercel y redesplegar, y el middleware deja de actuar.
 
+**Pendientes no bloqueantes** (al 2026-11-12):
+- Railway, "Wait for CI": la opción no aparece en el panel del servicio. Requiere que `ci.yml` corra en `push` a `main` (ya corre) y que la app de Railway en GitHub tenga permiso para leer los checks. Mientras tanto, Railway despliega al fusionar sin esperar al CI; el CI del PR ya pasó antes de fusionar.
+- El logo del club: hoy hay uno provisorio de solo texto ("Club Colina").
+
 ## Bitácora de decisiones
 
 Cada decisión sobre cómo se trabaja se anota acá, con fecha y razón, en el mismo PR que la cambia.
@@ -253,3 +257,4 @@ Cada decisión sobre cómo se trabaja se anota acá, con fecha y razón, en el m
 | 2026-11-12 | `rut-lookup` no devuelve ids, `/familia` muestra solo a las personas de esa solicitud y el panel marca los casos sospechosos | Quien conoce un RUT ajeno no puede llegar a datos ni personas que no envió |
 | 2026-11-12 | Las migraciones las corre el backend al arrancar, no la configuración de Railway (`railway.json` se borró) | El servicio no leía `railway.json`: el despliegue de `99e9be1` salió sin comando previo ni healthcheck, y `railway config migrate status` decía que ningún servicio usa Config as Code (Railway lo da por obsoleto desde el 2026-12-01). Arrancar migrando no depende de la plataforma, y si falla la versión nueva no levanta |
 | 2026-11-12 | La llave del límite de intentos es la IP real: la que el middleware de Vercel toma de su borde (`x-club-colina-ip`) solo si viene con el secreto, si no `x-real-ip`; IPv6 por /64 | Medido en producción: el borde de Railway reescribe `x-real-ip`, pero por Vercel esa IP es la de salida de Vercel (compartida), y quien llama directo a Railway puede inventar cualquier otra cabecera. El secreto (`PROXY_SECRETO`) distingue los dos caminos |
+| 2026-11-12 | Dos límites de intentos en la misma ruta necesitan un test con la misma clave en los dos | `@fastify/rate-limit` marca la petición como contada en el primer límite que corre: un segundo límite en la misma ruta no cuenta nunca. La revisión lo encontró con un test que cambiaba de usuario en cada intento y por eso no lo veía |

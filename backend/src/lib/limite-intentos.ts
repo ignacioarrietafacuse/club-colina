@@ -75,14 +75,11 @@ export const LIMITES = {
   publicoLectura: { max: 120, timeWindow: "1 minute" },
   completar: { max: 10, timeWindow: "1 hour" },
   /**
-   * Login, dos límites (S1 aplica los dos):
-   * - `login` en `config.rateLimit`: usuario + IP, después de leer el cuerpo (`preHandler`). El
-   *   trabajo caro (argon2, la base) va en el handler, no en otro preHandler, para que el 429
-   *   llegue antes.
-   * - `loginPorIp` con `onRequest: app.rateLimit(LIMITES.loginPorIp)`: tope por IP sin importar el
-   *   usuario, contra probar una contraseña con muchos usuarios.
+   * Login: llave usuario + IP, después de leer el cuerpo (`preHandler`). El trabajo caro (argon2,
+   * la base) va en el handler, no en otro preHandler, para que el 429 llegue antes. El tope solo
+   * por IP lo agrega S1 (ver roadmap): ojo, la librería marca la petición como contada en el
+   * primer límite que corre, así que dos límites en la misma ruta no se pueden sumar sin más.
    */
-  loginPorIp: { max: 30, timeWindow: "1 minute" },
   login: {
     max: 5,
     timeWindow: "1 minute",
