@@ -33,27 +33,34 @@ export function ApoderadoPage() {
       >
         <ArrowLeft className="size-3.5" /> Apoderados
       </Link>
-      {consulta.isError ? (
-        <p role="alert" className="card-surface p-5 text-sm text-destructive">
-          {mensajeDeError(consulta.error)}
-        </p>
-      ) : consulta.isPending ? (
-        <p className="text-sm text-muted-foreground">Cargando…</p>
+      {consulta.data === undefined ? (
+        consulta.isError ? (
+          <p role="alert" className="card-surface p-5 text-sm text-destructive">
+            {mensajeDeError(consulta.error)}
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">Cargando…</p>
+        )
       ) : (
-        <FichaApoderado
-          key={generacion}
-          a={consulta.data}
-          alGuardar={async () => {
-            await consulta.refetch();
-            setGeneracion((g) => g + 1);
-          }}
-        />
+        <>
+          {/* Una recarga que falla con la ficha ya cargada avisa sin borrar lo que se edita. */}
+          {consulta.isError && (
+            <p role="alert" className="mb-4 rounded-lg bg-warning/15 px-4 py-3 text-sm">
+              No se pudo actualizar la ficha: {mensajeDeError(consulta.error)}
+            </p>
+          )}
+          <FichaApoderado
+            key={`${consulta.data.id}-${generacion}`}
+            a={consulta.data}
+            alGuardar={() => setGeneracion((g) => g + 1)}
+          />
+        </>
       )}
     </div>
   );
 }
 
-function FichaApoderado({ a, alGuardar }: { a: ApoderadoDetalle; alGuardar: () => Promise<void> }) {
+function FichaApoderado({ a, alGuardar }: { a: ApoderadoDetalle; alGuardar: () => void }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormApoderadoFicha>(() => formApoderado(a));
   const [errores, setErrores] = useState<string[]>([]);
@@ -62,7 +69,7 @@ function FichaApoderado({ a, alGuardar }: { a: ApoderadoDetalle; alGuardar: () =
       api.panel.editarApoderado(a.id, datos),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["panel"] });
-      await alGuardar();
+      alGuardar();
     },
   });
   const cambiar = (c: Partial<FormApoderadoFicha>) => setForm((f) => ({ ...f, ...c }));

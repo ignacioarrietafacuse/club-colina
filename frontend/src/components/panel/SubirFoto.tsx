@@ -5,6 +5,12 @@ import { api, mensajeDeError, type TipoPersona } from "@/lib/api";
 import { comprimirFoto, ErrorFoto } from "./foto";
 import { FotoPersona } from "./persona";
 
+/**
+ * Versión de la foto por persona, fuera del componente: si la ficha se vuelve a montar (al
+ * guardar), la imagen sigue pidiéndose con la versión nueva y no reaparece la anterior.
+ */
+const versiones = new Map<string, number>();
+
 /** Foto de la ficha y botón para cambiarla (Mony puede completarla sin esperar a la familia). */
 export function SubirFoto({
   tipo,
@@ -17,13 +23,16 @@ export function SubirFoto({
 }) {
   const queryClient = useQueryClient();
   const inputId = useId();
-  const [version, setVersion] = useState(0);
+  const llave = `${tipo}:${id}`;
+  const [version, setVersion] = useState(() => versiones.get(llave) ?? 0);
   const [errorLocal, setErrorLocal] = useState<string | null>(null);
   const subir = useMutation({
     mutationFn: async (archivo: File) =>
       api.panel.subirFoto(tipo, id, await comprimirFoto(archivo)),
     onSuccess: async () => {
-      setVersion((v) => v + 1);
+      const nueva = Date.now();
+      versiones.set(llave, nueva);
+      setVersion(nueva);
       await queryClient.invalidateQueries({ queryKey: ["panel"] });
     },
     onError: (error) => setErrorLocal(error instanceof ErrorFoto ? error.message : null),

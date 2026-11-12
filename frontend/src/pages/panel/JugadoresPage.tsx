@@ -125,6 +125,12 @@ export function JugadoresPage() {
           </label>
         </div>
 
+        {categorias.isError && (
+          <p role="alert" className="border-b bg-warning/15 px-4 py-2 text-sm">
+            No se pudieron cargar las categorías: la columna Categoría y su filtro no se muestran
+            bien.
+          </p>
+        )}
         {consulta.isError ? (
           <p role="alert" className="p-5 text-sm text-destructive">
             {mensajeDeError(consulta.error)}

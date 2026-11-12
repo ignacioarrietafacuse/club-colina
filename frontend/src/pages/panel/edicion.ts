@@ -94,6 +94,8 @@ function siCambia(
 }
 
 const mismoRut = (a: string, b: string) => normalizarRut(a) === b;
+/** "07" y "7" son el mismo número: no es un cambio. */
+const mismoEntero = (a: string, b: string) => entero(a) === entero(b);
 const mismoTelefono = (a: string, b: string) => digitosTelefono(a) === b;
 const mismoEmail = (a: string, b: string) => a.toLowerCase() === b;
 const id = (t: string) => t;
@@ -136,6 +138,23 @@ export function formJugador(j: JugadorDetalle): FormJugadorFicha {
   };
 }
 
+/**
+ * Categoría al cambiar la disciplina en la ficha: al volver a la disciplina original se recupera
+ * la que tenía; si la elegida no es de la nueva disciplina, queda vacía; si la lista de
+ * categorías no está, no se toca (nunca se borra en silencio).
+ */
+export function categoriaAlCambiarDisciplina(
+  j: JugadorDetalle,
+  actual: string,
+  nuevaDisciplina: string,
+  categorias: readonly { id: number; disciplina: string }[] | undefined,
+): string {
+  if (nuevaDisciplina === j.disciplina) return texto(j.categoria_id);
+  if (!categorias || actual === "") return actual;
+  const elegida = categorias.find((c) => String(c.id) === actual);
+  return elegida && elegida.disciplina === nuevaDisciplina ? actual : "";
+}
+
 export function cambiosJugador(j: JugadorDetalle, f: FormJugadorFicha): Resultado<JugadorPatch> {
   const d: Record<string, unknown> = {};
   siCambia(d, "nombre", f.nombre, j.nombre, id, { anulable: false });
@@ -143,16 +162,24 @@ export function cambiosJugador(j: JugadorDetalle, f: FormJugadorFicha): Resultad
   siCambia(d, "rut", f.rut, j.rut, id, { anulable: false, igual: mismoRut });
   siCambia(d, "fecha_nacimiento", f.fecha_nacimiento, j.fecha_nacimiento, id, { anulable: true });
   siCambia(d, "disciplina", f.disciplina, j.disciplina, id, { anulable: false });
-  siCambia(d, "categoria_id", f.categoria_id, j.categoria_id, entero, { anulable: true });
+  siCambia(d, "categoria_id", f.categoria_id, j.categoria_id, entero, {
+    anulable: true,
+    igual: mismoEntero,
+  });
   siCambia(d, "numero_camiseta", f.numero_camiseta, j.numero_camiseta, id, { anulable: true });
   if (f.postula_beca !== j.postula_beca) d.postula_beca = f.postula_beca;
   siCambia(d, "beca_mensualidad_pct", f.beca_mensualidad_pct, j.beca_mensualidad_pct, entero, {
     anulable: false,
+    igual: mismoEntero,
   });
   siCambia(d, "beca_torneos_pct", f.beca_torneos_pct, j.beca_torneos_pct, entero, {
     anulable: false,
+    igual: mismoEntero,
   });
-  siCambia(d, "beca_campus_pct", f.beca_campus_pct, j.beca_campus_pct, entero, { anulable: false });
+  siCambia(d, "beca_campus_pct", f.beca_campus_pct, j.beca_campus_pct, entero, {
+    anulable: false,
+    igual: mismoEntero,
+  });
   siCambia(d, "telefono", f.telefono, j.telefono, id, { anulable: true, igual: mismoTelefono });
   siCambia(d, "email", f.email, j.email, id, { anulable: true, igual: mismoEmail });
   siCambia(d, "metodo_pago", f.metodo_pago, j.metodo_pago, id, { anulable: true });

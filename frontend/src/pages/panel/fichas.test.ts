@@ -12,6 +12,7 @@ import {
   cambiosApoderado,
   cambiosEntrenador,
   cambiosJugador,
+  categoriaAlCambiarDisciplina,
   datosEntrenadorNuevo,
   FORM_ENTRENADOR_VACIO,
   formApoderado,
@@ -273,5 +274,34 @@ describe("entrenadores", () => {
     expect(cambiosEntrenador(entrenador, { ...formEntrenador(entrenador), telefono: "" }).ok).toBe(
       false,
     );
+  });
+});
+
+describe("categoría al cambiar la disciplina", () => {
+  const categorias = [
+    { id: 3, disciplina: "basketball" },
+    { id: 9, disciplina: "voleibol" },
+  ];
+
+  it("ir y volver a la disciplina original no borra la categoría", () => {
+    const enVoley = categoriaAlCambiarDisciplina(jugador, "3", "voleibol", categorias);
+    expect(enVoley).toBe("");
+    const deVuelta = categoriaAlCambiarDisciplina(jugador, enVoley, "basketball", categorias);
+    expect(deVuelta).toBe("3");
+    const f = { ...formJugador(jugador), disciplina: "basketball", categoria_id: deVuelta };
+    expect(cambiosJugador(jugador, f).ok).toBe(false); // sin cambios
+  });
+
+  it("una categoría de la nueva disciplina se mantiene", () => {
+    expect(categoriaAlCambiarDisciplina(jugador, "9", "voleibol", categorias)).toBe("9");
+  });
+
+  it("sin la lista de categorías no se borra nada", () => {
+    expect(categoriaAlCambiarDisciplina(jugador, "3", "voleibol", undefined)).toBe("3");
+  });
+
+  it("una beca escrita con cero adelante no es un cambio", () => {
+    const f = { ...formJugador({ ...jugador, beca_torneos_pct: 7 }), beca_torneos_pct: "07" };
+    expect(cambiosJugador({ ...jugador, beca_torneos_pct: 7 }, f).ok).toBe(false);
   });
 });

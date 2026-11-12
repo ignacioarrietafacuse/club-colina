@@ -27,6 +27,7 @@ export function Credencial({
   const [confirmar, setConfirmar] = useState<null | "regenerar" | "desactivar">(null);
   const refrescar = () => queryClient.invalidateQueries({ queryKey: ["panel"] });
 
+  // Solo se muestra el error de la última acción: cada una limpia el de las otras.
   const regenerar = useMutation({
     mutationFn: () => api.panel.regenerarToken(tipo, id),
     onSuccess: refrescar,
@@ -41,6 +42,11 @@ export function Credencial({
   });
   const ocupado = regenerar.isPending || activar.isPending || desactivar.isPending;
   const error = regenerar.error ?? activar.error ?? desactivar.error;
+  const lanzar = (accion: "regenerar" | "activar" | "desactivar") => {
+    const objetivo = { regenerar, activar, desactivar }[accion];
+    for (const m of [regenerar, activar, desactivar]) if (m !== objetivo) m.reset();
+    objetivo.mutate();
+  };
   const acciones = accionesEstado(estado);
   const activa = estado === "activo" && credencialToken !== null;
 
@@ -68,7 +74,7 @@ export function Credencial({
               disabled={ocupado}
               onClick={() => {
                 setConfirmar(null);
-                regenerar.mutate();
+                lanzar("regenerar");
               }}
             >
               <RefreshCw className="size-4" /> Sí, el QR anterior deja de servir
@@ -84,7 +90,7 @@ export function Credencial({
             </Button>
           ))}
         {acciones.activar && (
-          <Button size="sm" disabled={ocupado} onClick={() => activar.mutate()}>
+          <Button size="sm" disabled={ocupado} onClick={() => lanzar("activar")}>
             {estado === "inactivo" ? "Reactivar" : "Activar"}
           </Button>
         )}
@@ -96,7 +102,7 @@ export function Credencial({
               disabled={ocupado}
               onClick={() => {
                 setConfirmar(null);
-                desactivar.mutate();
+                lanzar("desactivar");
               }}
             >
               Sí, dejar inactivo

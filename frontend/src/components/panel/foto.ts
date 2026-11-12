@@ -39,6 +39,9 @@ export async function comprimirFoto(archivo: File): Promise<Blob> {
   canvas.height = alto;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new ErrorFoto("No se pudo procesar la foto.");
+  // JPEG no tiene transparencia: un PNG recortado queda sobre blanco, no sobre negro.
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, ancho, alto);
   ctx.drawImage(imagen, 0, 0, ancho, alto);
   imagen.close();
   const blob = await new Promise<Blob | null>((ok) =>

@@ -22,7 +22,12 @@ import {
 } from "@/components/panel/textos";
 import { Badge, Button, PageHeader } from "@/components/panel/ui";
 import { api, mensajeDeError } from "@/lib/api";
-import { cambiosJugador, formJugador, type FormJugadorFicha } from "./edicion";
+import {
+  cambiosJugador,
+  categoriaAlCambiarDisciplina,
+  formJugador,
+  type FormJugadorFicha,
+} from "./edicion";
 
 export function JugadorPage() {
   const { id } = useParams({ from: "/_panel/jugadores/$id" });
@@ -46,22 +51,32 @@ export function JugadorPage() {
       >
         <ArrowLeft className="size-3.5" /> Jugadores
       </Link>
-      {consulta.isError ? (
-        <p role="alert" className="card-surface p-5 text-sm text-destructive">
-          {mensajeDeError(consulta.error)}
-        </p>
-      ) : consulta.isPending ? (
-        <p className="text-sm text-muted-foreground">Cargando…</p>
+      {consulta.data === undefined ? (
+        consulta.isError ? (
+          <p role="alert" className="card-surface p-5 text-sm text-destructive">
+            {mensajeDeError(consulta.error)}
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">Cargando…</p>
+        )
       ) : (
-        <FichaJugador
-          key={generacion}
-          j={consulta.data}
-          categorias={categorias.data}
-          alGuardar={async () => {
-            await consulta.refetch();
-            setGeneracion((g) => g + 1);
-          }}
-        />
+        <>
+          {/* Una recarga que falla con la ficha ya cargada avisa sin borrar lo que se edita. */}
+          {consulta.isError && (
+            <p role="alert" className="mb-4 rounded-lg bg-warning/15 px-4 py-3 text-sm">
+              No se pudo actualizar la ficha: {mensajeDeError(consulta.error)}
+            </p>
+          )}
+          <FichaJugador
+            key={`${consulta.data.id}-${generacion}`}
+            j={consulta.data}
+            categorias={categorias.data}
+            estadoCategorias={
+              categorias.isError ? "error" : categorias.isPending ? "cargando" : "ok"
+            }
+            alGuardar={() => setGeneracion((g) => g + 1)}
+          />
+        </>
       )}
     </div>
   );
@@ -70,11 +85,13 @@ export function JugadorPage() {
 function FichaJugador({
   j,
   categorias,
+  estadoCategorias,
   alGuardar,
 }: {
   j: JugadorDetalle;
   categorias: CategoriaPanel[] | undefined;
-  alGuardar: () => Promise<void>;
+  estadoCategorias: "cargando" | "error" | "ok";
+  alGuardar: () => void;
 }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormJugadorFicha>(() => formJugador(j));
@@ -84,7 +101,7 @@ function FichaJugador({
       api.panel.editarJugador(j.id, datos),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["panel"] });
-      await alGuardar();
+      alGuardar();
     },
   });
   const cambiar = (c: Partial<FormJugadorFicha>) => setForm((f) => ({ ...f, ...c }));
@@ -146,7 +163,12 @@ function FichaJugador({
               id="disciplina"
               etiqueta="Disciplina"
               valor={form.disciplina}
-              onChange={(v) => cambiar({ disciplina: v, categoria_id: "" })}
+              onChange={(v) =>
+                cambiar({
+                  disciplina: v,
+                  categoria_id: categoriaAlCambiarDisciplina(j, form.categoria_id, v, categorias),
+                })
+              }
               opciones={DISCIPLINAS.map((d) => [d, TEXTO_DISCIPLINA[d]] as const)}
             />
             <CampoSelect
@@ -155,7 +177,13 @@ function FichaJugador({
               valor={categorias ? form.categoria_id : ""}
               onChange={(v) => cambiar({ categoria_id: v })}
               opciones={delaDisciplina.map((c) => [String(c.id), c.nombre] as const)}
-              vacio={categorias ? "Sin categoría" : "No se pudieron cargar"}
+              vacio={
+                estadoCategorias === "ok"
+                  ? "Sin categoría"
+                  : estadoCategorias === "cargando"
+                    ? "Cargando…"
+                    : "No se pudieron cargar"
+              }
             />
             <Campo
               id="numero"
