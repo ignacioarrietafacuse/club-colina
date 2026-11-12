@@ -202,6 +202,8 @@ describe("estado, foto y QR", () => {
     const url = urlDelQr(TOKEN, "https://club-colina.vercel.app/");
     expect(url).toBe(`https://club-colina.vercel.app/c/${TOKEN}`);
     expect(await qrPng(url)).toMatch(/^data:image\/png;base64,/);
+    // Sin base explícita, la fijada al compilar (en los tests, la ficticia de vitest.config.ts).
+    expect(urlDelQr(TOKEN)).toBe(`https://club-colina.test/c/${TOKEN}`);
   });
 
   it("el archivo del QR se nombra sin tildes ni símbolos", () => {
