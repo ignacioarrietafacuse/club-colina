@@ -8,7 +8,7 @@ describe("dirección pública del QR", () => {
   it.each([
     ["https://club-colina.vercel.app", "https://club-colina.vercel.app"],
     ["https://club-colina.vercel.app/", "https://club-colina.vercel.app"],
-    [" https://panel.clubcolina.cl ", "https://panel.clubcolina.cl"],
+    [" https://panel.clubcolina.com ", "https://panel.clubcolina.com"],
     ["http://localhost:5173", "http://localhost:5173"],
   ])("acepta %s", (valor, esperado) => {
     expect(normalizarBasePublica(valor)).toBe(esperado);
@@ -57,8 +57,8 @@ describe("dirección pública del QR", () => {
   });
 
   it("arma la URL de la credencial con la base, no con el navegador", () => {
-    expect(urlQrCredencial(TOKEN, "https://panel.clubcolina.cl/")).toBe(
-      `https://panel.clubcolina.cl/c/${TOKEN}`,
+    expect(urlQrCredencial(TOKEN, "https://panel.clubcolina.com/")).toBe(
+      `https://panel.clubcolina.com/c/${TOKEN}`,
     );
   });
 
