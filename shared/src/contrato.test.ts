@@ -119,8 +119,8 @@ describe("contrato", () => {
   });
 
   it("arma la URL del QR", () => {
-    expect(urlCredencial("https://panel.clubcolina.cl/", "abc")).toBe(
-      "https://panel.clubcolina.cl/c/abc",
+    expect(urlCredencial("https://panel.clubcolina.com/", "abc")).toBe(
+      "https://panel.clubcolina.com/c/abc",
     );
   });
 });

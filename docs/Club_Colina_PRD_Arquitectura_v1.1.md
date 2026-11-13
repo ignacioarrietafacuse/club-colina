@@ -24,7 +24,7 @@ Sistema a medida para Club Basketball Colina y Club Voleibol Colina.
 | Torneos | Sección "Torneos" | Sección "Torneos y campus" (incluye campus y clínicas de técnica) |
 | Pruebas masivas | Mencionadas | El club no hace pruebas masivas: se cita al próximo entrenamiento |
 | Registro y credenciales QR | No existía | Nueva funcionalidad, núcleo de la Etapa 1 (sección 9A) |
-| Dominio | No definido | clubcolina.cl; panel en panel.clubcolina.cl |
+| Dominio | No definido | clubcolina.com; panel en panel.clubcolina.com |
 
 ## Resumen ejecutivo [v1.1]
 
@@ -110,7 +110,7 @@ Los usuarios se crean manualmente en la base de datos (ya no en Supabase).
 
 La interfaz debe utilizar mensajes genéricos: Buenos días; Buenas tardes; Bienvenido nuevamente; Este es el estado general del club. No personalizar el sistema exclusivamente para una persona.
 
-El panel administrativo vive en **panel.clubcolina.cl**.
+El panel administrativo vive en **panel.clubcolina.com**.
 
 ## 6. Navegación principal [v1.1]
 
@@ -329,7 +329,7 @@ Sí existirá una sección visual de Uniformes.
 El propósito NO es administrar fabricación. El proveedor externo sigue manejando la producción. La plataforma sirve para tomar los pedidos, consultar su estado y para que la IA pueda responder consultas.
 
 **Flujo del pedido**
-- El apoderado hace el pedido por un **WhatsApp Flow** (vía Kapso). La página web de pedidos en clubcolina.cl queda descartada.
+- El apoderado hace el pedido por un **WhatsApp Flow** (vía Kapso). La página web de pedidos en clubcolina.com queda descartada.
 - El Flow muestra los precios.
 - Valida la disponibilidad del número de camiseta comparando jugadores del mismo año de nacimiento, un año hacia atrás y uno hacia adelante. El número 99 ("sin número asignado") queda fuera de esa validación.
 - El apoderado sube una foto o captura de la transferencia.

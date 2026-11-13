@@ -1,7 +1,8 @@
 /**
  * Dirección pública del sitio (la misma que `PUBLIC_BASE_URL` del backend). Va grabada en cada
  * QR, así que no se deduce del navegador: se fija al compilar con `VITE_PUBLIC_BASE_URL`.
- * Hoy https://club-colina.vercel.app; en la Ola 3, https://panel.clubcolina.cl.
+ * En producción, https://panel.clubcolina.com; en las vistas previas y en el CI,
+ * https://club-colina.vercel.app (que redirige al dominio del club).
  *
  * Sin dependencias: lo usa también `vite.config.ts`.
  */

@@ -247,7 +247,7 @@ Horarios, lugar y entrenador se agregan en la Etapa 2.
 **Dos tokens distintos:** `credencial_token` va en el QR y es público (solo muestra foto, nombre y rol). `token_acceso` es el link privado (muestra los QR de las personas de esa solicitud). La base guarda solo su hash, igual que el del link personal de un segundo apoderado (`/completar`). Si se pierde, Mony genera uno nuevo desde el panel y el anterior deja de funcionar (decisión de Ignacio, 2026-11-12). `credencial_token` queda en claro porque hay que dibujar el QR.
 
 ## Diseño técnico
-- **Verificación:** página pública `panel.clubcolina.cl/c/{token}`. Muestra foto + nombre + rol (Jugador / Apoderado / Entrenador) solo si la persona está en estado activo.
+- **Verificación:** página pública `panel.clubcolina.com/c/{token}`. Muestra foto + nombre + rol (Jugador / Apoderado / Entrenador) solo si la persona está en estado activo.
 - **No se muestra al escanear:** categoría, número, becas, estado de pago, RUT, teléfono ni familiares.
 - **Consulta de RUT del formulario:** responde solo si está o no en la base y qué campos faltan (más el primer nombre de los hijos). Nunca devuelve los datos guardados. Con límite de intentos. El RUT de un jugador que no es adulto con certeza (menor, o sin fecha en la base) responde como si no estuviera, y la lista de hijos oculta los vínculos pendientes hacia hijos de otra familia nombrados por RUT hasta que Mony los aprueba (decisión de Ignacio, 2026-11-12).
 - **Panel de Mony:**

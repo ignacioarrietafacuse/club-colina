@@ -20,7 +20,7 @@ La Ola 1 solo puede ir en paralelo porque la Ola 0 deja fijados el contrato de l
 |---|---|---|
 | Monorepo | pnpm workspaces: `frontend/`, `backend/`, `shared/`, `docs/` | `shared/` agrega una carpeta al PRD, pero es lo que permite trabajar front y back en paralelo |
 | Contrato | `shared/` con esquemas zod y tipos de cada endpoint. Front y back importan de ahí | Si alguien rompe el contrato, falla la compilación |
-| Mismo origen | Vercel reescribe `/api/*` al backend en Railway | Cookies de sesión propias (first-party) tanto en `*.vercel.app` como en `panel.clubcolina.cl`, sin CORS. Un solo registro DNS |
+| Mismo origen | Vercel reescribe `/api/*` al backend en Railway | Cookies de sesión propias (first-party) tanto en `*.vercel.app` como en `panel.clubcolina.com`, sin CORS. Un solo registro DNS |
 | Frontend | SPA con Vite + TanStack Router (rutas por archivo), sin TanStack Start, Nitro ni nada de Lovable (decisión de Ignacio, 2026-11-11) | El SSR de Lovable no aporta nada acá; una SPA estática en Vercel es lo más simple y no deja funciones de servidor |
 | Fotos | Se comprimen en el navegador (lado mayor 1024 px, JPEG ~80 %) antes de subir | Subidas rápidas desde el celular y evita límites de tamaño en el proxy |
 | Fotos en Postgres | Tabla `fotos` aparte (id, mime, bytes, creado_en); las fichas apuntan con `foto_id`. Se sirven solo a través del backend. Sin volumen de fotos (decisión de Ignacio, 2026-11-11) | Un solo volumen y un solo respaldo; la foto y su ficha no se desincronizan; las listas no arrastran bytea. Son ~70 MB |
@@ -119,8 +119,8 @@ Reglas para todas:
 
 ## Ola 3 — Salida (Ignacio, Mony y una sesión)
 
-1. Llamada con Mony: agregar el CNAME `panel` → Vercel. Antes, revisar si hay correo o web en `clubcolina.cl`, para no tocarlos. (Pide el OK de Ignacio.)
-2. Cambiar `PUBLIC_BASE_URL` a `https://panel.clubcolina.cl` y verificar HTTPS.
+1. Llamada con Mony: agregar el CNAME `panel` → Vercel. Antes, revisar si hay correo o web en `clubcolina.com`, para no tocarlos. (Pide el OK de Ignacio.)
+2. Cambiar `PUBLIC_BASE_URL` a `https://panel.clubcolina.com` y verificar HTTPS.
 3. Crear los usuarios del panel con el script.
 4. Importación en producción: respaldo manual, `--dry-run`, revisar el resumen y luego en real. (Pide el OK de Ignacio.)
 5. Piloto con 3 a 5 familias y prueba de escaneo en el Pucalán.
