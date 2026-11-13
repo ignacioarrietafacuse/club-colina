@@ -32,6 +32,7 @@ import {
   FOTO_MAX_BYTES,
   FOTO_MIMES,
   METODOS_PAGO,
+  MODOS_FLOW,
   ORIGENES,
   TIPOS_SOLICITUD,
 } from "@club-colina/shared";
@@ -396,5 +397,30 @@ export const fichasPrevias = pgTable(
     unique("fichas_previas_apoderado_key").on(t.apoderado_id),
     check("fichas_previas_una_persona_check", sql.raw(`num_nonnulls("jugador_id", "apoderado_id") = 1`)),
     index("fichas_previas_solicitud_idx").on(t.solicitud_id),
+  ],
+);
+
+/**
+ * La suscripción del club al servicio en Flow (ver docs/suscripcion-flow.md). Flow es la fuente de
+ * verdad: acá solo quedan los ids para encontrarla. Una sola fila (`id = 1`).
+ *
+ * `modo` es el `FLOW_MODO` con que se crearon los ids: los de sandbox no existen en producción. Si
+ * el backend corre con otro modo, ignora la fila (la página queda "sin tarjeta") y la reemplaza al
+ * inscribir una tarjeta en el modo nuevo.
+ */
+export const suscripcionServicio = pgTable(
+  "suscripcion_servicio",
+  {
+    id: smallint("id").primaryKey().default(1),
+    modo: text("modo").notNull(),
+    flow_customer_id: text("flow_customer_id").notNull(),
+    flow_subscription_id: text("flow_subscription_id"),
+    /** El correo con que se creó el cliente en Flow (uno del club, no uno personal). */
+    email: text("email").notNull(),
+    ...tiempos,
+  },
+  () => [
+    check("suscripcion_servicio_una_fila_check", sql.raw(`"id" = 1`)),
+    check("suscripcion_servicio_modo_check", enLista("modo", MODOS_FLOW)),
   ],
 );

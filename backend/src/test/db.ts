@@ -31,6 +31,11 @@ export function configTest(extra: Partial<Config> = {}): Config {
     ORIGENES_PERMITIDOS: [],
     MIGRAR_AL_ARRANCAR: "no",
     PROXY_SECRETO: undefined,
+    FLOW_MODO: undefined,
+    FLOW_SANDBOX_API_KEY: undefined,
+    FLOW_SANDBOX_SECRET_KEY: undefined,
+    FLOW_PROD_API_KEY: undefined,
+    FLOW_PROD_SECRET_KEY: undefined,
     ...extra,
   };
 }

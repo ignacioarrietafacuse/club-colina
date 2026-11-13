@@ -18,6 +18,7 @@ import { Route as PanelCategoriasRouteImport } from './routes/_panel/categorias'
 import { Route as PanelConversacionesRouteImport } from './routes/_panel/conversaciones'
 import { Route as PanelLeadsRouteImport } from './routes/_panel/leads'
 import { Route as PanelPagosRouteImport } from './routes/_panel/pagos'
+import { Route as PanelSuscripcionRouteImport } from './routes/_panel/suscripcion'
 import { Route as PanelTorneosRouteImport } from './routes/_panel/torneos'
 import { Route as PanelUniformesRouteImport } from './routes/_panel/uniformes'
 import { Route as CTokenRouteImport } from './routes/c.$token'
@@ -74,6 +75,11 @@ const PanelLeadsRoute = PanelLeadsRouteImport.update({
 const PanelPagosRoute = PanelPagosRouteImport.update({
   id: '/pagos',
   path: '/pagos',
+  getParentRoute: () => PanelRoute,
+} as any)
+const PanelSuscripcionRoute = PanelSuscripcionRouteImport.update({
+  id: '/suscripcion',
+  path: '/suscripcion',
   getParentRoute: () => PanelRoute,
 } as any)
 const PanelTorneosRoute = PanelTorneosRouteImport.update({
@@ -153,6 +159,7 @@ export interface FileRoutesByFullPath {
   '/conversaciones': typeof PanelConversacionesRoute
   '/leads': typeof PanelLeadsRoute
   '/pagos': typeof PanelPagosRoute
+  '/suscripcion': typeof PanelSuscripcionRoute
   '/torneos': typeof PanelTorneosRoute
   '/uniformes': typeof PanelUniformesRoute
   '/c/$token': typeof CTokenRoute
@@ -175,6 +182,7 @@ export interface FileRoutesByTo {
   '/conversaciones': typeof PanelConversacionesRoute
   '/leads': typeof PanelLeadsRoute
   '/pagos': typeof PanelPagosRoute
+  '/suscripcion': typeof PanelSuscripcionRoute
   '/torneos': typeof PanelTorneosRoute
   '/uniformes': typeof PanelUniformesRoute
   '/c/$token': typeof CTokenRoute
@@ -200,6 +208,7 @@ export interface FileRoutesById {
   '/_panel/conversaciones': typeof PanelConversacionesRoute
   '/_panel/leads': typeof PanelLeadsRoute
   '/_panel/pagos': typeof PanelPagosRoute
+  '/_panel/suscripcion': typeof PanelSuscripcionRoute
   '/_panel/torneos': typeof PanelTorneosRoute
   '/_panel/uniformes': typeof PanelUniformesRoute
   '/c/$token': typeof CTokenRoute
@@ -226,6 +235,7 @@ export interface FileRouteTypes {
     | '/conversaciones'
     | '/leads'
     | '/pagos'
+    | '/suscripcion'
     | '/torneos'
     | '/uniformes'
     | '/c/$token'
@@ -248,6 +258,7 @@ export interface FileRouteTypes {
     | '/conversaciones'
     | '/leads'
     | '/pagos'
+    | '/suscripcion'
     | '/torneos'
     | '/uniformes'
     | '/c/$token'
@@ -272,6 +283,7 @@ export interface FileRouteTypes {
     | '/_panel/conversaciones'
     | '/_panel/leads'
     | '/_panel/pagos'
+    | '/_panel/suscripcion'
     | '/_panel/torneos'
     | '/_panel/uniformes'
     | '/c/$token'
@@ -360,6 +372,13 @@ declare module '@tanstack/react-router' {
       path: '/pagos'
       fullPath: '/pagos'
       preLoaderRoute: typeof PanelPagosRouteImport
+      parentRoute: typeof PanelRoute
+    }
+    '/_panel/suscripcion': {
+      id: '/_panel/suscripcion'
+      path: '/suscripcion'
+      fullPath: '/suscripcion'
+      preLoaderRoute: typeof PanelSuscripcionRouteImport
       parentRoute: typeof PanelRoute
     }
     '/_panel/torneos': {
@@ -462,6 +481,7 @@ interface PanelRouteChildren {
   PanelConversacionesRoute: typeof PanelConversacionesRoute
   PanelLeadsRoute: typeof PanelLeadsRoute
   PanelPagosRoute: typeof PanelPagosRoute
+  PanelSuscripcionRoute: typeof PanelSuscripcionRoute
   PanelTorneosRoute: typeof PanelTorneosRoute
   PanelUniformesRoute: typeof PanelUniformesRoute
   PanelIndexRoute: typeof PanelIndexRoute
@@ -481,6 +501,7 @@ const PanelRouteChildren: PanelRouteChildren = {
   PanelConversacionesRoute: PanelConversacionesRoute,
   PanelLeadsRoute: PanelLeadsRoute,
   PanelPagosRoute: PanelPagosRoute,
+  PanelSuscripcionRoute: PanelSuscripcionRoute,
   PanelTorneosRoute: PanelTorneosRoute,
   PanelUniformesRoute: PanelUniformesRoute,
   PanelIndexRoute: PanelIndexRoute,

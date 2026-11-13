@@ -30,6 +30,7 @@ describe("rutas", () => {
         "/login",
         "/pagos",
         "/registro",
+        "/suscripcion",
         "/torneos",
         "/uniformes",
       ].sort(),
