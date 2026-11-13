@@ -212,7 +212,7 @@ function Activa({ datos, alCambiar }: { datos: SuscripcionResponse; alCambiar: (
             <p>
               {datos.puede_reintentar
                 ? "El último cobro de la suscripción no se pudo hacer. Cambia la tarjeta o reintenta el cobro."
-                : "El último cobro de la suscripción no se pudo hacer. Cambia la tarjeta; Flow lo volverá a intentar solo."}{" "}
+                : "El último cobro de la suscripción no se pudo hacer. Cambia la tarjeta para el próximo intento de cobro."}{" "}
               El panel sigue funcionando normalmente.
             </p>
           </div>

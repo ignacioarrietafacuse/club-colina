@@ -211,6 +211,9 @@ export async function rutasSuscripcion(app: FastifyInstance) {
           if (resultado.tipo === "falta_email") {
             throw new ErrorApi(409, "conflicto", "Falta el correo para inscribir la tarjeta.");
           }
+          if (resultado.tipo === "fila_cambiada") {
+            throw new ErrorApi(409, "conflicto", "Otra inscripción cambió la suscripción. Vuelve a intentarlo.");
+          }
           if (resultado.tipo === "produccion_activa") {
             throw new ErrorApi(409, "conflicto", "Hay una suscripción de producción guardada: no se inscribe en modo de prueba.");
           }

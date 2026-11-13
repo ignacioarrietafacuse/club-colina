@@ -45,6 +45,8 @@ export class FlowSimulado {
   proximoCobro = "2026-12-13 00:00:00";
   /** Si se pone, `customer/register` responde esta URL en vez de la de Flow. */
   urlRegistro: string | null = null;
+  /** Demora de `subscription/create`, para simular a Flow lento. */
+  demoraCreacionMs = 0;
   plan = { planId: "suscripcion_clubcolina", name: "Suscripción Club Colina", amount: 200000, currency: "CLP" };
   clientes = new Map<string, { customerId: string; email: string; creditCardType?: string; last4CardDigits?: string }>();
   /** token de registro → customerId y si la inscripción fue exitosa. */
@@ -87,6 +89,9 @@ export class FlowSimulado {
     const firmados: ParametrosFlow = sinFirma;
     if (params.apiKey !== this.apiKey || s !== firmar(firmados, this.secretKey)) {
       return Response.json({ code: 401, message: "firma" }, { status: 401 });
+    }
+    if (servicio === "subscription/create" && this.demoraCreacionMs > 0) {
+      await new Promise((listo) => setTimeout(listo, this.demoraCreacionMs));
     }
     return this.atender(servicio, sinFirma);
   };

@@ -314,6 +314,43 @@ describe("inscribir la tarjeta y retorno", () => {
     expect(flow.suscripciones.size).toBe(2);
   });
 
+  it("si Flow tarda en crear la suscripción, un segundo retorno con el mismo token espera y responde ok", { timeout: 20_000 }, async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    const { token } = await inscribir(app, c, flow);
+    flow.completarRegistro(token);
+    flow.demoraCreacionMs = 7_000;
+    const primero = retorno(app, token);
+    await new Promise((listo) => setTimeout(listo, 300));
+    const segundo = retorno(app, token);
+    const r = await Promise.all([primero, segundo]);
+    expect(r.map((x) => x.headers.location)).toEqual([`${BASE}/suscripcion?resultado=ok`, `${BASE}/suscripcion?resultado=ok`]);
+    expect(flow.suscripciones.size).toBe(1);
+  });
+
+  it("si el candado no se libera en 5 s, inscribir responde 503 sin colgarse", { timeout: 20_000 }, async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    const otra = crearDb(urlTest(), { max: 1 });
+    try {
+      await otra.db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(${CANDADO_SUSCRIPCION})`);
+        const r = await app.inject({
+          method: "POST",
+          url: "/api/suscripcion/inscribir-tarjeta",
+          cookies: c,
+          headers: { origin: BASE },
+          payload: { email: EMAIL },
+        });
+        expect(r.statusCode).toBe(503);
+        expect(r.json<{ error: { codigo: string } }>().error.codigo).toBe("no_disponible");
+      });
+    } finally {
+      await otra.cerrar();
+    }
+    expect(flow.servicios()).not.toContain("customer/create");
+  });
+
   it("un token inventado responde sin esperar el candado", async () => {
     const flow = sandbox();
     const { app, cookies: c } = await armar(flow);

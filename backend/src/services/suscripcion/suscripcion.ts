@@ -103,18 +103,23 @@ export async function leerRegistro(db: Ejecutor, modo: ModoFlow): Promise<Regist
   };
 }
 
-/** Cuánto espera una petición el candado antes de rendirse (no ocupa una conexión sin límite). */
-const ESPERA_CANDADO = "5s";
+/**
+ * Cuánto espera una petición el candado antes de rendirse (no ocupa una conexión sin límite). El
+ * retorno espera más que el plazo de Flow de otro retorno (20 s): un segundo retorno con el mismo
+ * token (recargar, reenviar el POST) espera al primero y responde "ok", no "error". Solo llega a
+ * esperar quien trae el token pendiente: los demás se rechazan antes del candado.
+ */
+export const ESPERA_CANDADO_MS = { inscribir: 5_000, retorno: 25_000 } as const;
 
 function esEsperaVencida(error: unknown): boolean {
   const causa: unknown = error instanceof Error && "cause" in error ? error.cause : undefined;
   return [error, causa].some((e) => typeof e === "object" && e !== null && "code" in e && e.code === "55P03");
 }
 
-async function conCandado<T>(db: Db, fn: (tx: Ejecutor) => Promise<T>): Promise<T> {
+async function conCandado<T>(db: Db, esperaMs: number, fn: (tx: Ejecutor) => Promise<T>): Promise<T> {
   try {
     return await db.transaction(async (tx) => {
-      await tx.execute(sql.raw(`set local lock_timeout = '${ESPERA_CANDADO}'`));
+      await tx.execute(sql.raw(`set local lock_timeout = ${Math.trunc(esperaMs)}`));
       await tx.execute(sql`select pg_advisory_xact_lock(${CANDADO_SUSCRIPCION})`);
       return fn(tx);
     });
@@ -244,7 +249,8 @@ export async function leerEstado(
 export type ResultadoInscribir =
   | { tipo: "url"; url: string }
   | { tipo: "falta_email" }
-  | { tipo: "produccion_activa" };
+  | { tipo: "produccion_activa" }
+  | { tipo: "fila_cambiada" };
 
 /**
  * Si no hay cliente en Flow para el modo activo, lo crea con `email` y lo guarda con el modo
@@ -260,7 +266,7 @@ export async function inscribirTarjeta(
 ): Promise<ResultadoInscribir> {
   // 1) El cliente, guardado en su propia transacción: si después falla el registro de tarjeta, el
   //    cliente ya creado en Flow no se pierde (y el siguiente intento no crea otro).
-  const cliente = await conCandado(db, async (tx): Promise<ResultadoInscribir | string> => {
+  const cliente = await conCandado(db, ESPERA_CANDADO_MS.inscribir, async (tx): Promise<ResultadoInscribir | string> => {
     const fila = await leerFila(tx);
     if (fila && fila.modo === "produccion" && flow.modo === "sandbox") return { tipo: "produccion_activa" };
     let customerId = fila?.modo === flow.modo ? fila.flow_customer_id : null;
@@ -289,18 +295,22 @@ export async function inscribirTarjeta(
   const customerId = cliente;
 
   // 2) El registro de tarjeta. La URL tiene que ser https en el sitio de Flow del modo activo.
-  const host = new URL(URL_FLOW[flow.modo]).host;
+  // El host exacto de la página de registro no está documentado: se acepta el de la API del modo o
+  // cualquier subdominio de flow.cl, siempre con https.
+  const host = new URL(URL_FLOW[flow.modo]).hostname;
   const urlDeFlow = z.url().refine((u) => {
     const x = new URL(u);
-    return x.protocol === "https:" && x.host === host;
+    return x.protocol === "https:" && (x.hostname === host || x.hostname === "flow.cl" || x.hostname.endsWith(".flow.cl"));
   });
   const registro = deFlow(z.object({ url: urlDeFlow, token: z.string().min(1) }), "customer/register")(
     await flow.post("customer/register", { customerId, url_return: opciones.urlRetorno }),
   );
 
-  // 3) El hash de su token, como el único que el retorno va a aceptar (si el cliente sigue siendo
-  //    el mismo: si entretanto otra inscripción cambió la fila, este token no queda pendiente).
-  await db
+  // 3) El hash de su token, como el único que el retorno va a aceptar. Con el candado, para no
+  //    cruzarse con un retorno en curso; y solo si el cliente sigue siendo el mismo. Si la fila
+  //    cambió entretanto, no se entrega una URL cuyo retorno terminaría siempre en "error".
+  const guardado = await conCandado(db, ESPERA_CANDADO_MS.inscribir, (tx) =>
+    tx
     .update(suscripcionServicio)
     .set({
       registro_token_hash: hashToken(registro.token),
@@ -312,7 +322,10 @@ export async function inscribirTarjeta(
         eq(suscripcionServicio.modo, flow.modo),
         eq(suscripcionServicio.flow_customer_id, customerId),
       ),
-    );
+    )
+    .returning({ id: suscripcionServicio.id }),
+  );
+  if (guardado.length === 0) return { tipo: "fila_cambiada" };
   const url = new URL(registro.url);
   url.searchParams.set("token", registro.token);
   return { tipo: "url", url: url.toString() };
@@ -339,7 +352,7 @@ export async function procesarRetorno(
   // Antes del candado: un token que no es el pendiente no ocupa una conexión esperando.
   const previo = await leerRegistro(db, flow.modo);
   if (!previo || previo.registro_token_hash !== hash) return "error";
-  return conCandado(db, async (tx) => {
+  return conCandado(db, ESPERA_CANDADO_MS.retorno, async (tx) => {
     const registro = await leerRegistro(tx, flow.modo);
     if (!registro || registro.registro_token_hash !== hash) return "error";
     // Ya usado: el mismo retorno otra vez (recargar, volver atrás). No se toca Flow.
@@ -355,7 +368,7 @@ export async function procesarRetorno(
       await tx
         .update(suscripcionServicio)
         .set({ registro_token_hash: null, registro_token_expira: null })
-        .where(eq(suscripcionServicio.id, 1));
+        .where(and(eq(suscripcionServicio.id, 1), eq(suscripcionServicio.registro_token_hash, hash)));
       return "error";
     }
     const subscriptionId =
@@ -371,7 +384,7 @@ export async function procesarRetorno(
     await tx
       .update(suscripcionServicio)
       .set({ flow_subscription_id: subscriptionId, registro_token_expira: null })
-      .where(eq(suscripcionServicio.id, 1));
+      .where(and(eq(suscripcionServicio.id, 1), eq(suscripcionServicio.registro_token_hash, hash)));
     return "ok";
   });
 }

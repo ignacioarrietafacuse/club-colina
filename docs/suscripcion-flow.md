@@ -76,11 +76,13 @@ creó una nueva y su respuesta se perdió), `GET /api/suscripcion` busca la vige
 pendiente deja de servir: un cobro ya hecho nunca se ve como "sin tarjeta".
 
 Inscribir y el retorno toman un candado de Postgres (`CANDADO_SUSCRIPCION`), con a lo más 5 s de
-espera: dos clics seguidos no crean dos clientes, y dos retornos a la vez no crean dos suscripciones.
+espera al inscribir y 25 s en el retorno (más que el plazo de Flow de otro retorno: si Mony recarga
+mientras Flow crea la suscripción, el segundo retorno espera al primero y responde "ok"): dos clics seguidos no crean dos clientes, y dos retornos a la vez no crean dos suscripciones.
 El retorno compara el token antes de pedir el candado, así un token inventado no ocupa una conexión
 esperando. Al inscribir, el cliente nuevo de Flow se guarda antes de pedir el registro de tarjeta: si
 el registro falla, el siguiente intento no crea otro cliente. La URL que devuelve Flow tiene que ser
-https en el sitio de Flow del modo activo; si no, no se entrega.
+https en `flow.cl` o un subdominio suyo; si no, no se entrega. El hash del token se guarda con el
+candado y solo si el cliente sigue siendo el mismo (si no, 409).
 
 El retorno acepta también `GET` (lo pidió Ignacio), aunque Flow vuelve por `POST`. Riesgo aceptado:
 el token de un `GET` queda en los logs de borde de Vercel y Railway, pero sirve una sola vez, dura
