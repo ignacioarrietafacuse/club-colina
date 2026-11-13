@@ -1,5 +1,5 @@
 {
-  "id": "cdd0fe27-b716-497a-8c69-8493d11ccca0",
+  "id": "3d291dfa-4ef6-4fb2-a7c3-311e618bc6ce",
   "prevId": "923a657d-8f76-4a82-9ac5-a0b4ab7904e2",
   "version": "7",
   "dialect": "postgresql",
@@ -1348,6 +1348,18 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "registro_token_hash": {
+          "name": "registro_token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registro_token_expira": {
+          "name": "registro_token_expira",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "creado_en": {
           "name": "creado_en",

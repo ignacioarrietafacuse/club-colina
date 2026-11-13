@@ -417,6 +417,14 @@ export const suscripcionServicio = pgTable(
     flow_subscription_id: text("flow_subscription_id"),
     /** El correo con que se creó el cliente en Flow (uno del club, no uno personal). */
     email: text("email").notNull(),
+    /**
+     * `hashToken()` del token de la última inscripción de tarjeta pedida a Flow. El retorno solo
+     * acepta ese token: así un token viejo (del historial del navegador, por ejemplo) no vuelve a
+     * crear una suscripción cancelada. Mientras `registro_token_expira` tiene fecha, está pendiente;
+     * al usarse queda en NULL, y un retorno repetido con el mismo token responde "ok" sin tocar Flow.
+     */
+    registro_token_hash: text("registro_token_hash"),
+    registro_token_expira: timestamp("registro_token_expira", { withTimezone: true }),
     ...tiempos,
   },
   () => [

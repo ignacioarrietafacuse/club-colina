@@ -1,8 +1,8 @@
 import type { SuscripcionResponse } from "@club-colina/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearch } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { AlertTriangle, CreditCard, RefreshCw, Wallet } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Badge, Button, Card, PageHeader } from "@/components/panel/ui";
 import { api, mensajeDeError, reintentar } from "@/lib/api";
 import {
@@ -24,7 +24,14 @@ const CAMPO =
  * bloquea. Sin "Cancelar suscripción" ni cambio de plan.
  */
 export function SuscripcionPage() {
-  const { resultado } = useSearch({ from: "/_panel/suscripcion" });
+  const { resultado: enUrl } = useSearch({ from: "/_panel/suscripcion" });
+  const navigate = useNavigate();
+  // El mensaje de vuelta de Flow se muestra una vez: se guarda y se limpia la URL, así no reaparece
+  // al recargar.
+  const [resultado] = useState(enUrl);
+  useEffect(() => {
+    if (enUrl) void navigate({ to: "/suscripcion", search: {}, replace: true });
+  }, [enUrl, navigate]);
   const queryClient = useQueryClient();
   const consulta = useQuery({
     queryKey: CLAVE_SUSCRIPCION,
@@ -116,11 +123,14 @@ function useInscribir() {
 function SinTarjeta({ datos }: { datos: SuscripcionResponse }) {
   const [email, setEmail] = useState("");
   const inscribir = useInscribir();
+  // Con cliente ya creado en Flow, el correo no se pide (Flow sigue usando el primero).
+  const pideEmail = !datos.tiene_cliente;
+  const falta = pideEmail && email.trim() === "";
 
   function enviar(e: FormEvent) {
     e.preventDefault();
-    if (inscribir.isPending || email.trim() === "") return;
-    inscribir.mutate(email.trim());
+    if (inscribir.isPending || falta) return;
+    inscribir.mutate(pideEmail ? email.trim() : undefined);
   }
 
   return (
@@ -138,22 +148,26 @@ function SinTarjeta({ datos }: { datos: SuscripcionResponse }) {
         El cargo es automático y mensual, a partir del día en que inscribas la tarjeta.
       </p>
       <form onSubmit={enviar} noValidate>
-        <label className="block text-sm font-medium" htmlFor="email-suscripcion">
-          Correo para los avisos de Flow
-        </label>
-        <input
-          id="email-suscripcion"
-          type="email"
-          autoComplete="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className={CAMPO}
-          required
-        />
-        <p className="mt-1 mb-4 text-xs text-muted-foreground">
-          Usa un correo del club (por ejemplo, el de tesorería), no uno personal: ahí llegan los
-          comprobantes.
-        </p>
+        {pideEmail && (
+          <>
+            <label className="block text-sm font-medium" htmlFor="email-suscripcion">
+              Correo para los avisos de Flow
+            </label>
+            <input
+              id="email-suscripcion"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={CAMPO}
+              required
+            />
+            <p className="mt-1 mb-4 text-xs text-muted-foreground">
+              Usa un correo del club (por ejemplo, el de tesorería), no uno personal: ahí llegan los
+              comprobantes.
+            </p>
+          </>
+        )}
         {inscribir.isError && (
           <p
             role="alert"
@@ -162,7 +176,7 @@ function SinTarjeta({ datos }: { datos: SuscripcionResponse }) {
             {mensajeDeError(inscribir.error)}
           </p>
         )}
-        <Button type="submit" disabled={inscribir.isPending || email.trim() === ""}>
+        <Button type="submit" disabled={inscribir.isPending || falta}>
           <CreditCard className="size-4" />
           {inscribir.isPending ? "Abriendo Flow…" : "Inscribir tarjeta"}
         </Button>
@@ -211,19 +225,24 @@ function Activa({ datos, alCambiar }: { datos: SuscripcionResponse; alCambiar: (
               {reintento.isPending ? "Reintentando…" : "Reintentar cobro"}
             </Button>
           </div>
-          {reintento.isSuccess && (
-            <p role="status" className="mt-3 text-sm">
-              {reintento.data.resultado === "pagado"
-                ? "Cobro realizado."
-                : "Flow volvió a rechazar el cobro. Prueba cambiando la tarjeta."}
-            </p>
-          )}
           {reintento.isError && (
             <p role="alert" className="mt-3 text-sm text-destructive">
               {mensajeDeError(reintento.error)}
             </p>
           )}
         </div>
+      )}
+
+      {/* Fuera del aviso: si el cobro sale, el aviso desaparece y el mensaje tiene que seguir. */}
+      {reintento.isSuccess && (
+        <p
+          role="status"
+          className={`rounded-lg px-4 py-3 text-sm ${reintento.data.resultado === "pagado" ? "bg-success/10" : "bg-destructive/10 text-destructive"}`}
+        >
+          {reintento.data.resultado === "pagado"
+            ? "Cobro realizado."
+            : "Flow volvió a rechazar el cobro. Prueba cambiando la tarjeta."}
+        </p>
       )}
 
       <Card>

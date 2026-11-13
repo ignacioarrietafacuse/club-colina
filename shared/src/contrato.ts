@@ -759,6 +759,8 @@ export const estadoCobro = z.enum(ESTADOS_COBRO);
 export const suscripcionResponse = z.object({
   estado: estadoSuscripcion,
   modo: modoFlow.nullable(),
+  /** Ya hay cliente en Flow para el modo activo: para inscribir otra tarjeta no se pide el correo. */
+  tiene_cliente: z.boolean(),
   plan: z.object({ nombre: z.string(), monto: z.number().nonnegative(), moneda: z.string() }).nullable(),
   proximo_cobro: fecha.nullable(),
   tarjeta: z.object({ tipo: z.string(), ultimos4: z.string().regex(/^[0-9]{4}$/) }).nullable(),
@@ -768,15 +770,16 @@ export const suscripcionResponse = z.object({
 /**
  * POST /api/suscripcion/inscribir-tarjeta — con sesión. `email` es obligatorio solo la primera vez
  * (cuando aún no hay cliente en Flow para el modo activo); para cambiar la tarjeta no se pide.
- * Responde la URL de Flow a la que el navegador tiene que ir. 409 `conflicto` si falta el correo;
- * 503 `no_disponible` si Flow falla o no está configurado.
+ * Responde la URL de Flow a la que el navegador tiene que ir. 409 `conflicto` si falta el correo o si
+ * se intenta desde sandbox con una suscripción de producción guardada; 503 `no_disponible` si Flow
+ * falla o no está configurado.
  */
 export const inscribirTarjetaRequest = z.object({ email: email.optional() });
 export const inscribirTarjetaResponse = z.object({ url: z.url() });
 
 /**
  * POST /api/suscripcion/reintentar — con sesión y límite de intentos. Reintenta el cobro del
- * importe vencido más antiguo. 409 `conflicto` si no hay ninguno.
+ * importe vencido más antiguo. 409 `conflicto` si no hay ninguno o si Flow no acepta el reintento.
  */
 export const reintentarCobroResponse = z.object({ resultado: z.enum(["pagado", "rechazado"]) });
 

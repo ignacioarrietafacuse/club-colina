@@ -43,7 +43,9 @@ Ignacio.
   defecto.** Un valor malo tampoco impide que arranque el servidor.
 - Si `FLOW_MODO` no coincide con el modo guardado en `suscripcion_servicio`, el backend ignora ese
   registro y la página queda "sin tarjeta" para ese modo (los ids de sandbox no existen en
-  producción). Al inscribir una tarjeta en el modo nuevo, la fila se reemplaza.
+  producción). Al inscribir una tarjeta en producción, la fila de sandbox se reemplaza. Desde
+  sandbox nunca se reemplaza una fila de producción (409): así una prueba no borra los ids de la
+  suscripción real, que seguiría cobrando sin que el panel la viera.
 - Las claves nunca van en el repo, los logs, los PRs ni las respuestas. Los logs registran el modo,
   el servicio y el estado HTTP de cada llamada a Flow; nunca claves, firma ni parámetros.
 - **Firma** (verificada contra developers.flow.cl/api, "¿Cómo firmar con su SecretKey?"):
@@ -59,12 +61,16 @@ Todas con sesión del panel y la clave al día, salvo el retorno.
 |---|---|
 | `GET /api/suscripcion` | Estado combinado leyendo Flow en el momento (`plans/get`, `customer/get`, `subscription/get`; el historial sale de los importes de la suscripción). Estados: `sin_tarjeta`, `activa`, `cobro_fallido`, `no_disponible`, `pendiente_configuracion`. Si Flow falla o tarda más de 8 s en total: `no_disponible` |
 | `POST /api/suscripcion/inscribir-tarjeta` `{email}` | Sin cliente para el modo activo: `customer/create` (name "Club Colina", externalId "club-colina", email) y se guarda con el modo. Luego `customer/register` con el retorno. Devuelve `url + "?token=" + token`. Con cliente, el correo no se pide: es "Cambiar tarjeta" |
-| `GET` y `POST /api/suscripcion/retorno` | Pública: Flow vuelve desde su sitio con un POST de formulario y la cookie de sesión no viaja. Lee el token, llama `customer/getRegisterStatus` y sigue solo si el `customerId` es el guardado para el modo activo y el registro fue exitoso. Si no hay suscripción, la busca en Flow (`customer/getSubscriptions`) y solo si no existe la crea. Termina siempre en 303 a `/suscripcion?resultado=ok\|error`, sin datos. Es la única ruta que acepta un `Origin` ajeno (`config.origenExterno`) |
-| `POST /api/suscripcion/reintentar` | `invoice/retryToCollect` sobre el importe fallido o vencido más antiguo. 3 intentos cada 15 minutos por sesión |
+| `GET` y `POST /api/suscripcion/retorno` | Pública: Flow vuelve desde su sitio con un POST de formulario y la cookie de sesión no viaja. Solo acepta el token de la última inscripción pedida desde el panel (se guarda su hash), dentro de 2 horas y una sola vez; cualquier otro termina en `error` sin llamar a Flow, y uno ya usado responde `ok` sin tocar Flow. Así un token viejo nunca vuelve a crear una suscripción cancelada. Luego llama `customer/getRegisterStatus` y sigue solo si el `customerId` es el guardado para el modo activo y el registro fue exitoso. Si no hay suscripción, la busca en Flow (`customer/getSubscriptions`) y solo si no existe la crea. Termina siempre en 303 a `/suscripcion?resultado=ok\|error`, sin datos. Es la única ruta que acepta un `Origin` ajeno (`config.origenExterno`) |
+| `POST /api/suscripcion/reintentar` | `invoice/retryToCollect` sobre el importe vencido más antiguo (Flow solo reintenta vencidos). 409 si no hay vencidos o si Flow rechaza el reintento; 503 solo si Flow no responde. 3 intentos cada 15 minutos por usuario |
 | `GET /api/suscripcion/aviso` | Solo `{cobro_fallido}`, con caché en memoria de 15 minutos. Se invalida al inscribir, al volver de Flow y al reintentar; `GET /api/suscripcion` la deja al día |
 
 "Cobro fallido": la suscripción está morosa en Flow (`morose = 1`) o tiene un importe impago con
-error de cobro o vencido.
+error de cobro o vencido, aunque Flow ya no informe la tarjeta.
+
+Si hay cliente pero no quedó guardado el id de la suscripción (Flow la creó y su respuesta se
+perdió), `GET /api/suscripcion` la busca en Flow (`customer/getSubscriptions`) y la guarda: un cobro
+ya hecho nunca se ve como "sin tarjeta".
 
 Inscribir y el retorno toman un candado de Postgres (`CANDADO_SUSCRIPCION`): dos clics seguidos no
 crean dos clientes, y dos retornos a la vez no crean dos suscripciones.

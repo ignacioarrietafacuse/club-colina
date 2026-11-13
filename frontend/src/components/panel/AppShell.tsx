@@ -139,7 +139,8 @@ export function AppShell({
 
         <div className="flex-1 min-w-0">
           <main className="p-4 sm:p-6 lg:p-8 max-w-[1500px] mx-auto animate-in-up">
-            {avisoCobroFallido && !soloCambiarClave && (
+            {/* En la página de la suscripción ya está su propio aviso. */}
+            {avisoCobroFallido && !soloCambiarClave && pathname !== "/suscripcion" && (
               <div
                 role="alert"
                 className="mb-4 flex flex-wrap items-center gap-2 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive"

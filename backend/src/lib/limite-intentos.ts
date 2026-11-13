@@ -104,7 +104,7 @@ export const LIMITES = {
   },
   /**
    * Suscripción del club (docs/suscripcion-flow.md). Las de inscribir y reintentar van con sesión
-   * (llave: la sesión); el retorno es público y va por IP. Cada uno de estos pedidos llama a Flow.
+   * (llave: el usuario); el retorno es público y va por IP. Cada uno de estos pedidos llama a Flow.
    */
   suscripcionInscribir: {
     max: 10,
@@ -119,10 +119,12 @@ export const LIMITES = {
   suscripcionRetorno: { max: 20, timeWindow: "10 minutes" },
 } as const;
 
-/** La sesión del panel (su hash) o, si no hay cookie, la IP. */
+/**
+ * El usuario del panel (corre después de `exigirSesion`), así abrir otra sesión no suma intentos;
+ * sin usuario, la IP.
+ */
 function llaveSesion(request: FastifyRequest): string {
-  const token = request.cookies[COOKIE_SESION];
-  return token ? hashToken(token) : ipCliente(request);
+  return request.usuarioPanel ? `usuario|${request.usuarioPanel.id}` : ipCliente(request);
 }
 
 export async function registrarLimiteIntentos(app: FastifyInstance) {

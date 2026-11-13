@@ -41,30 +41,50 @@ const DURACION_AVISO_FALLIDO_MS = 60 * 1000;
 /** El token con que vuelve Flow: letras y números (ej. "41097C28B5BD78C77F589FE4BC59E18AC333F9EU"). */
 const tokenRetorno = z.string().regex(/^[A-Za-z0-9]{8,128}$/);
 
-/** Caché en memoria del aviso, por modo. Hay una sola instancia del backend. */
+/**
+ * El retorno tiene más plazo que la página: si `subscription/create` alcanza a cobrar en Flow, que
+ * su respuesta no se pierda por unos segundos. Igual, si se pierde, la página la reencuentra.
+ */
+const PLAZO_RETORNO_MS = 20_000;
+
+/**
+ * Caché en memoria del aviso, por modo. Hay una sola instancia del backend. Cada invalidación sube la
+ * generación: una lectura de Flow que empezó antes no guarda su resultado viejo.
+ */
 class CacheAviso {
   private porModo = new Map<ModoFlow, { cobro_fallido: boolean; expira: number }>();
+  private generacion = 0;
+  actual(): number {
+    return this.generacion;
+  }
   leer(modo: ModoFlow): boolean | undefined {
     const valor = this.porModo.get(modo);
     return valor && valor.expira > Date.now() ? valor.cobro_fallido : undefined;
   }
-  guardar(modo: ModoFlow, cobro_fallido: boolean, duracion = DURACION_AVISO_MS) {
+  guardar(modo: ModoFlow, cobro_fallido: boolean, desde: number, duracion = DURACION_AVISO_MS) {
+    if (desde !== this.generacion) return;
     this.porModo.set(modo, { cobro_fallido, expira: Date.now() + duracion });
   }
   invalidar() {
+    this.generacion += 1;
     this.porModo.clear();
   }
 }
 
-/** El cliente de Flow para esta petición, con su plazo total de 8 s; null si falta configurar. */
-function clienteFlow(request: FastifyRequest): ClienteFlow | null {
+/** El cliente de Flow para esta petición, con su plazo total (8 s); null si falta configurar. */
+function clienteFlow(request: FastifyRequest, plazo = PLAZO_FLOW_MS): ClienteFlow | null {
   const cfg = configFlow(request.server.config);
   if (!cfg) return null;
   return crearClienteFlow(cfg, {
     fetch: request.server.fetchFlow,
     log: request.log,
-    senal: AbortSignal.timeout(PLAZO_FLOW_MS),
+    senal: AbortSignal.timeout(plazo),
   });
+}
+
+/** Flow respondió, pero con un error de negocio (400 o 401 con su cuerpo de error). */
+function esRechazoDeFlow(error: ErrorFlow): boolean {
+  return (error.status === 400 || error.status === 401) && error.codigoFlow !== undefined;
 }
 
 function noDisponible(): ErrorApi {
@@ -104,16 +124,17 @@ export async function rutasSuscripcion(app: FastifyInstance) {
       const desdeCuerpo = typeof request.body === "object" && request.body !== null ? Reflect.get(request.body, "token") : undefined;
       const desdeConsulta = typeof request.query === "object" && request.query !== null ? Reflect.get(request.query, "token") : undefined;
       const token = tokenRetorno.safeParse(desdeCuerpo ?? desdeConsulta);
-      const flow = clienteFlow(request);
+      const flow = clienteFlow(request, PLAZO_RETORNO_MS);
       if (!token.success || !flow) return destino("error");
       try {
         const resultado = await procesarRetorno(request.server.db, flow, token.data);
-        aviso.invalidar();
-        if (resultado === "error") request.log.warn({ flow: { modo: flow.modo } }, "retorno de Flow rechazado");
+        if (resultado === "ok") aviso.invalidar();
+        else request.log.warn({ flow: { modo: flow.modo } }, "retorno de Flow rechazado");
         return destino(resultado);
       } catch (error) {
-        if (!(error instanceof ErrorFlow)) throw error;
-        registrarFallaFlow(request, error);
+        // Siempre termina en la página del panel, nunca en un error JSON en el navegador.
+        if (error instanceof ErrorFlow) registrarFallaFlow(request, error);
+        else request.log.error({ err: error }, "error en el retorno de Flow");
         return destino("error");
       }
     }
@@ -131,9 +152,10 @@ export async function rutasSuscripcion(app: FastifyInstance) {
 
     panel.get("/", async (request) => {
       const flow = clienteFlow(request);
-      const vacio = { plan: null, proximo_cobro: null, tarjeta: null, historial: [] };
+      const vacio = { tiene_cliente: false, plan: null, proximo_cobro: null, tarjeta: null, historial: [] };
       if (!flow) return respuesta(suscripcionResponse, { ...vacio, estado: "pendiente_configuracion", modo: null });
       let estado: SuscripcionResponse;
+      const generacion = aviso.actual();
       try {
         estado = await leerEstado(request.server.db, flow);
       } catch (error) {
@@ -142,7 +164,7 @@ export async function rutasSuscripcion(app: FastifyInstance) {
         return respuesta(suscripcionResponse, { ...vacio, estado: "no_disponible", modo: flow.modo });
       }
       // Ya que se leyó Flow, el aviso global queda al día.
-      aviso.guardar(flow.modo, estado.estado === "cobro_fallido");
+      aviso.guardar(flow.modo, estado.estado === "cobro_fallido", generacion);
       return respuesta(suscripcionResponse, estado);
     });
 
@@ -151,16 +173,17 @@ export async function rutasSuscripcion(app: FastifyInstance) {
       if (!flow) return respuesta(avisoSuscripcionResponse, { cobro_fallido: false });
       const enCache = aviso.leer(flow.modo);
       if (enCache !== undefined) return respuesta(avisoSuscripcionResponse, { cobro_fallido: enCache });
+      const generacion = aviso.actual();
       try {
         const estado = await leerEstado(request.server.db, flow);
         const cobroFallido = estado.estado === "cobro_fallido";
-        aviso.guardar(flow.modo, cobroFallido);
+        aviso.guardar(flow.modo, cobroFallido, generacion);
         return respuesta(avisoSuscripcionResponse, { cobro_fallido: cobroFallido });
       } catch (error) {
         if (!(error instanceof ErrorFlow)) throw error;
         registrarFallaFlow(request, error);
         // Sin Flow no hay aviso: el pago nunca bloquea ni alarma por una caída de Flow.
-        aviso.guardar(flow.modo, false, DURACION_AVISO_FALLIDO_MS);
+        aviso.guardar(flow.modo, false, generacion, DURACION_AVISO_FALLIDO_MS);
         return respuesta(avisoSuscripcionResponse, { cobro_fallido: false });
       }
     });
@@ -180,6 +203,9 @@ export async function rutasSuscripcion(app: FastifyInstance) {
           });
           if (resultado.tipo === "falta_email") {
             throw new ErrorApi(409, "conflicto", "Falta el correo para inscribir la tarjeta.");
+          }
+          if (resultado.tipo === "produccion_activa") {
+            throw new ErrorApi(409, "conflicto", "Hay una suscripción de producción guardada: no se inscribe en modo de prueba.");
           }
           return respuesta(inscribirTarjetaResponse, { url: resultado.url });
         } catch (error) {
@@ -206,6 +232,9 @@ export async function rutasSuscripcion(app: FastifyInstance) {
         } catch (error) {
           if (!(error instanceof ErrorFlow)) throw error;
           registrarFallaFlow(request, error);
+          if (esRechazoDeFlow(error)) {
+            throw new ErrorApi(409, "conflicto", "Flow no aceptó el reintento del cobro. Prueba cambiando la tarjeta.");
+          }
           throw noDisponible();
         }
       },

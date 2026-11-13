@@ -39,6 +39,10 @@ export class FlowSimulado {
   llamadas: Llamada[] = [];
   /** Si es "caido", responde 500; si es "lento", no responde hasta que se cancele la petición. */
   falla: "caido" | "lento" | null = null;
+  /** Si es true, `invoice/retryToCollect` responde un error de negocio (401 con código). */
+  rechazarReintento = false;
+  /** Si se pone, `subscription/get` devuelve este `next_invoice_date`. */
+  proximoCobro = "2026-12-13 00:00:00";
   plan = { planId: "suscripcion_clubcolina", name: "Suscripción Club Colina", amount: 200000, currency: "CLP" };
   clientes = new Map<string, { customerId: string; email: string; creditCardType?: string; last4CardDigits?: string }>();
   /** token de registro → customerId y si la inscripción fue exitosa. */
@@ -131,9 +135,10 @@ export class FlowSimulado {
       }
       case "subscription/get": {
         const s = this.suscripciones.get(p.subscriptionId ?? "");
-        return s ? Response.json({ ...s, next_invoice_date: "2026-12-13 00:00:00" }) : error(404);
+        return s ? Response.json({ ...s, next_invoice_date: this.proximoCobro }) : error(404);
       }
       case "invoice/retryToCollect": {
+        if (this.rechazarReintento) return Response.json({ code: 1105, message: "rechazo" }, { status: 401 });
         for (const s of this.suscripciones.values()) {
           const i = s.invoices.find((x) => String(x.id) === p.invoiceId);
           if (i) {
