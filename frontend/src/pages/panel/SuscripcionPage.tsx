@@ -210,20 +210,24 @@ function Activa({ datos, alCambiar }: { datos: SuscripcionResponse; alCambiar: (
           <div className="flex items-start gap-2 text-sm text-destructive">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             <p>
-              El último cobro de la suscripción no se pudo hacer. Cambia la tarjeta o reintenta el
-              cobro. El panel sigue funcionando normalmente.
+              {datos.puede_reintentar
+                ? "El último cobro de la suscripción no se pudo hacer. Cambia la tarjeta o reintenta el cobro."
+                : "El último cobro de la suscripción no se pudo hacer. Cambia la tarjeta; Flow lo volverá a intentar solo."}{" "}
+              El panel sigue funcionando normalmente.
             </p>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {botonCambiar}
-            <Button
-              variant="primary"
-              disabled={reintento.isPending}
-              onClick={() => reintento.mutate()}
-            >
-              <RefreshCw className="size-4" />
-              {reintento.isPending ? "Reintentando…" : "Reintentar cobro"}
-            </Button>
+            {datos.puede_reintentar && (
+              <Button
+                variant="primary"
+                disabled={reintento.isPending}
+                onClick={() => reintento.mutate()}
+              >
+                <RefreshCw className="size-4" />
+                {reintento.isPending ? "Reintentando…" : "Reintentar cobro"}
+              </Button>
+            )}
           </div>
           {reintento.isError && (
             <p role="alert" className="mt-3 text-sm text-destructive">

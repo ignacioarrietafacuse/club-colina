@@ -8,8 +8,9 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Ejecutor } from "../../db/cliente";
 import { suscripcionServicio } from "../../db/schema";
+import { ErrorApi } from "../../lib/errores";
 import { hashToken } from "../../lib/tokens";
-import { type ClienteFlow, ErrorFlow } from "./flow-pagos";
+import { type ClienteFlow, ErrorFlow, URL_FLOW } from "./flow-pagos";
 
 /** Candado de Postgres para inscribir y para el retorno: nunca dos clientes ni dos suscripciones. */
 export const CANDADO_SUSCRIPCION = 7_402_032;
@@ -102,11 +103,27 @@ export async function leerRegistro(db: Ejecutor, modo: ModoFlow): Promise<Regist
   };
 }
 
+/** Cuánto espera una petición el candado antes de rendirse (no ocupa una conexión sin límite). */
+const ESPERA_CANDADO = "5s";
+
+function esEsperaVencida(error: unknown): boolean {
+  const causa: unknown = error instanceof Error && "cause" in error ? error.cause : undefined;
+  return [error, causa].some((e) => typeof e === "object" && e !== null && "code" in e && e.code === "55P03");
+}
+
 async function conCandado<T>(db: Db, fn: (tx: Ejecutor) => Promise<T>): Promise<T> {
-  return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(${CANDADO_SUSCRIPCION})`);
-    return fn(tx);
-  });
+  try {
+    return await db.transaction(async (tx) => {
+      await tx.execute(sql.raw(`set local lock_timeout = '${ESPERA_CANDADO}'`));
+      await tx.execute(sql`select pg_advisory_xact_lock(${CANDADO_SUSCRIPCION})`);
+      return fn(tx);
+    });
+  } catch (error) {
+    if (esEsperaVencida(error)) {
+      throw new ErrorApi(503, "no_disponible", "Hay otra operación de la suscripción en curso. Intenta en un momento.");
+    }
+    throw error;
+  }
 }
 
 /** La suscripción vigente (no cancelada) del plan para este cliente, buscada en Flow. */
@@ -130,6 +147,10 @@ export function hoyEnSantiago(ahora: Date = new Date()): string {
 }
 
 // --- Estado -----------------------------------------------------------------------------------
+
+function leerSuscripcion(flow: ClienteFlow, subscriptionId: string) {
+  return flow.get("subscription/get", { subscriptionId }).then(deFlow(suscripcionFlow, "subscription/get"));
+}
 
 /** Importe impago (status 0) que ya venció. */
 function esVencido(importe: ImporteFlow, hoy: string): boolean {
@@ -161,25 +182,36 @@ export async function leerEstado(
   hoy: string = hoyEnSantiago(),
 ): Promise<SuscripcionResponse> {
   const registro = await leerRegistro(db, flow.modo);
-  let subscriptionId = registro?.flow_subscription_id ?? null;
-  if (registro && !subscriptionId) {
-    subscriptionId = (await buscarVigente(flow, registro.flow_customer_id)) ?? null;
-    if (subscriptionId) {
-      await db
-        .update(suscripcionServicio)
-        .set({ flow_subscription_id: subscriptionId })
-        .where(and(eq(suscripcionServicio.id, 1), eq(suscripcionServicio.modo, flow.modo), isNull(suscripcionServicio.flow_subscription_id)));
-    }
-  }
-  const [plan, cliente, suscripcion] = await Promise.all([
+  const guardada = registro?.flow_subscription_id ?? null;
+  const [plan, cliente, primera] = await Promise.all([
     flow.get("plans/get", { planId: PLAN_SUSCRIPCION }).then(deFlow(planFlow, "plans/get")),
     registro
       ? flow.get("customer/get", { customerId: registro.flow_customer_id }).then(deFlow(clienteFlow, "customer/get"))
       : null,
-    subscriptionId
-      ? flow.get("subscription/get", { subscriptionId }).then(deFlow(suscripcionFlow, "subscription/get"))
-      : null,
+    guardada ? leerSuscripcion(flow, guardada) : null,
   ]);
+  let suscripcion = primera;
+  // Sin suscripción guardada, o con una cancelada: puede haber una vigente que el retorno creó y no
+  // alcanzó a guardar. Se busca en Flow y se guarda (solo si la fila sigue como se leyó).
+  if (registro && (!suscripcion || suscripcion.status === SUSCRIPCION_CANCELADA)) {
+    const vigente = await buscarVigente(flow, registro.flow_customer_id);
+    if (vigente && vigente !== guardada) {
+      suscripcion = await leerSuscripcion(flow, vigente);
+      await db
+        .update(suscripcionServicio)
+        // La inscripción pendiente ya se usó: su token deja de servir.
+        .set({ flow_subscription_id: vigente, registro_token_expira: null })
+        .where(
+          and(
+            eq(suscripcionServicio.id, 1),
+            eq(suscripcionServicio.modo, flow.modo),
+            guardada === null
+              ? isNull(suscripcionServicio.flow_subscription_id)
+              : eq(suscripcionServicio.flow_subscription_id, guardada),
+          ),
+        );
+    }
+  }
   const base = {
     modo: flow.modo,
     tiene_cliente: registro !== null,
@@ -189,7 +221,7 @@ export async function leerEstado(
   const tarjeta =
     cliente?.creditCardType && /^[0-9]{4}$/.test(ultimos4) ? { tipo: cliente.creditCardType, ultimos4 } : null;
   if (!suscripcion || suscripcion.status === SUSCRIPCION_CANCELADA) {
-    return { ...base, estado: "sin_tarjeta", proximo_cobro: null, tarjeta: null, historial: [] };
+    return { ...base, estado: "sin_tarjeta", puede_reintentar: false, proximo_cobro: null, tarjeta: null, historial: [] };
   }
   // Con suscripción viva, una tarjeta que Flow ya no informa no esconde un cobro fallido.
   const importes = [...(suscripcion.invoices ?? [])].sort((a, b) => b.created.localeCompare(a.created) || b.id - a.id);
@@ -197,6 +229,8 @@ export async function leerEstado(
   return {
     ...base,
     estado: fallido ? "cobro_fallido" : "activa",
+    // "Reintentar cobro" solo sirve con un importe vencido (Flow no reintenta los demás).
+    puede_reintentar: importes.some((i) => esVencido(i, hoy)),
     proximo_cobro: suscripcion.next_invoice_date ?? null,
     tarjeta,
     historial: importes
@@ -224,7 +258,9 @@ export async function inscribirTarjeta(
   flow: ClienteFlow,
   opciones: { email: string | undefined; urlRetorno: string },
 ): Promise<ResultadoInscribir> {
-  return conCandado(db, async (tx) => {
+  // 1) El cliente, guardado en su propia transacción: si después falla el registro de tarjeta, el
+  //    cliente ya creado en Flow no se pierde (y el siguiente intento no crea otro).
+  const cliente = await conCandado(db, async (tx): Promise<ResultadoInscribir | string> => {
     const fila = await leerFila(tx);
     if (fila && fila.modo === "produccion" && flow.modo === "sandbox") return { tipo: "produccion_activa" };
     let customerId = fila?.modo === flow.modo ? fila.flow_customer_id : null;
@@ -247,20 +283,39 @@ export async function inscribirTarjeta(
         .values({ id: 1, ...nueva })
         .onConflictDoUpdate({ target: suscripcionServicio.id, set: nueva });
     }
-    const registro = deFlow(z.object({ url: z.url(), token: z.string().min(1) }), "customer/register")(
-      await flow.post("customer/register", { customerId, url_return: opciones.urlRetorno }),
-    );
-    await tx
-      .update(suscripcionServicio)
-      .set({
-        registro_token_hash: hashToken(registro.token),
-        registro_token_expira: new Date(Date.now() + VIGENCIA_REGISTRO_MS),
-      })
-      .where(eq(suscripcionServicio.id, 1));
-    const url = new URL(registro.url);
-    url.searchParams.set("token", registro.token);
-    return { tipo: "url" as const, url: url.toString() };
+    return customerId;
   });
+  if (typeof cliente !== "string") return cliente;
+  const customerId = cliente;
+
+  // 2) El registro de tarjeta. La URL tiene que ser https en el sitio de Flow del modo activo.
+  const host = new URL(URL_FLOW[flow.modo]).host;
+  const urlDeFlow = z.url().refine((u) => {
+    const x = new URL(u);
+    return x.protocol === "https:" && x.host === host;
+  });
+  const registro = deFlow(z.object({ url: urlDeFlow, token: z.string().min(1) }), "customer/register")(
+    await flow.post("customer/register", { customerId, url_return: opciones.urlRetorno }),
+  );
+
+  // 3) El hash de su token, como el único que el retorno va a aceptar (si el cliente sigue siendo
+  //    el mismo: si entretanto otra inscripción cambió la fila, este token no queda pendiente).
+  await db
+    .update(suscripcionServicio)
+    .set({
+      registro_token_hash: hashToken(registro.token),
+      registro_token_expira: new Date(Date.now() + VIGENCIA_REGISTRO_MS),
+    })
+    .where(
+      and(
+        eq(suscripcionServicio.id, 1),
+        eq(suscripcionServicio.modo, flow.modo),
+        eq(suscripcionServicio.flow_customer_id, customerId),
+      ),
+    );
+  const url = new URL(registro.url);
+  url.searchParams.set("token", registro.token);
+  return { tipo: "url", url: url.toString() };
 }
 
 // --- Retorno desde Flow -----------------------------------------------------------------------
@@ -281,6 +336,9 @@ export async function procesarRetorno(
   hoy: string = hoyEnSantiago(),
 ): Promise<ResultadoRetorno> {
   const hash = hashToken(token);
+  // Antes del candado: un token que no es el pendiente no ocupa una conexión esperando.
+  const previo = await leerRegistro(db, flow.modo);
+  if (!previo || previo.registro_token_hash !== hash) return "error";
   return conCandado(db, async (tx) => {
     const registro = await leerRegistro(tx, flow.modo);
     if (!registro || registro.registro_token_hash !== hash) return "error";

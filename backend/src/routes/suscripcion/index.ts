@@ -82,9 +82,16 @@ function clienteFlow(request: FastifyRequest, plazo = PLAZO_FLOW_MS): ClienteFlo
   });
 }
 
-/** Flow respondió, pero con un error de negocio (400 o 401 con su cuerpo de error). */
-function esRechazoDeFlow(error: ErrorFlow): boolean {
-  return (error.status === 400 || error.status === 401) && error.codigoFlow !== undefined;
+/**
+ * Flow rechazó el reintento mismo (error de negocio de `invoice/retryToCollect`, que Flow responde
+ * con 400 o 401 y su código). Un error de cualquier otro servicio no es culpa de la tarjeta.
+ */
+function esRechazoDelReintento(error: ErrorFlow): boolean {
+  return (
+    error.servicio === "invoice/retryToCollect" &&
+    (error.status === 400 || error.status === 401) &&
+    error.codigoFlow !== undefined
+  );
 }
 
 function noDisponible(): ErrorApi {
@@ -152,7 +159,7 @@ export async function rutasSuscripcion(app: FastifyInstance) {
 
     panel.get("/", async (request) => {
       const flow = clienteFlow(request);
-      const vacio = { tiene_cliente: false, plan: null, proximo_cobro: null, tarjeta: null, historial: [] };
+      const vacio = { tiene_cliente: false, puede_reintentar: false, plan: null, proximo_cobro: null, tarjeta: null, historial: [] };
       if (!flow) return respuesta(suscripcionResponse, { ...vacio, estado: "pendiente_configuracion", modo: null });
       let estado: SuscripcionResponse;
       const generacion = aviso.actual();
@@ -232,10 +239,13 @@ export async function rutasSuscripcion(app: FastifyInstance) {
         } catch (error) {
           if (!(error instanceof ErrorFlow)) throw error;
           registrarFallaFlow(request, error);
-          if (esRechazoDeFlow(error)) {
+          if (esRechazoDelReintento(error)) {
             throw new ErrorApi(409, "conflicto", "Flow no aceptó el reintento del cobro. Prueba cambiando la tarjeta.");
           }
           throw noDisponible();
+        } finally {
+          // También después: un /aviso que leyó Flow durante el reintento no deja el valor de antes.
+          aviso.invalidar();
         }
       },
     );

@@ -3,8 +3,11 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { construirApp } from "../../app";
 import type { Config } from "../../config";
-import { suscripcionServicio, usuarios } from "../../db/schema";
-import { configTest, dbTest } from "../../test/db";
+import { sesiones, suscripcionServicio, usuarios } from "../../db/schema";
+import { configTest, dbTest, urlTest } from "../../test/db";
+import { crearDb } from "../../db/cliente";
+import { sql } from "drizzle-orm";
+import { CANDADO_SUSCRIPCION } from "../../services/suscripcion/suscripcion";
 import { COOKIE_SESION } from "@club-colina/shared";
 import { crearSesion } from "../../services/panel/sesiones";
 import { crearUsuario } from "../../services/panel/usuarios";
@@ -283,6 +286,79 @@ describe("inscribir la tarjeta y retorno", () => {
     expect(flow.suscripciones.size).toBe(1);
   });
 
+  it("tras una cancelación, una suscripción nueva que no alcanzó a guardarse se reencuentra y su token deja de servir", async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    const primera = await inscribir(app, c, flow);
+    flow.completarRegistro(primera.token);
+    await retorno(app, primera.token);
+    const vieja = [...flow.suscripciones.keys()][0];
+    for (const s of flow.suscripciones.values()) s.status = 4;
+    // Nueva inscripción: Flow crea la suscripción, pero el retorno no alcanza a guardarla.
+    const segunda = await inscribir(app, c, flow);
+    flow.completarRegistro(segunda.token);
+    await flow.fetch(`${URL_FLOW.sandbox}/subscription/create`, {
+      method: "POST",
+      body: (() => {
+        const p = { apiKey: CLAVES_PRUEBA.FLOW_SANDBOX_API_KEY, planId: "suscripcion_clubcolina", customerId: [...flow.clientes.keys()][0] ?? "", subscription_start: hoyEnSantiago(), trial_period_days: "0" };
+        return new URLSearchParams({ ...p, s: firmar(p, CLAVES_PRUEBA.FLOW_SANDBOX_SECRET_KEY) }).toString();
+      })(),
+    });
+    expect((await estado(app, c)).estado).toBe("activa");
+    const [fila] = await db.select().from(suscripcionServicio);
+    expect(fila?.flow_subscription_id).not.toBe(vieja);
+    expect(fila?.registro_token_expira).toBeNull();
+    // Cancelada también la nueva, su token ya no crea una tercera.
+    for (const s of flow.suscripciones.values()) s.status = 4;
+    await retorno(app, segunda.token);
+    expect(flow.suscripciones.size).toBe(2);
+  });
+
+  it("un token inventado responde sin esperar el candado", async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    await inscribir(app, c, flow);
+    const otra = crearDb(urlTest(), { max: 1 });
+    try {
+      await otra.db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(${CANDADO_SUSCRIPCION})`);
+        const inicio = Date.now();
+        const r = await retorno(app, "TOKINVENTADO123");
+        expect(r.headers.location).toContain("resultado=error");
+        expect(Date.now() - inicio).toBeLessThan(2000);
+      });
+    } finally {
+      await otra.cerrar();
+    }
+  });
+
+  it("si Flow devuelve una URL de registro fuera de su sitio, no se entrega", async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    flow.urlRegistro = "javascript:alert(1)";
+    const r = await app.inject({
+      method: "POST",
+      url: "/api/suscripcion/inscribir-tarjeta",
+      cookies: c,
+      headers: { origin: BASE },
+      payload: { email: EMAIL },
+    });
+    expect(r.statusCode).toBe(503);
+    // El cliente quedó guardado: el próximo intento no crea otro.
+    flow.urlRegistro = "https://flow.cl.otro.example/app";
+    const otro = await app.inject({
+      method: "POST",
+      url: "/api/suscripcion/inscribir-tarjeta",
+      cookies: c,
+      headers: { origin: BASE },
+      payload: {},
+    });
+    expect(otro.statusCode).toBe(503);
+    flow.urlRegistro = null;
+    await inscribir(app, c, flow, undefined);
+    expect(flow.clientes.size).toBe(1);
+  });
+
   it("un token que no es el de la última inscripción no llama a Flow", async () => {
     const flow = sandbox();
     const { app, cookies: c } = await armar(flow);
@@ -532,6 +608,28 @@ describe("cobro fallido, reintento y aviso", () => {
     }
     expect(codigos.slice(0, 10).every((x) => x === 409)).toBe(true);
     expect(codigos[10]).toBe(429);
+  });
+
+  it("el límite de reintentar es por usuario, no por sesión", async () => {
+    const { app, cookies: c } = await conSuscripcion();
+    const [sesion] = await db.select({ usuario_id: sesiones.usuario_id }).from(sesiones).where(eq(sesiones.id, hashToken(c[COOKIE_SESION] ?? "")));
+    if (!sesion) throw new Error("sin sesión");
+    const { token } = await crearSesion(db, sesion.usuario_id);
+    const otra = { [COOKIE_SESION]: token };
+    const codigos: number[] = [];
+    for (const cookiesUsadas of [c, c, c, otra]) {
+      const r = await app.inject({ method: "POST", url: "/api/suscripcion/reintentar", cookies: cookiesUsadas, headers: { origin: BASE } });
+      codigos.push(r.statusCode);
+    }
+    expect(codigos).toEqual([409, 409, 409, 429]);
+  });
+
+  it("puede_reintentar solo con un importe vencido", async () => {
+    const { app, cookies: c, sus } = await conSuscripcion();
+    sus.invoices.push({ id: 903, created: "2099-01-13 10:00:00", amount: 200000, status: 0, error: 1, due_date: "2099-01-16 00:00:00" });
+    expect(await estado(app, c)).toMatchObject({ estado: "cobro_fallido", puede_reintentar: false });
+    sus.invoices.push({ id: 904, created: "2020-01-13 10:00:00", amount: 200000, status: 0, error: 0, due_date: "2020-01-16 00:00:00" });
+    expect(await estado(app, c)).toMatchObject({ estado: "cobro_fallido", puede_reintentar: true });
   });
 
   it("reintentar sin vencidos responde 409, y tiene límite de intentos", async () => {

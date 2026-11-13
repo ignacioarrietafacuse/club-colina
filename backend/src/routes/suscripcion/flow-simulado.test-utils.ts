@@ -43,6 +43,8 @@ export class FlowSimulado {
   rechazarReintento = false;
   /** Si se pone, `subscription/get` devuelve este `next_invoice_date`. */
   proximoCobro = "2026-12-13 00:00:00";
+  /** Si se pone, `customer/register` responde esta URL en vez de la de Flow. */
+  urlRegistro: string | null = null;
   plan = { planId: "suscripcion_clubcolina", name: "Suscripción Club Colina", amount: 200000, currency: "CLP" };
   clientes = new Map<string, { customerId: string; email: string; creditCardType?: string; last4CardDigits?: string }>();
   /** token de registro → customerId y si la inscripción fue exitosa. */
@@ -108,7 +110,7 @@ export class FlowSimulado {
         if (!this.clientes.has(p.customerId ?? "")) return error(404);
         const token = `TOK${this.n}ABCDEF`;
         this.registros.set(token, { customerId: p.customerId ?? "", exito: false });
-        return Response.json({ url: `${this.base.replace("/api", "")}/app/customer/disclaimer.php`, token });
+        return Response.json({ url: this.urlRegistro ?? `${this.base.replace("/api", "")}/app/customer/disclaimer.php`, token });
       }
       case "customer/getRegisterStatus": {
         const r = this.registros.get(p.token ?? "");

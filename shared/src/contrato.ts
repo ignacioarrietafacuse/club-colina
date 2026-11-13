@@ -761,6 +761,8 @@ export const suscripcionResponse = z.object({
   modo: modoFlow.nullable(),
   /** Ya hay cliente en Flow para el modo activo: para inscribir otra tarjeta no se pide el correo. */
   tiene_cliente: z.boolean(),
+  /** Hay un importe vencido: "Reintentar cobro" puede servir. Si no, solo "Cambiar tarjeta". */
+  puede_reintentar: z.boolean(),
   plan: z.object({ nombre: z.string(), monto: z.number().nonnegative(), moneda: z.string() }).nullable(),
   proximo_cobro: fecha.nullable(),
   tarjeta: z.object({ tipo: z.string(), ultimos4: z.string().regex(/^[0-9]{4}$/) }).nullable(),

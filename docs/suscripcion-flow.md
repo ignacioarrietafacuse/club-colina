@@ -65,15 +65,26 @@ Todas con sesión del panel y la clave al día, salvo el retorno.
 | `POST /api/suscripcion/reintentar` | `invoice/retryToCollect` sobre el importe vencido más antiguo (Flow solo reintenta vencidos). 409 si no hay vencidos o si Flow rechaza el reintento; 503 solo si Flow no responde. 3 intentos cada 15 minutos por usuario |
 | `GET /api/suscripcion/aviso` | Solo `{cobro_fallido}`, con caché en memoria de 15 minutos. Se invalida al inscribir, al volver de Flow y al reintentar; `GET /api/suscripcion` la deja al día |
 
+"Reintentar cobro" aparece solo con un importe vencido (`puede_reintentar`); con un cobro fallido
+que aún no vence, la página ofrece solo "Cambiar tarjeta".
+
 "Cobro fallido": la suscripción está morosa en Flow (`morose = 1`) o tiene un importe impago con
 error de cobro o vencido, aunque Flow ya no informe la tarjeta.
 
-Si hay cliente pero no quedó guardado el id de la suscripción (Flow la creó y su respuesta se
-perdió), `GET /api/suscripcion` la busca en Flow (`customer/getSubscriptions`) y la guarda: un cobro
-ya hecho nunca se ve como "sin tarjeta".
+Si hay cliente pero no quedó guardado el id de la suscripción, o la guardada está cancelada (Flow
+creó una nueva y su respuesta se perdió), `GET /api/suscripcion` busca la vigente en Flow (`customer/getSubscriptions`) y la guarda, y el token
+pendiente deja de servir: un cobro ya hecho nunca se ve como "sin tarjeta".
 
-Inscribir y el retorno toman un candado de Postgres (`CANDADO_SUSCRIPCION`): dos clics seguidos no
-crean dos clientes, y dos retornos a la vez no crean dos suscripciones.
+Inscribir y el retorno toman un candado de Postgres (`CANDADO_SUSCRIPCION`), con a lo más 5 s de
+espera: dos clics seguidos no crean dos clientes, y dos retornos a la vez no crean dos suscripciones.
+El retorno compara el token antes de pedir el candado, así un token inventado no ocupa una conexión
+esperando. Al inscribir, el cliente nuevo de Flow se guarda antes de pedir el registro de tarjeta: si
+el registro falla, el siguiente intento no crea otro cliente. La URL que devuelve Flow tiene que ser
+https en el sitio de Flow del modo activo; si no, no se entrega.
+
+El retorno acepta también `GET` (lo pidió Ignacio), aunque Flow vuelve por `POST`. Riesgo aceptado:
+el token de un `GET` queda en los logs de borde de Vercel y Railway, pero sirve una sola vez, dura
+2 horas y solo para el cliente del club.
 
 ## Pantalla
 
