@@ -13,7 +13,12 @@ import {
 } from "@/components/panel/textos";
 import { Badge, PageHeader } from "@/components/panel/ui";
 import { api, mensajeDeError, type FiltrosJugadores } from "@/lib/api";
-import { busquedaJugadores, filtrosJugadores, type FormFiltrosJugadores } from "./filtros";
+import {
+  busquedaJugadores,
+  filtrosJugadores,
+  SIN_CATEGORIA,
+  type FormFiltrosJugadores,
+} from "./filtros";
 
 export function JugadoresPage() {
   // El filtro de marcados vive en la URL: el dashboard enlaza a /jugadores?marcados=true.
@@ -102,6 +107,7 @@ export function JugadoresPage() {
             className="rounded-lg border bg-background px-3 py-2 text-sm"
           >
             <option value="">Todas las categorías</option>
+            <option value={SIN_CATEGORIA}>Sin categoría</option>
             {(categorias.data ?? [])
               .filter((c) => !form.disciplina || c.disciplina === form.disciplina)
               .map((c) => (

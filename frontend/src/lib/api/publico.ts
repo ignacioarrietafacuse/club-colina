@@ -1,6 +1,5 @@
 import {
   API,
-  categoriasPublicasResponse,
   claveFoto,
   FOTOS_MAX_POR_SOLICITUD,
   completarResponse,
@@ -16,10 +15,6 @@ import { ErrorApi, pedir, pedirSinRespuesta } from "./cliente";
 
 export function consultarRut(rut: string) {
   return pedir(API.public.rutLookup, rutLookupResponse, { metodo: "POST", json: { rut } });
-}
-
-export function categoriasPublicas(signal?: AbortSignal) {
-  return pedir(API.public.categorias, categoriasPublicasResponse, { signal });
 }
 
 /**

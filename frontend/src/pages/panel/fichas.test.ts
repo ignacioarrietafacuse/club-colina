@@ -12,14 +12,13 @@ import {
   cambiosApoderado,
   cambiosEntrenador,
   cambiosJugador,
-  categoriaAlCambiarDisciplina,
   datosEntrenadorNuevo,
   FORM_ENTRENADOR_VACIO,
   formApoderado,
   formEntrenador,
   formJugador,
 } from "./edicion";
-import { busquedaJugadores, filtrosApoderados, filtrosJugadores } from "./filtros";
+import { busquedaJugadores, filtrosApoderados, filtrosJugadores, SIN_CATEGORIA } from "./filtros";
 
 // Datos siempre ficticios.
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -34,6 +33,7 @@ const jugador: JugadorDetalle = {
   rut: RUT,
   disciplina: "basketball",
   categoria_id: 3,
+  u11f: false,
   numero_camiseta: "00",
   estado: "activo",
   origen: "base_2026",
@@ -106,10 +106,33 @@ describe("edición del jugador", () => {
   });
 
   it("vaciar un campo que admite null lo borra", () => {
-    const f = { ...formJugador(jugador), email: "", categoria_id: "", numero_camiseta: "" };
+    const f = { ...formJugador(jugador), email: "", numero_camiseta: "" };
     expect(cambiosJugador(jugador, f)).toEqual({
       ok: true,
-      datos: { email: null, categoria_id: null, numero_camiseta: null },
+      datos: { email: null, numero_camiseta: null },
+    });
+  });
+
+  it("marca o quita la U11 F; en vóley nunca se manda encendida", () => {
+    expect(cambiosJugador(jugador, { ...formJugador(jugador), u11f: true })).toEqual({
+      ok: true,
+      datos: { u11f: true },
+    });
+    const marcada = { ...jugador, u11f: true };
+    expect(cambiosJugador(marcada, { ...formJugador(marcada), u11f: false })).toEqual({
+      ok: true,
+      datos: { u11f: false },
+    });
+    // Pasar a vóley con la marca puesta: la marca se manda apagada.
+    expect(cambiosJugador(marcada, { ...formJugador(marcada), disciplina: "voleibol" })).toEqual({
+      ok: true,
+      datos: { disciplina: "voleibol", u11f: false },
+    });
+    expect(
+      cambiosJugador(jugador, { ...formJugador(jugador), disciplina: "voleibol", u11f: true }),
+    ).toEqual({
+      ok: true,
+      datos: { disciplina: "voleibol" },
     });
   });
 
@@ -159,6 +182,20 @@ describe("filtros", () => {
         marcado_ya_no_esta: false,
       }),
     ).toEqual({});
+  });
+
+  it("'Sin categoría' filtra los sin categoría", () => {
+    expect(
+      filtrosJugadores({
+        q: "",
+        estado: "",
+        disciplina: "",
+        categoria_id: SIN_CATEGORIA,
+        faltan_datos: false,
+        sin_numero: false,
+        marcado_ya_no_esta: false,
+      }),
+    ).toEqual({ sin_categoria: true });
   });
 
   it("pasa estado, disciplina, categoría y marcas válidas", () => {
@@ -287,29 +324,7 @@ describe("entrenadores", () => {
   });
 });
 
-describe("categoría al cambiar la disciplina", () => {
-  const categorias = [
-    { id: 3, disciplina: "basketball" },
-    { id: 9, disciplina: "voleibol" },
-  ];
-
-  it("ir y volver a la disciplina original no borra la categoría", () => {
-    const enVoley = categoriaAlCambiarDisciplina(jugador, "3", "voleibol", categorias);
-    expect(enVoley).toBe("");
-    const deVuelta = categoriaAlCambiarDisciplina(jugador, enVoley, "basketball", categorias);
-    expect(deVuelta).toBe("3");
-    const f = { ...formJugador(jugador), disciplina: "basketball", categoria_id: deVuelta };
-    expect(cambiosJugador(jugador, f).ok).toBe(false); // sin cambios
-  });
-
-  it("una categoría de la nueva disciplina se mantiene", () => {
-    expect(categoriaAlCambiarDisciplina(jugador, "9", "voleibol", categorias)).toBe("9");
-  });
-
-  it("sin la lista de categorías no se borra nada", () => {
-    expect(categoriaAlCambiarDisciplina(jugador, "3", "voleibol", undefined)).toBe("3");
-  });
-
+describe("edición del jugador: números", () => {
   it("una beca escrita con cero adelante no es un cambio", () => {
     const f = { ...formJugador({ ...jugador, beca_torneos_pct: 7 }), beca_torneos_pct: "07" };
     expect(cambiosJugador({ ...jugador, beca_torneos_pct: 7 }, f).ok).toBe(false);

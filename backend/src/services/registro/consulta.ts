@@ -1,14 +1,14 @@
-import type { Disciplina, RutLookupResponse } from "@club-colina/shared";
-import { and, asc, eq, gte, isNotNull, lte, not, sql } from "drizzle-orm";
+import type { RutLookupResponse } from "@club-colina/shared";
+import { and, asc, eq, isNotNull, not, sql } from "drizzle-orm";
 import type { Ejecutor } from "../../db/cliente";
-import { apoderados, categorias, jugadorApoderado, jugadores } from "../../db/schema";
+import { apoderados, jugadorApoderado, jugadores } from "../../db/schema";
+import { fechaNacimientoValida } from "../../lib/categorias";
 
 type FaltanteApoderado = "nombre" | "apellido" | "telefono" | "foto";
 type FaltanteJugador =
   | "nombre"
   | "apellido"
   | "fecha_nacimiento"
-  | "categoria"
   | "numero_camiseta"
   | "telefono"
   | "foto";
@@ -52,31 +52,6 @@ export function esAdulto(j: Pick<Jugador, "fecha_nacimiento">): boolean {
   return j.fecha_nacimiento !== null && edad(j.fecha_nacimiento) >= EDAD_ADULTO;
 }
 
-/**
- * Categoría por año de nacimiento (solo las que `se_calcula`). Nula si el año no calza con
- * ninguna o calza con más de una: en ese caso el formulario la pregunta.
- */
-export async function calcularCategoria(
-  db: Ejecutor,
-  disciplina: Disciplina,
-  fechaNacimiento: string | null,
-): Promise<number | null> {
-  if (fechaNacimiento === null) return null;
-  const anio = Number(fechaNacimiento.slice(0, 4));
-  const filas = await db
-    .select({ id: categorias.id })
-    .from(categorias)
-    .where(
-      and(
-        eq(categorias.disciplina, disciplina),
-        eq(categorias.se_calcula, true),
-        lte(categorias.anio_desde, anio),
-        gte(categorias.anio_hasta, anio),
-      ),
-    );
-  return filas.length === 1 && filas[0] ? filas[0].id : null;
-}
-
 /** Ya pasó por el formulario o por el panel: no es un precargado que falta completar. */
 export function yaRegistrado(p: { estado: string }): boolean {
   return p.estado !== "precargado";
@@ -91,19 +66,19 @@ export function faltantesApoderado(a: Apoderado): FaltanteApoderado[] {
   return f;
 }
 
-/** Lo que falta en la ficha de un jugador. El teléfono solo se pide al jugador adulto. */
-export async function faltantesJugador(
-  db: Ejecutor,
-  j: Jugador,
+/**
+ * Lo que falta en la ficha de un jugador. El teléfono solo se pide al jugador adulto. La
+ * categoría nunca se pregunta: se calcula con la fecha, así que una fecha vacía o inválida en la
+ * base se pide de nuevo.
+ */
+export function faltantesJugador(
+  j: Pick<Jugador, "nombre" | "apellido" | "fecha_nacimiento" | "numero_camiseta" | "telefono" | "foto_id">,
   opciones: { adulto: boolean },
-): Promise<FaltanteJugador[]> {
+): FaltanteJugador[] {
   const f: FaltanteJugador[] = [];
   if (j.nombre === null) f.push("nombre");
   if (j.apellido === null) f.push("apellido");
-  if (j.fecha_nacimiento === null) f.push("fecha_nacimiento");
-  if (j.categoria_id === null && (await calcularCategoria(db, j.disciplina, j.fecha_nacimiento)) === null) {
-    f.push("categoria");
-  }
+  if (!fechaNacimientoValida(j.fecha_nacimiento)) f.push("fecha_nacimiento");
   if (j.numero_camiseta === null) f.push("numero_camiseta");
   if (opciones.adulto && j.telefono === null) f.push("telefono");
   if (j.foto_id === null) f.push("foto");
@@ -180,14 +155,12 @@ export async function consultarRut(db: Ejecutor, rut: string): Promise<RutLookup
       tipo: "apoderado",
       ya_registrado: registrado,
       faltantes: registrado ? [] : faltantesApoderado(apoderado),
-      hijos: await Promise.all(
-        hijos.map(async ({ posicion, jugador }) => ({
-          posicion,
-          primer_nombre: primerNombre(jugador.nombre),
-          ya_registrado: yaRegistrado(jugador),
-          faltantes: yaRegistrado(jugador) ? [] : await faltantesJugador(db, jugador, { adulto: false }),
-        })),
-      ),
+      hijos: hijos.map(({ posicion, jugador }) => ({
+        posicion,
+        primer_nombre: primerNombre(jugador.nombre),
+        ya_registrado: yaRegistrado(jugador),
+        faltantes: yaRegistrado(jugador) ? [] : faltantesJugador(jugador, { adulto: false }),
+      })),
     };
   }
   const jugador = await jugadorPorRut(db, rut);
@@ -203,7 +176,7 @@ export async function consultarRut(db: Ejecutor, rut: string): Promise<RutLookup
       primer_nombre: primerNombre(jugador.nombre),
       adulto: true,
       ya_registrado: registrado,
-      faltantes: registrado ? [] : await faltantesJugador(db, jugador, { adulto: true }),
+      faltantes: registrado ? [] : faltantesJugador(jugador, { adulto: true }),
     };
   }
   return { encontrado: false };

@@ -12,7 +12,8 @@ import {
 import { and, asc, eq, ilike, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import type { z } from "zod";
 import type { Ejecutor } from "../../db/cliente";
-import { apoderados, categorias, jugadorApoderado, jugadores } from "../../db/schema";
+import { apoderados, jugadorApoderado, jugadores } from "../../db/schema";
+import { cargarCategorias, categoriaDelJugador, type CategoriaRegla, temporada } from "../../lib/categorias";
 import { ErrorApi, noEncontrado } from "../../lib/errores";
 import { conRestricciones } from "./errores-db";
 import {
@@ -21,8 +22,6 @@ import {
   faltantesJugador,
   hoyEnChile,
   nombreCompleto,
-  requisitosJugador,
-  type CategoriaRegla,
 } from "./reglas";
 
 type JugadorResumen = z.input<typeof jugadorResumen>;
@@ -42,9 +41,6 @@ function textoRut(q: string): string {
 
 const fechaHora = (d: Date) => d.toISOString();
 
-/** Máximo de un smallint de Postgres (`categorias.id`). */
-const SMALLINT_MAX = 32767;
-
 // ---------------------------------------------------------------------------
 // Jugadores
 // ---------------------------------------------------------------------------
@@ -59,19 +55,6 @@ const SMALLINT_MAX = 32767;
 // sola tabla, y en la subconsulta "estado" o "id" serían ambiguos.
 export const tieneApoderadoVigente = sql<boolean>`exists (select 1 from jugador_apoderado ja inner join apoderados a on a.id = ja.apoderado_id where ja.jugador_id = ${sql.raw('"jugadores"."id"')} and a.estado = 'activo' and ja.estado = 'activo')`;
 
-/** Las categorías, para calcular la que corresponde por año. Son una decena de filas. */
-export function cargarCategorias(db: Ejecutor): Promise<CategoriaRegla[]> {
-  return db
-    .select({
-      id: categorias.id,
-      disciplina: categorias.disciplina,
-      anio_desde: categorias.anio_desde,
-      anio_hasta: categorias.anio_hasta,
-      se_calcula: categorias.se_calcula,
-    })
-    .from(categorias);
-}
-
 const columnasJugador = {
   id: jugadores.id,
   nombre: jugadores.nombre,
@@ -79,7 +62,7 @@ const columnasJugador = {
   rut: jugadores.rut,
   fecha_nacimiento: jugadores.fecha_nacimiento,
   disciplina: jugadores.disciplina,
-  categoria_id: jugadores.categoria_id,
+  u11f_temporada: jugadores.u11f_temporada,
   numero_camiseta: jugadores.numero_camiseta,
   postula_beca: jugadores.postula_beca,
   beca_mensualidad_pct: jugadores.beca_mensualidad_pct,
@@ -109,19 +92,20 @@ function seleccionarJugadores(db: Ejecutor, donde?: SQL) {
     .orderBy(asc(jugadores.apellido), asc(jugadores.nombre), asc(jugadores.id));
 }
 
-function resumenJugador(f: FilaJugador, cats: readonly CategoriaRegla[], hoy: string): JugadorResumen {
+/** La categoría se calcula siempre al responder (`lib/categorias.ts`): nunca se guarda. */
+function resumenJugador(f: FilaJugador, cats: readonly CategoriaRegla[], ahora: Date): JugadorResumen {
   return {
     id: f.id,
     nombre: f.nombre,
     apellido: f.apellido,
     rut: f.rut,
     disciplina: f.disciplina,
-    categoria_id: f.categoria_id,
+    categoria_id: categoriaDelJugador(f, cats, ahora),
     numero_camiseta: f.numero_camiseta,
     estado: f.estado,
     origen: f.origen,
     tiene_foto: f.foto_id !== null,
-    faltan_datos: faltantesJugador(f, f.tiene_apoderado, cats, hoy).length > 0,
+    faltan_datos: faltantesJugador(f, f.tiene_apoderado, hoyEnChile(ahora)).length > 0,
     marcado_retiro_en: f.marcado_retiro_en ? fechaHora(f.marcado_retiro_en) : null,
   };
 }
@@ -139,11 +123,6 @@ export async function listarJugadores(
   const condiciones: SQL[] = [];
   if (filtros.estado) condiciones.push(eq(jugadores.estado, filtros.estado));
   if (filtros.disciplina) condiciones.push(eq(jugadores.disciplina, filtros.disciplina));
-  if (filtros.categoria_id !== undefined) {
-    // categorias.id es smallint: un número más grande no existe (y Postgres respondería 22003).
-    if (filtros.categoria_id > SMALLINT_MAX) return [];
-    condiciones.push(eq(jugadores.categoria_id, filtros.categoria_id));
-  }
   if (filtros.sin_numero === true) condiciones.push(eq(jugadores.numero_camiseta, NUMERO_SIN_ASIGNAR));
   if (filtros.sin_numero === false) {
     condiciones.push(sql`${jugadores.numero_camiseta} is distinct from ${NUMERO_SIN_ASIGNAR}`);
@@ -158,13 +137,16 @@ export async function listarJugadores(
     );
     if (busqueda) condiciones.push(busqueda);
   }
-  const hoy = hoyEnChile();
+  const ahora = new Date();
   const cats = await cargarCategorias(db);
   const filas = await seleccionarJugadores(db, and(...condiciones));
-  // "Faltan datos" depende de la edad y de los vínculos: se calcula acá. Son unos cientos de filas.
+  // "Faltan datos" y la categoría dependen de la fecha de hoy (y "faltan datos", de los vínculos):
+  // se calculan acá. Son unos cientos de filas.
   return filas
-    .map((f) => resumenJugador(f, cats, hoy))
-    .filter((j) => filtros.faltan_datos === undefined || j.faltan_datos === filtros.faltan_datos);
+    .map((f) => resumenJugador(f, cats, ahora))
+    .filter((j) => filtros.faltan_datos === undefined || j.faltan_datos === filtros.faltan_datos)
+    .filter((j) => filtros.categoria_id === undefined || j.categoria_id === filtros.categoria_id)
+    .filter((j) => filtros.sin_categoria === undefined || (j.categoria_id === null) === filtros.sin_categoria);
 }
 
 export async function detalleJugador(db: Ejecutor, id: string): Promise<JugadorDetalle> {
@@ -182,10 +164,12 @@ export async function detalleJugador(db: Ejecutor, id: string): Promise<JugadorD
     .innerJoin(apoderados, eq(apoderados.id, jugadorApoderado.apoderado_id))
     .where(eq(jugadorApoderado.jugador_id, id))
     .orderBy(asc(jugadorApoderado.creado_en), asc(apoderados.id));
-  const hoy = hoyEnChile();
+  const ahora = new Date();
+  const hoy = hoyEnChile(ahora);
   const cats = await cargarCategorias(db);
   return {
-    ...resumenJugador(f, cats, hoy),
+    ...resumenJugador(f, cats, ahora),
+    u11f: f.disciplina === "basketball" && f.u11f_temporada === temporada(ahora),
     fecha_nacimiento: f.fecha_nacimiento,
     edad: calcularEdad(f.fecha_nacimiento, hoy),
     postula_beca: f.postula_beca,
@@ -197,7 +181,7 @@ export async function detalleJugador(db: Ejecutor, id: string): Promise<JugadorD
     metodo_pago: f.metodo_pago,
     credencial_token: f.credencial_token,
     solicitud_id: f.solicitud_id,
-    faltantes: faltantesJugador(f, f.tiene_apoderado, cats, hoy),
+    faltantes: faltantesJugador(f, f.tiene_apoderado, hoy),
     apoderados: vinculos.map((v) => ({
       id: v.id,
       nombre_completo: nombreCompleto(v.nombre, v.apellido),
@@ -209,18 +193,6 @@ export async function detalleJugador(db: Ejecutor, id: string): Promise<JugadorD
   };
 }
 
-/** La categoría tiene que ser de la misma rama que el jugador. */
-export async function verificarCategoria(db: Ejecutor, categoriaId: number, disciplina: string): Promise<void> {
-  if (categoriaId > SMALLINT_MAX) throw new ErrorApi(400, "validacion", "Datos inválidos: categoria_id");
-  const [c] = await db
-    .select({ disciplina: categorias.disciplina })
-    .from(categorias)
-    .where(eq(categorias.id, categoriaId));
-  if (!c || c.disciplina !== disciplina) {
-    throw new ErrorApi(400, "validacion", "Datos inválidos: categoria_id");
-  }
-}
-
 export async function editarJugador(
   db: Ejecutor,
   id: string,
@@ -228,28 +200,36 @@ export async function editarJugador(
 ): Promise<void> {
   await db.transaction(async (tx) => {
     const [actual] = await tx
-      .select({ disciplina: jugadores.disciplina, categoria_id: jugadores.categoria_id })
+      .select({ disciplina: jugadores.disciplina })
       .from(jugadores)
       .where(eq(jugadores.id, id))
       .for("update");
     if (!actual) throw noEncontrado();
-    const disciplina = cambios.disciplina ?? actual.disciplina;
-    const categoria = cambios.categoria_id === undefined ? actual.categoria_id : cambios.categoria_id;
-    // Cambiar de rama sin cambiar la categoría la deja en la rama equivocada: se exige corregirla.
-    const tocaRama = cambios.disciplina !== undefined || cambios.categoria_id !== undefined;
-    if (tocaRama && categoria !== null) await verificarCategoria(tx, categoria, disciplina);
+    const { u11f, ...datos } = cambios;
+    const disciplina = datos.disciplina ?? actual.disciplina;
+    // La marca U11 F vale solo en básquet y solo la temporada en que Mony la pone. Pasar a vóley
+    // la borra, para que no reaparezca si vuelve a básquet en la misma temporada.
+    if (u11f === true && disciplina !== "basketball") {
+      throw new ErrorApi(400, "validacion", "Datos inválidos: u11f");
+    }
+    const marca =
+      u11f !== undefined
+        ? { u11f_temporada: u11f ? temporada() : null }
+        : datos.disciplina !== undefined && datos.disciplina !== "basketball"
+          ? { u11f_temporada: null }
+          : {};
+    const set = { ...datos, ...marca };
     if (Object.keys(cambios).length === 0) return;
-    const cats = await cargarCategorias(tx);
     const [antes] = await seleccionarJugadores(tx, eq(jugadores.id, id));
-    const faltabanAntes = new Set(antes ? requisitosJugador(faltantesJugador(antes, antes.tiene_apoderado, cats)) : []);
-    await conRestricciones(() => tx.update(jugadores).set(cambios).where(eq(jugadores.id, id)));
+    const faltabanAntes = new Set(antes ? faltantesJugador(antes, antes.tiene_apoderado) : []);
+    await conRestricciones(() => tx.update(jugadores).set(set).where(eq(jugadores.id, id)));
     // La base cubre casi todo con sus CHECK, pero no el teléfono del adulto sin apoderado: un
     // activo no puede quedar con menos de lo que se le exigió para activarlo.
     const [despues] = await seleccionarJugadores(tx, eq(jugadores.id, id));
     if (despues?.estado === "activo") {
       // Solo se rechaza lo que este PATCH empeora: si ya faltaba algo por otra causa (se dio de baja
       // a su apoderado), Mony puede seguir editando lo demás.
-      const faltan = requisitosJugador(faltantesJugador(despues, despues.tiene_apoderado, cats)).filter(
+      const faltan = faltantesJugador(despues, despues.tiene_apoderado).filter(
         (f) => !faltabanAntes.has(f),
       );
       if (faltan.length > 0) {

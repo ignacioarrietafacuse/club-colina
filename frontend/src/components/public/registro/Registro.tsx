@@ -1,10 +1,8 @@
 import {
   normalizarRut,
-  type CategoriaPublica,
   type RutLookupResponse,
   type SolicitudCreadaResponse,
 } from "@club-colina/shared";
-import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -255,16 +253,6 @@ function Pasos({
     null,
   );
 
-  const pideCategoria =
-    camposTitular(f.titular).pedir.has("categoria") ||
-    f.hijos.some((h) => camposHijo(h).pedir.has("categoria"));
-  const categorias = useQuery({
-    queryKey: ["public", "categorias"],
-    queryFn: ({ signal }) => api.publico.categoriasPublicas(signal),
-    enabled: pideCategoria,
-    staleTime: Infinity,
-  });
-
   async function avanzar() {
     const e = validarPaso(f, actual);
     setErrores(e);
@@ -310,27 +298,11 @@ function Pasos({
         <h2 className="text-xl font-semibold">{TITULO_PASO[actual]}</h2>
       </div>
 
-      {actual === "titular" && (
-        <PasoTitular f={f} onCambio={onCambio} errores={errores} categorias={categorias.data} />
-      )}
-      {actual === "hijos" && (
-        <PasoHijos f={f} onCambio={onCambio} errores={errores} categorias={categorias.data} />
-      )}
+      {actual === "titular" && <PasoTitular f={f} onCambio={onCambio} errores={errores} />}
+      {actual === "hijos" && <PasoHijos f={f} onCambio={onCambio} errores={errores} />}
       {actual === "otro" && <PasoOtro f={f} onCambio={onCambio} errores={errores} />}
       {actual === "confirmar" && <PasoConfirmar f={f} onCambio={onCambio} errores={errores} />}
 
-      {categorias.isError && pideCategoria && (
-        <Aviso tono="error">
-          No pudimos cargar las categorías. Revisa tu conexión.{" "}
-          <button
-            type="button"
-            className="font-medium underline"
-            onClick={() => void categorias.refetch()}
-          >
-            Reintentar
-          </button>
-        </Aviso>
-      )}
       {Object.keys(errores).length > 0 && (
         <Aviso tono="error">Revisa los campos marcados en rojo.</Aviso>
       )}
@@ -378,12 +350,7 @@ interface PropsPaso {
   errores: Errores;
 }
 
-function PasoTitular({
-  f,
-  onCambio,
-  errores,
-  categorias,
-}: PropsPaso & { categorias: CategoriaPublica[] | undefined }) {
+function PasoTitular({ f, onCambio, errores }: PropsPaso) {
   const c = camposTitular(f.titular);
   return (
     <div className="space-y-5">
@@ -407,7 +374,6 @@ function PasoTitular({
         onDatos={(cambio) => onCambio((f) => ({ ...f, datos: { ...f.datos, ...cambio } }))}
         onFoto={(foto) => onCambio((f) => ({ ...f, foto }))}
         errores={errores}
-        categorias={categorias}
         etiquetaFoto="Tu foto"
       />
       {esApoderado(f) && !titularYaRegistrado(f) && (
@@ -422,12 +388,7 @@ function PasoTitular({
   );
 }
 
-function PasoHijos({
-  f,
-  onCambio,
-  errores,
-  categorias,
-}: PropsPaso & { categorias: CategoriaPublica[] | undefined }) {
+function PasoHijos({ f, onCambio, errores }: PropsPaso) {
   const [buscando, setBuscando] = useState<string | null>(null);
   const [fallas, setFallas] = useState<Record<string, string>>({});
 
@@ -575,7 +536,6 @@ function PasoHijos({
               onFoto={(foto) => onCambio((f) => conHijo(f, h.clave, (y) => ({ ...y, foto })))}
               errores={errores}
               prefijo={p}
-              categorias={categorias}
               etiquetaFoto={`Foto de ${nombreHijo(h, i)}`}
             />
 

@@ -154,15 +154,19 @@ export const categorias = pgTable(
     id: smallint("id").primaryKey().generatedAlwaysAsIdentity(),
     nombre: text("nombre").notNull(),
     disciplina: text("disciplina", { enum: DISCIPLINAS }).notNull(),
-    anio_desde: smallint("anio_desde").notNull(),
-    anio_hasta: smallint("anio_hasta").notNull(),
-    /** false en U11 F: no se calcula por año, la asigna Mony. */
+    /**
+     * Edades de temporada que cubre (temporada − año de nacimiento): UN cubre N−1 y N. Con esto
+     * se calcula la categoría (`lib/categorias.ts`); nunca se guarda en el jugador.
+     */
+    edad_min: smallint("edad_min").notNull(),
+    edad_max: smallint("edad_max").notNull(),
+    /** false en U11 F: no se calcula, la marca Mony en la ficha (`jugadores.u11f_temporada`). */
     se_calcula: boolean("se_calcula").notNull().default(true),
   },
   (t) => [
     unique("categorias_disciplina_nombre_key").on(t.disciplina, t.nombre),
     check("categorias_disciplina_check", enLista("disciplina", DISCIPLINAS)),
-    check("categorias_anios_check", sql.raw(`"anio_desde" <= "anio_hasta"`)),
+    check("categorias_edades_check", sql.raw(`"edad_min" <= "edad_max"`)),
   ],
 );
 
@@ -214,9 +218,11 @@ export const jugadores = pgTable(
     rut: text("rut").notNull().unique(),
     fecha_nacimiento: date("fecha_nacimiento"),
     disciplina: text("disciplina", { enum: DISCIPLINAS }).notNull(),
-    categoria_id: smallint("categoria_id").references(() => categorias.id, {
-      onDelete: "restrict",
-    }),
+    /**
+     * Temporada (año) en que Mony marcó a la jugadora como U11 F; vale solo esa temporada. La
+     * categoría no se guarda: se calcula por edad de temporada (`lib/categorias.ts`).
+     */
+    u11f_temporada: smallint("u11f_temporada"),
     /** Texto para distinguir "0" de "00". "99" = sin número asignado. */
     numero_camiseta: text("numero_camiseta"),
     postula_beca: boolean("postula_beca").notNull().default(false),
@@ -261,7 +267,6 @@ export const jugadores = pgTable(
     // Revocación garantizada por la base: solo una persona activa tiene credencial vigente.
     check("jugadores_token_solo_activo_check", sql.raw(`"estado" = 'activo' OR "credencial_token" IS NULL`)),
     index("jugadores_estado_idx").on(t.estado),
-    index("jugadores_categoria_idx").on(t.categoria_id),
     index("jugadores_solicitud_idx").on(t.solicitud_id),
   ],
 );
@@ -363,7 +368,7 @@ export const sesiones = pgTable(
  * solicitud. Si Mony rechaza a esa persona, S1 la deja como estaba con estos datos.
  *
  * `datos` guarda solo lo que el formulario puede cambiar, con los nombres de la base:
- * - jugador: nombre, apellido, fecha_nacimiento, disciplina, categoria_id, numero_camiseta,
+ * - jugador: nombre, apellido, fecha_nacimiento, disciplina, numero_camiseta,
  *   telefono, email, metodo_pago, foto_id, estado, solicitud_id, marcado_retiro_en (este último
  *   se guarda pero no se restaura: la marca "ya no está" es solo una señal y la quita Mony);
  * - apoderado: nombre, apellido, telefono, email, metodo_pago, foto_id, estado, solicitud_id.

@@ -110,8 +110,6 @@ async function plan(filas: Fila[]) {
   const { filaEncabezado, columnas } = ubicarColumnas(hoja);
   return planificar(hoja, columnas, filaEncabezado, categorias, HOY);
 }
-const idCategoria = (nombre: string, disciplina: string) =>
-  categorias.find((c) => c.nombre === nombre && c.disciplina === disciplina)?.id;
 
 const RUTS = Array.from({ length: 40 }, (_, i) => rut(i));
 async function limpiar() {
@@ -239,7 +237,7 @@ describe("reglas de la carga inicial", () => {
       rut: rut(1),
       fecha_nacimiento: "2014-03-15",
       disciplina: "basketball",
-      categoria_id: idCategoria("U13", "basketball"),
+      u11f_temporada: null,
       postula_beca: true,
       telefono: null,
       email: null,
@@ -399,7 +397,7 @@ describe("reglas de la carga inicial", () => {
         beca: "quizás",
       },
     ]);
-    expect(p.jugadores.get(rut(1))).toMatchObject({ fecha_nacimiento: null, categoria_id: null, postula_beca: false });
+    expect(p.jugadores.get(rut(1))).toMatchObject({ fecha_nacimiento: null, u11f_temporada: null, postula_beca: false });
     expect(p.apoderados.get(rut(2))).toMatchObject({
       nombre: null,
       apellido: null,
@@ -413,31 +411,45 @@ describe("reglas de la carga inicial", () => {
       correo_invalido: [3],
       metodo_pago_ambiguo: [3],
       nombre_apoderado_faltante: [3],
-      categoria_basquet_no_reconocida: [3],
       postula_beca_ambiguo: [3],
     });
+    // Una categoría que no existe no se importa: solo se cuenta.
+    expect(p.categoriaDistinta).toEqual({ "no reconocida": 1 });
   });
 
-  it("vóley: categoría calculada por año; 2017 o sin fecha queda vacía", async () => {
+  it("la categoría de la base no se importa, salvo la U11 F como marca de la temporada 2026", async () => {
     const p = await plan([
-      { rut: rut(1), rutApoderado: rut(9), rama: "Vóleibol", fecha: "10-10-2012", categoria: "" },
-      { rut: rut(2), rutApoderado: rut(9), rama: "Vóleibol", fecha: "10-10-2017", categoria: "" },
-      { rut: rut(3), rutApoderado: rut(9), rama: "Vóleibol", fecha: "", categoria: "" },
-    ]);
-    expect(p.jugadores.get(rut(1))?.categoria_id).toBe(idCategoria("U16", "voleibol"));
-    expect(p.jugadores.get(rut(2))?.categoria_id).toBeNull();
-    expect(p.jugadores.get(rut(3))?.categoria_id).toBeNull();
-    expect(p.camposVacios.categoria_voley_no_calculable).toEqual([4]);
-    expect(p.camposVacios.categoria_voley_sin_fecha).toEqual([5]);
-  });
-
-  it("básquet: acepta la categoría escrita de otras formas, incluida U11 F", async () => {
-    const p = await plan([
-      { rut: rut(1), rutApoderado: rut(9), categoria: "Sub-15" },
+      // Básquet 2014 (edad 12 en 2026): U13 calculada; en la base, escrita de otra forma, coincide.
+      { rut: rut(1), rutApoderado: rut(9), categoria: "Sub-13" },
       { rut: rut(2), rutApoderado: rut(9), categoria: "u11 f", fecha: "01-01-2015" },
+      // Vóley: no trae categoría y no se cuenta.
+      { rut: rut(3), rutApoderado: rut(9), rama: "Vóleibol", fecha: "10-10-2016", categoria: "" },
     ]);
-    expect(p.jugadores.get(rut(1))?.categoria_id).toBe(idCategoria("U15", "basketball"));
-    expect(p.jugadores.get(rut(2))?.categoria_id).toBe(idCategoria("U11 F", "basketball"));
+    expect(p.jugadores.get(rut(1))?.u11f_temporada).toBeNull();
+    expect(p.jugadores.get(rut(2))?.u11f_temporada).toBe(2026);
+    expect(p.jugadores.get(rut(3))?.u11f_temporada).toBeNull();
+    expect(p.categoriaDistinta).toEqual({});
+    // Ya no hay motivos de categoría vacía: el formulario no la pregunta.
+    expect(Object.keys(p.camposVacios).filter((m) => m.startsWith("categoria"))).toEqual([]);
+  });
+
+  it("básquet: cuenta, por categoría de la base, a quienes traían una distinta de la calculada", async () => {
+    const p = await plan([
+      // 2014 = U13 en 2026.
+      { rut: rut(1), rutApoderado: rut(9), categoria: "U13" },
+      { rut: rut(2), rutApoderado: rut(9), categoria: "U15" },
+      { rut: rut(3), rutApoderado: rut(9), categoria: "U15" },
+      { rut: rut(4), rutApoderado: rut(9), categoria: "U11", fecha: "01-01-2012" },
+      // Sin fecha no se calcula: también es distinta. Vacía en la base: no se compara.
+      { rut: rut(5), rutApoderado: rut(9), categoria: "U9", fecha: "" },
+      { rut: rut(6), rutApoderado: rut(9), categoria: "" },
+      // U11 F nunca cuenta como distinta: es la marca de Mony.
+      { rut: rut(7), rutApoderado: rut(9), categoria: "U11 F", fecha: "01-01-2010" },
+    ]);
+    expect(p.categoriaDistinta).toEqual({ U15: 2, U11: 1, U9: 1 });
+    const salida = formatearResumen(await importar(db, p, { dryRun: true }));
+    expect(salida).toContain("Básquet con una categoría en la base distinta de la calculada (temporada 2026; no se importa): 4");
+    expect(salida).toContain("  - U9 en la base: 1\n  - U11 en la base: 1\n  - U15 en la base: 2");
   });
 
   it("rama no reconocida: el jugador no se carga", async () => {
@@ -469,6 +481,10 @@ describe("escritura en la base", () => {
     expect(r.vinculos.creados).toBe(2);
     const cargados = await db.select().from(jugadores).where(inArray(jugadores.rut, RUTS));
     expect(cargados).toHaveLength(3);
+    const u11f = await importar(db, await plan([{ rut: rut(20), rutApoderado: rut(21), categoria: "U11 F" }]), { dryRun: false });
+    expect(u11f.jugadores.cargados).toBe(1);
+    const [marcada] = await db.select().from(jugadores).where(eq(jugadores.rut, rut(20)));
+    expect(marcada?.u11f_temporada).toBe(2026);
     for (const j of cargados) {
       expect(j).toMatchObject({ estado: "precargado", origen: "base_2026", numero_camiseta: null, credencial_token: null });
     }

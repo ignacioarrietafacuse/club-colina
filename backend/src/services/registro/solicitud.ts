@@ -1,23 +1,22 @@
 import {
   type AvisoSolicitud,
   claveFoto,
-  type Disciplina,
   type SolicitudCreadaResponse,
   type solicitudDatos,
 } from "@club-colina/shared";
 import { and, eq, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
 import type { z } from "zod";
 import type { Db, Ejecutor } from "../../db/cliente";
-import { apoderados, categorias, fichasPrevias, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
+import { apoderados, fichasPrevias, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
 import { CANDADO_SOLICITUDES } from "../../lib/candados";
 import { cerrarSiCorresponde } from "../panel/solicitudes";
 import { ErrorApi } from "../../lib/errores";
+import { fechaNacimientoValida } from "../../lib/categorias";
 import { guardarFoto } from "../../lib/fotos";
 import { generarToken, hashToken } from "../../lib/tokens";
 import {
   type Apoderado,
   apoderadoPorRut,
-  calcularCategoria,
   EDAD_ADULTO,
   edad,
   esAdulto,
@@ -88,12 +87,30 @@ function exigirHijoCompleto(h: Hijo, p: string) {
   faltan.lanzarSiHay();
 }
 
+/**
+ * Una fecha de nacimiento enviada tiene que ser usable (desde 1900 y no posterior a hoy): con ella
+ * se calcula la categoría. Se revisa antes de mirar la base, así el 400 no depende del RUT.
+ */
+export function verificarFechas(datos: DatosSolicitud) {
+  const malas: string[] = [];
+  if (datos.fecha_nacimiento !== undefined && !fechaNacimientoValida(datos.fecha_nacimiento)) {
+    malas.push("fecha_nacimiento");
+  }
+  datos.hijos.forEach((h, i) => {
+    if (h.fecha_nacimiento !== undefined && !fechaNacimientoValida(h.fecha_nacimiento)) {
+      malas.push(`hijos.${i}.fecha_nacimiento`);
+    }
+  });
+  if (malas.length > 0) throw invalido(malas);
+}
+
 export async function crearSolicitud(
   db: Db,
   datos: DatosSolicitud,
   archivos: ReadonlyMap<string, Buffer>,
 ): Promise<SolicitudCreadaResponse> {
   verificarArchivos(datos, archivos);
+  verificarFechas(datos);
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(${CANDADO_SOLICITUDES})`);
     return new Proceso(tx, datos, archivos).ejecutar();
@@ -210,7 +227,6 @@ class Proceso {
           apellido: j.apellido,
           fecha_nacimiento: j.fecha_nacimiento,
           disciplina: j.disciplina,
-          categoria_id: j.categoria_id,
           numero_camiseta: j.numero_camiseta,
           telefono: j.telefono,
           email: j.email,
@@ -245,22 +261,6 @@ class Proceso {
     const bytes = this.archivos.get(clave);
     if (!bytes) throw new ErrorApi(400, "archivo_invalido", "Las fotos no calzan con los datos enviados.");
     return guardarFoto(this.tx, bytes);
-  }
-
-  /**
-   * Categoría de una ficha existente: la calculada por año si se puede; si no, la elegida si es de
-   * la rama de la ficha. Si no, queda vacía y Mony la completa al aprobar (decisión de Ignacio,
-   * 2026-11-12). Una elegida de otra rama se ignora en vez de dar 400: lo enviado ya se validó
-   * contra la rama enviada, y un 400 distinto revelaría que el RUT existe.
-   */
-  private async categoria(disciplina: Disciplina, fecha: string | null, elegida: number | undefined) {
-    const calculada = await calcularCategoria(this.tx, disciplina, fecha);
-    if (calculada !== null || elegida === undefined) return calculada;
-    const [c] = await this.tx
-      .select({ id: categorias.id })
-      .from(categorias)
-      .where(and(eq(categorias.id, elegida), eq(categorias.disciplina, disciplina)));
-    return c?.id ?? null;
   }
 
   /**
@@ -366,14 +366,12 @@ class Proceso {
     const foto = faltan.exigir(d.foto, "foto");
     faltan.lanzarSiHay();
     if (edad(seguro(fecha)) < EDAD_ADULTO) throw invalido(["fecha_nacimiento"]);
-    const categoriaElegida = await this.categoriaDeRama(seguro(disciplina), d.categoria_id, "categoria_id");
 
     // Si el RUT es apoderado, el formulario lo trata como apoderado (ver rut-lookup).
     if (await apoderadoPorRut(this.tx, d.rut)) throw conflicto();
     const existente = await jugadorPorRut(this.tx, d.rut, { bloquear: true });
 
     if (!existente) {
-      const calculada = await calcularCategoria(this.tx, seguro(disciplina), seguro(fecha));
       const [nuevo] = await this.tx
         .insert(jugadores)
         .values({
@@ -383,7 +381,6 @@ class Proceso {
           telefono: seguro(telefono),
           fecha_nacimiento: seguro(fecha),
           disciplina: seguro(disciplina),
-          categoria_id: calculada ?? categoriaElegida,
           numero_camiseta: seguro(numero),
           foto_id: await this.foto(seguro(foto)),
           estado: "pendiente",
@@ -438,17 +435,6 @@ class Proceso {
     return cantidad;
   }
 
-  /** La categoría elegida tiene que ser de la rama que se envió; si no, 400. */
-  private async categoriaDeRama(disciplina: Disciplina, elegida: number | undefined, campo: string) {
-    if (elegida === undefined) return null;
-    const [c] = await this.tx
-      .select({ id: categorias.id })
-      .from(categorias)
-      .where(and(eq(categorias.id, elegida), eq(categorias.disciplina, disciplina)));
-    if (!c) throw invalido([campo]);
-    return c.id;
-  }
-
   /**
    * Lo que le falta a un jugador precargado, sin cambiar lo que ya trae la base. Lanza 400 con los
    * campos que faltan (`prefijo` = "hijos.N." o "" para el adulto). No escribe nada: la foto se
@@ -456,21 +442,19 @@ class Proceso {
    */
   private async completarJugador(
     j: Jugador,
-    h: Pick<Hijo, "nombre" | "apellido" | "fecha_nacimiento" | "numero_camiseta" | "categoria_id" | "foto">,
+    h: Pick<Hijo, "nombre" | "apellido" | "fecha_nacimiento" | "numero_camiseta" | "foto">,
     prefijo: string,
     faltan: Faltantes,
   ) {
     const nombre = j.nombre === null ? faltan.exigir(h.nombre, `${prefijo}nombre`) : undefined;
     const apellido = j.apellido === null ? faltan.exigir(h.apellido, `${prefijo}apellido`) : undefined;
-    const fecha =
-      j.fecha_nacimiento === null ? faltan.exigir(h.fecha_nacimiento, `${prefijo}fecha_nacimiento`) : undefined;
+    // Una fecha vacía o inválida en la base se pide de nuevo: con ella se calcula la categoría.
+    const fecha = !fechaNacimientoValida(j.fecha_nacimiento)
+      ? faltan.exigir(h.fecha_nacimiento, `${prefijo}fecha_nacimiento`)
+      : undefined;
     const numero =
       j.numero_camiseta === null ? faltan.exigir(h.numero_camiseta, `${prefijo}numero_camiseta`) : undefined;
     const foto = j.foto_id === null ? faltan.exigir(h.foto, `${prefijo}foto`) : undefined;
-    const categoria =
-      j.categoria_id === null
-        ? await this.categoria(j.disciplina, j.fecha_nacimiento ?? fecha ?? null, h.categoria_id)
-        : null;
     faltan.lanzarSiHay();
     return {
       cambios: {
@@ -478,7 +462,6 @@ class Proceso {
         ...(apellido !== undefined && { apellido }),
         ...(fecha !== undefined && { fecha_nacimiento: fecha }),
         ...(numero !== undefined && { numero_camiseta: numero }),
-        ...(categoria !== null && { categoria_id: categoria }),
       },
       foto,
     };
@@ -557,7 +540,6 @@ class Proceso {
       // pidiera menos cuando existe, la diferencia entre un 400 y un 201 revelaría que el RUT está.
       if ("rut" in h.ref && !h.ya_no_esta) {
         exigirHijoCompleto(h, p);
-        await this.categoriaDeRama(seguro(h.disciplina), h.categoria_id, `${p}categoria_id`);
       }
 
       if (h.ya_no_esta) {
@@ -653,8 +635,6 @@ class Proceso {
     const numero = faltan.exigir(h.numero_camiseta, `${p}numero_camiseta`);
     const foto = faltan.exigir(h.foto, `${p}foto`);
     faltan.lanzarSiHay();
-    const elegida = await this.categoriaDeRama(seguro(disciplina), h.categoria_id, `${p}categoria_id`);
-    const categoria = (await calcularCategoria(this.tx, seguro(disciplina), seguro(fecha))) ?? elegida;
     const [nuevo] = await this.tx
       .insert(jugadores)
       .values({
@@ -663,7 +643,6 @@ class Proceso {
         rut: h.ref.rut,
         fecha_nacimiento: seguro(fecha),
         disciplina: seguro(disciplina),
-        categoria_id: categoria,
         numero_camiseta: seguro(numero),
         foto_id: await this.foto(seguro(foto)),
         estado: "pendiente",

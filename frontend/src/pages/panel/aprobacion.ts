@@ -13,8 +13,6 @@ import {
  */
 export interface FormJugador {
   marcado: boolean;
-  /** "" = sin categoría. */
-  categoria_id: string;
   numero_camiseta: string;
   beca_mensualidad_pct: string;
   beca_torneos_pct: string;
@@ -147,7 +145,6 @@ export function formInicial(s: SolicitudDetalle): FormAprobacion {
         !bloquea(j.faltantes) &&
         // Un adulto sin teléfono que no puede tener contacto desde acá no se puede aprobar.
         (!j.faltantes.includes("telefono") || contactoPosible(j.id, s)),
-      categoria_id: j.categoria_id === null ? "" : String(j.categoria_id),
       numero_camiseta: j.numero_camiseta ?? "",
       beca_mensualidad_pct: String(j.beca_mensualidad_pct),
       beca_torneos_pct: String(j.beca_torneos_pct),
@@ -216,7 +213,6 @@ function entero(texto: string): number {
 
 const NOMBRES_CAMPO: Record<string, string> = {
   numero_camiseta: "número de camiseta",
-  categoria_id: "categoría",
   beca_mensualidad_pct: "beca de mensualidad",
   beca_torneos_pct: "beca de torneos",
   beca_campus_pct: "beca de campus",
@@ -239,7 +235,6 @@ export function armarAprobacion(
       .filter(([, j]) => j.marcado)
       .map(([id, j]) => ({
         id,
-        categoria_id: j.categoria_id === "" ? null : entero(j.categoria_id),
         numero_camiseta: j.numero_camiseta.trim(),
         beca_mensualidad_pct: entero(j.beca_mensualidad_pct),
         beca_torneos_pct: entero(j.beca_torneos_pct),

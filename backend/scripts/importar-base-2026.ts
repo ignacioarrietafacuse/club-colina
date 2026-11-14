@@ -24,6 +24,7 @@ import readXlsxFile, { readSheetNames } from "read-excel-file/node";
 import { DISCIPLINAS, METODOS_PAGO, normalizarRut } from "@club-colina/shared";
 import { crearDb, type Db, type Ejecutor } from "../src/db/cliente";
 import { apoderados, categorias, jugadorApoderado, jugadores } from "../src/db/schema";
+import { categoriaDelJugador } from "../src/lib/categorias";
 import { resumirError } from "../src/lib/errores";
 import { verificarHostDestino } from "../src/lib/guarda-host";
 
@@ -306,10 +307,15 @@ export type Categoria = {
   id: number;
   nombre: string;
   disciplina: Disciplina;
-  anio_desde: number;
-  anio_hasta: number;
+  edad_min: number;
+  edad_max: number;
   se_calcula: boolean;
 };
+
+/** La base es de la temporada 2026: la U11 F que trae se guarda como marca de esa temporada. */
+export const TEMPORADA_BASE = 2026;
+/** Un instante dentro de la temporada de la base, para comparar con la categoría calculada. */
+const EN_TEMPORADA_BASE = new Date("2026-12-31T12:00:00-03:00");
 
 export type JugadorPlan = {
   fila: number;
@@ -318,7 +324,8 @@ export type JugadorPlan = {
   apellido: string | null;
   fecha_nacimiento: string | null;
   disciplina: Disciplina;
-  categoria_id: number | null;
+  /** `TEMPORADA_BASE` si la base la trae como U11 F; si no, null. La categoría no se importa. */
+  u11f_temporada: number | null;
   postula_beca: boolean;
   telefono: string | null;
   email: string | null;
@@ -352,34 +359,41 @@ export type Plan = {
   camposVacios: PorMotivo;
   /** Avisos que no omiten a nadie (jugador sin apoderado, adulto con contacto propio, etc.). */
   notas: PorMotivo;
+  /**
+   * Básquet: cuántos jugadores traían en la base una categoría distinta de la calculada para la
+   * temporada 2026, por categoría de la base. Solo conteos: ni filas ni datos personales.
+   */
+  categoriaDistinta: Record<string, number>;
 };
 
 function anotar(registro: PorMotivo, motivo: string, fila: number) {
   (registro[motivo] ??= []).push(fila);
 }
 
-function categoriaDe(
+/**
+ * La categoría de la base ya no se importa: se calcula por edad de temporada. Solo la U11 F se
+ * guarda, como marca de la temporada 2026. En básquet se cuenta, por categoría de la base, a
+ * quienes traían una distinta de la calculada (vóley no la trae: se calculaba).
+ */
+function categoriaDeLaBase(
   disciplina: Disciplina,
-  celda: unknown,
+  celdaCategoria: unknown,
   fecha: string | null,
   lista: readonly Categoria[],
-): { id: number | null; motivo: string | null } {
-  if (disciplina === "basketball") {
-    // Básquet: la categoría de la base.
-    const t = texto(celda);
-    if (t === null) return { id: null, motivo: "categoria_basquet_vacia" };
-    const clave = claveCategoria(t);
-    const encontrada = lista.find((c) => c.disciplina === "basketball" && claveCategoria(c.nombre) === clave);
-    return encontrada ? { id: encontrada.id, motivo: null } : { id: null, motivo: "categoria_basquet_no_reconocida" };
+  distinta: Record<string, number>,
+): { u11f_temporada: number | null } {
+  if (disciplina !== "basketball") return { u11f_temporada: null };
+  const t = texto(celdaCategoria);
+  if (t === null) return { u11f_temporada: null };
+  const clave = claveCategoria(t);
+  const base = lista.find((c) => c.disciplina === "basketball" && claveCategoria(c.nombre) === clave);
+  if (base && !base.se_calcula) return { u11f_temporada: TEMPORADA_BASE };
+  const calculada = categoriaDelJugador({ fecha_nacimiento: fecha, disciplina, u11f_temporada: null }, lista, EN_TEMPORADA_BASE);
+  if (base?.id !== calculada) {
+    const nombre = base?.nombre ?? "no reconocida";
+    distinta[nombre] = (distinta[nombre] ?? 0) + 1;
   }
-  // Vóley: calculada por año de nacimiento.
-  if (fecha === null) return { id: null, motivo: "categoria_voley_sin_fecha" };
-  const anio = Number(fecha.slice(0, 4));
-  const calzan = lista.filter(
-    (c) => c.disciplina === "voleibol" && c.se_calcula && c.anio_desde <= anio && anio <= c.anio_hasta,
-  );
-  const unica = calzan.length === 1 ? calzan[0] : undefined;
-  return unica ? { id: unica.id, motivo: null } : { id: null, motivo: "categoria_voley_no_calculable" };
+  return { u11f_temporada: null };
 }
 
 function filaVacia(fila: readonly unknown[]): boolean {
@@ -407,6 +421,7 @@ export function planificar(
     apoderadosOmitidos: {},
     camposVacios: {},
     notas: {},
+    categoriaDistinta: {},
   };
   const vinculosVistos = new Set<string>();
   /** Adultos sin apoderado (su contacto va en su ficha). */
@@ -502,8 +517,13 @@ export function planificar(
         } else {
           anotar(plan.camposVacios, "fecha_nacimiento_vacia", n);
         }
-        const categoria = categoriaDe(disciplina, celda(fila, "categoria"), fecha, listaCategorias);
-        if (categoria.motivo !== null) anotar(plan.camposVacios, categoria.motivo, n);
+        const categoria = categoriaDeLaBase(
+          disciplina,
+          celda(fila, "categoria"),
+          fecha,
+          listaCategorias,
+          plan.categoriaDistinta,
+        );
         let postula = normalizarSiNo(celda(fila, "postula_beca"));
         if (postula === null) {
           anotar(plan.camposVacios, "postula_beca_ambiguo", n);
@@ -519,7 +539,7 @@ export function planificar(
           apellido,
           fecha_nacimiento: fecha,
           disciplina,
-          categoria_id: categoria.id,
+          u11f_temporada: categoria.u11f_temporada,
           postula_beca: postula,
           // En jugadores adultos sin apoderado, el contacto va en su propia ficha.
           telefono: adultoSinApoderado ? telefono : null,
@@ -620,6 +640,7 @@ export type Resumen = {
   vinculos: { creados: number; omitidos: PorMotivo };
   camposVacios: PorMotivo;
   notas: PorMotivo;
+  categoriaDistinta: Record<string, number>;
 };
 
 /** Señal para deshacer la transacción del `--dry-run`. */
@@ -641,6 +662,7 @@ export async function importar(db: Db, plan: Plan, opciones: { dryRun: boolean }
     vinculos: { creados: 0, omitidos: {} },
     camposVacios: plan.camposVacios,
     notas: plan.notas,
+    categoriaDistinta: plan.categoriaDistinta,
   };
   try {
     await db.transaction(async (tx) => {
@@ -689,7 +711,7 @@ async function escribir(tx: Ejecutor, plan: Plan, resumen: Resumen) {
         apellido: j.apellido,
         fecha_nacimiento: j.fecha_nacimiento,
         disciplina: j.disciplina,
-        categoria_id: j.categoria_id,
+        u11f_temporada: j.u11f_temporada,
         postula_beca: j.postula_beca,
         telefono: j.telefono,
         email: j.email,
@@ -756,8 +778,8 @@ export async function leerCategorias(db: Db): Promise<Categoria[]> {
       id: categorias.id,
       nombre: categorias.nombre,
       disciplina: categorias.disciplina,
-      anio_desde: categorias.anio_desde,
-      anio_hasta: categorias.anio_hasta,
+      edad_min: categorias.edad_min,
+      edad_max: categorias.edad_max,
       se_calcula: categorias.se_calcula,
     })
     .from(categorias);
@@ -780,6 +802,14 @@ function bloque(titulo: string, registro: PorMotivo): string[] {
     `${titulo}:`,
     ...motivos.map(([motivo, filas]) => `  - ${motivo}: ${filas.length} (filas ${listarFilas(filas)})`),
   ];
+}
+
+function categoriasDistintas(distinta: Record<string, number>): string[] {
+  const titulo = `Básquet con una categoría en la base distinta de la calculada (temporada ${TEMPORADA_BASE}; no se importa)`;
+  const filas = Object.entries(distinta).sort(([a], [b]) => a.localeCompare(b, "es", { numeric: true }));
+  if (filas.length === 0) return [`${titulo}: ninguno`];
+  const total = filas.reduce((suma, [, n]) => suma + n, 0);
+  return [`${titulo}: ${total}`, ...filas.map(([nombre, n]) => `  - ${nombre} en la base: ${n}`)];
 }
 
 export function formatearResumen(r: Resumen): string {
@@ -807,6 +837,8 @@ export function formatearResumen(r: Resumen): string {
     ...bloque("Campos que quedaron vacíos (el formulario los pregunta)", r.camposVacios),
     "",
     ...bloque("Notas", r.notas),
+    "",
+    ...categoriasDistintas(r.categoriaDistinta),
   ];
   return `${lineas.join("\n")}\n`;
 }

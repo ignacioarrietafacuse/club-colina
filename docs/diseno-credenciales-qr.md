@@ -36,10 +36,10 @@ El club necesita verificar en la entrada del Pucalán que quien entra es jugador
 - **Entrenadores:** tienen su propia sección en el panel. Mony los crea a mano (datos y foto), quedan activos de inmediato, y ella descarga el QR y se lo envía a cada uno. No usan el link de registro.
 - **Foto obligatoria** para cada persona. Sin foto no se activa la credencial.
 - **Número de camiseta obligatorio.** Quien aún no tiene número asignado pone **99** (se les indica en el mensaje de WhatsApp y en el propio formulario).
-- **Categoría calculada:** se calcula por año de nacimiento en ambas ramas (tabla en `categorias`). El formulario solo pregunta la categoría cuando no se puede calcular: el año no calza con ninguna categoría o la fecha de nacimiento falta o es errónea. Mony la puede corregir al aprobar.
+- **Categoría calculada (regla del club, 2026-11-14; básquet y vóley):** la categoría nunca se guarda: se calcula cada vez por **edad de temporada** (`backend/src/lib/categorias.ts`). La temporada es el año calendario en Chile y cambia el 1 de enero; la edad de temporada es temporada − año de nacimiento, y la categoría UN cubre las edades N−1 y N (los nacidos en temporada − N y temporada − N + 1). Así, cada 1 de enero todos suben solos, sin tocar la base. Si la edad no calza con ninguna categoría de su rama, el jugador queda **sin categoría** (el panel lo filtra con "Sin categoría") y nadie la pregunta. El formulario nunca pregunta la categoría: si la fecha de nacimiento falta o es inválida (posterior a hoy o anterior a 1900), pide la fecha. Única excepción: **U11 F**, que no se calcula; Mony la marca en la ficha y vale solo para la temporada en que la marcó (`jugadores.u11f_temporada`); al cambiar la temporada, la jugadora vuelve a su categoría calculada. No hay otras excepciones ni jugadores en dos categorías. Las categorías sirven solo para contar jugadores por categoría (dashboard y filtros).
 - **No se pide** parentesco ni datos de salud. El correo del apoderado no se pide en el formulario; viene de la base cuando existe.
 - **Sí se pide** quién paga la mensualidad (Forpay cobra por apoderado), rama y número de camiseta.
-- **Mony completa al aprobar:** becas; también puede corregir categoría, número y método de pago.
+- **Mony completa al aprobar:** becas; también puede corregir número y método de pago. La categoría se muestra, calculada; la U11 F se marca en la ficha.
 - **Becas:** las asigna solo Mony, por jugador, con porcentaje libre y separado para cada concepto:
   - **Mensualidad:** puede tener beca.
   - **Torneos:** puede tener beca.
@@ -55,7 +55,7 @@ La base es la exportación del formulario de inscripción 2026: 177 jugadores de
 ### Qué se importa
 | Destino | Campos |
 |---|---|
-| Jugador | nombre, apellido, RUT, fecha de nacimiento, rama, categoría (básquet: la de la base; vóley: calculada por año), si postula a beca |
+| Jugador | nombre, apellido, RUT, fecha de nacimiento, rama, si postula a beca. La categoría de la base no se importa (se calcula), salvo la U11 F, que queda marcada para la temporada 2026. El resumen cuenta, por categoría de la base, cuántos jugadores de básquet tenían una distinta de la calculada, sin datos personales |
 | Apoderado | nombre, RUT, teléfono, correo, método de pago |
 | Vínculo | jugador con su apoderado, marcado como quien paga la mensualidad |
 
@@ -69,7 +69,7 @@ La base es la exportación del formulario de inscripción 2026: 177 jugadores de
 
 ### Qué no trae la base
 - Foto y número de camiseta: los completa la familia por el formulario o Mony en el panel.
-- Categoría de vóley: se calculó por año de nacimiento. Dos jugadoras quedan sin categoría (una nacida en 2017, que correspondería a U10, y una con fecha errónea): el formulario se la pregunta.
+- Categoría de vóley: se calcula por edad de temporada. Una jugadora nacida en 2017 (edad de temporada 9 en 2026) queda sin categoría, porque vóley no tiene U10; una con fecha errónea queda sin fecha, y el formulario le pide la fecha.
 
 **Vigencia:** Mony confirmó que la base está al día, aunque se le puede haber pasado alguien. Por eso se mantienen la casilla "Ya no está en el club" del formulario y la lista de precargados sin registrarse en el panel.
 
@@ -164,7 +164,7 @@ Tablas definitivas del sistema (no temporales). Postgres en Railway.
 | rut | único; formato `12345678-9`; evita duplicados |
 | fecha_nacimiento | la edad se calcula, no se guarda |
 | disciplina | basketball / voleibol |
-| categoria_id | se calcula por año de nacimiento; nulo si no se puede calcular (el formulario la pregunta). Mony puede corregirla |
+| u11f_temporada | temporada (año) en que Mony la marcó U11 F en la ficha; vale solo esa temporada. La categoría no se guarda: se calcula por edad de temporada al responder |
 | numero_camiseta | nulo solo en precargados; obligatorio para aprobar. **99 = sin número asignado** |
 | postula_beca | verdadero si lo marcó en la inscripción; orienta a Mony al aprobar |
 | beca_mensualidad_pct | entero 0–100, por defecto 0. Lo define solo Mony |
@@ -210,25 +210,27 @@ En la Etapa 2, las categorías y los torneos apuntan a esta tabla para su entren
 | Campo | Nota |
 |---|---|
 | id, nombre, disciplina | |
-| anio_desde, anio_hasta | años de nacimiento que cubre; con esto se calcula la categoría |
+| edad_min, edad_max | edades de temporada (temporada − año de nacimiento) que cubre: UN cubre N−1 y N |
+| se_calcula | falso solo en U11 F: no se calcula, la marca Mony |
 
-| Rama | Categoría | Años de nacimiento |
-|---|---|---|
-| Básquet | U9 | 2017–2018 |
-| Básquet | U11 | 2015–2016 |
-| Básquet | U11 F | 2015–2016 (femenina; la asigna Mony) |
-| Básquet | U13 | 2013–2014 |
-| Básquet | U15 | 2011–2012 |
-| Básquet | U17 | 2009–2010 |
-| Básquet | U21 | 2005–2008 |
-| Vóley | U12 | 2015–2016 |
-| Vóley | U14 | 2013–2014 |
-| Vóley | U16 | 2011–2012 |
-| Vóley | U18 | 2009–2010 |
+| Rama | Categoría | Edad de temporada | Nacidos en 2026 | Nacidos en 2027 |
+|---|---|---|---|---|
+| Básquet | U9 | 8–9 | 2017–2018 | 2018–2019 |
+| Básquet | U11 | 10–11 | 2015–2016 | 2016–2017 |
+| Básquet | U11 F | — (femenina; la marca Mony por temporada) | — | — |
+| Básquet | U13 | 12–13 | 2013–2014 | 2014–2015 |
+| Básquet | U15 | 14–15 | 2011–2012 | 2012–2013 |
+| Básquet | U17 | 16–17 | 2009–2010 | 2010–2011 |
+| Básquet | U19 | 18–19 | 2007–2008 | 2008–2009 |
+| Básquet | U21 | 20–21 | 2005–2006 | 2006–2007 |
+| Vóley | U12 | 11–12 | 2014–2015 | 2015–2016 |
+| Vóley | U14 | 13–14 | 2012–2013 | 2013–2014 |
+| Vóley | U16 | 15–16 | 2010–2011 | 2011–2012 |
+| Vóley | U18 | 17–18 | 2008–2009 | 2009–2010 |
 
-- Básquet: sacado de la base. U11 F es la única categoría femenina (confirmado por Mony) y no se calcula sola.
-- Vóley: no tiene U10 (Mony, 2026-11-11). Los años se establecieron por decisión de Ignacio (2026-11-11), sin confirmación de Mony; si ella los corrige, se ajusta esta tabla y se recalcula.
-- Año fuera de la tabla (por ejemplo, vóley 2017): sin categoría; el formulario la pregunta.
+- Regla confirmada por el club (2026-11-14), igual para las dos ramas: básquet en impares (U9 a U21), vóley en pares (U12 a U18, sin U10).
+- U11 F es la única categoría femenina (confirmado por Mony), la única excepción y nunca se calcula sola.
+- Edad fuera de la tabla (por ejemplo, un nacido en 2016 en vóley durante 2026): sin categoría; no se pregunta.
 
 Horarios, lugar y entrenador se agregan en la Etapa 2.
 
@@ -252,7 +254,7 @@ Horarios, lugar y entrenador se agregan en la Etapa 2.
 - **Consulta de RUT del formulario:** responde solo si está o no en la base y qué campos faltan (más el primer nombre de los hijos). Nunca devuelve los datos guardados. Con límite de intentos. El RUT de un jugador que no es adulto con certeza (menor, o sin fecha en la base) responde como si no estuviera, y la lista de hijos oculta los vínculos pendientes hacia hijos de otra familia nombrados por RUT hasta que Mony los aprueba (decisión de Ignacio, 2026-11-12).
 - **Panel de Mony:**
   - Login.
-  - Solicitudes pendientes con foto y datos: aprobar / rechazar, asignar becas por jugador (mensualidad, torneos, campus/clínicas) y corregir categoría y número. Etiqueta "Coincide con la base" en las que vienen de un RUT precargado. Al rechazar, un precargado vuelve a como estaba; una persona nueva (llegó por el formulario y nunca estuvo activa) se borra con su foto y sus vínculos, para liberar su RUT y no guardar datos de menores sin motivo (Ley 21.719; decisión de Ignacio, 2026-11-12). Una solicitud pendiente que ya no deja nada por decidir (lo que traía se decidió desde otra, o sus cambios los bloqueó otra pendiente) se cierra con "Dar por revisada", que borra las copias que guardaba para restaurar.
+  - Solicitudes pendientes con foto y datos: aprobar / rechazar, asignar becas por jugador (mensualidad, torneos, campus/clínicas) y corregir número (la categoría se muestra calculada). Etiqueta "Coincide con la base" en las que vienen de un RUT precargado. Al rechazar, un precargado vuelve a como estaba; una persona nueva (llegó por el formulario y nunca estuvo activa) se borra con su foto y sus vínculos, para liberar su RUT y no guardar datos de menores sin motivo (Ley 21.719; decisión de Ignacio, 2026-11-12). Una solicitud pendiente que ya no deja nada por decidir (lo que traía se decidió desde otra, o sus cambios los bloqueó otra pendiente) se cierra con "Dar por revisada", que borra las copias que guardaba para restaurar.
   - Secciones Jugadores y Apoderados con datos reales. Filtros por estado (incluye "Precargado") y por "Faltan datos".
   - Ficha editable: Mony puede completar cualquier dato que falte, incluida la foto, sin esperar a la familia.
   - Lista de precargados que aún no se registran, para insistir por los grupos y detectar retirados. Mony puede marcarlos inactivos.
@@ -277,7 +279,6 @@ Los campus y clínicas de técnica son actividades pagadas aparte de la mensuali
 - En la Etapa 1 solo se guarda el porcentaje de beca.
 
 ## Pendiente del club
-- **Para la Etapa 1 (no bloquea):** que Mony confirme los años de cada categoría de vóley.
 - **Respondido por Mony (2026-11-11):** la base está al día (puede faltar alguien), U11 F es la única categoría femenina y los tres métodos de pago están confirmados.
 - **Para la Etapa 2:** el resto de la información y documentos listados en el PRD (sección 38).
 

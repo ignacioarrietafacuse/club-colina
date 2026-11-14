@@ -37,6 +37,7 @@ function jugador(id: string, cambios: Partial<JugadorDeSolicitud> = {}): Jugador
     rut: generarRutFicticio(id === J1 ? 1 : 2),
     disciplina: "basketball",
     categoria_id: 3,
+    u11f: false,
     numero_camiseta: "00",
     estado: "pendiente",
     origen: "formulario",
@@ -111,7 +112,6 @@ describe("formulario inicial", () => {
     expect(Object.keys(form.jugadores)).toEqual([J1]);
     expect(form.jugadores[J1]).toMatchObject({
       marcado: true,
-      categoria_id: "3",
       numero_camiseta: "00",
       beca_mensualidad_pct: "0",
     });
@@ -129,7 +129,6 @@ describe("aprobar", () => {
         jugadores: [
           {
             id: J1,
-            categoria_id: 3,
             numero_camiseta: "00",
             beca_mensualidad_pct: 0,
             beca_torneos_pct: 0,
@@ -142,14 +141,12 @@ describe("aprobar", () => {
     });
   });
 
-  it("'00' y '0' son números distintos; sin categoría va null", () => {
+  it("'00' y '0' son números distintos; la categoría no se manda (la calcula el servidor)", () => {
     const form = formInicial(solicitud());
-    form.jugadores[J1] = { ...form.jugadores[J1]!, numero_camiseta: "0", categoria_id: "" };
+    form.jugadores[J1] = { ...form.jugadores[J1]!, numero_camiseta: "0" };
     const r = armarAprobacion(form, nombres);
-    expect(r.ok && r.datos.jugadores?.[0]).toMatchObject({
-      numero_camiseta: "0",
-      categoria_id: null,
-    });
+    expect(r.ok && r.datos.jugadores?.[0]).toMatchObject({ numero_camiseta: "0" });
+    expect(r.ok && r.datos.jugadores?.[0]).not.toHaveProperty("categoria_id");
   });
 
   it("lo desmarcado queda pendiente: no se envía", () => {

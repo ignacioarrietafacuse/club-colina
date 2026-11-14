@@ -94,7 +94,7 @@ function PantallaSolicitud({ id }: { id: string }) {
           )}
           {categorias.data === undefined && categorias.isError && (
             <p role="alert" className="mb-4 rounded-lg bg-warning/15 px-4 py-3 text-sm">
-              No se pudieron cargar las categorías: se mantiene la que ya tiene cada jugador.
+              No se pudieron cargar las categorías: no se muestra su nombre.
             </p>
           )}
           <DetalleSolicitud
@@ -805,7 +805,11 @@ function TarjetaJugador({
   form: FormJugador | undefined;
   onChange: (c: Partial<FormJugador>) => void;
 }) {
-  const nombreCategoria = categorias?.find((c) => c.id === j.categoria_id)?.nombre;
+  // Calculada en el servidor por edad de temporada (o U11 F marcada en la ficha): solo se muestra.
+  const nombreCategoria =
+    j.categoria_id === null
+      ? "Sin categoría"
+      : (categorias?.find((c) => c.id === j.categoria_id)?.nombre ?? "—");
   return (
     <div className="card-surface flex flex-wrap gap-4 p-4">
       <FotoPersona tipo="jugadores" id={j.id} tieneFoto={j.tiene_foto} tamano={96} />
@@ -845,36 +849,11 @@ function TarjetaJugador({
           {j.edad !== null && ` (${j.edad} años)`}
         </Dato>
         <Dato etiqueta="Disciplina">{TEXTO_DISCIPLINA[j.disciplina]}</Dato>
+        <Dato etiqueta="Categoría">{nombreCategoria}</Dato>
         {j.telefono && <Dato etiqueta="Teléfono">{j.telefono}</Dato>}
 
         {form ? (
           <>
-            <div>
-              <label
-                className="text-[11px] uppercase tracking-wide text-muted-foreground"
-                htmlFor={`cat-${j.id}`}
-              >
-                Categoría
-              </label>
-              <select
-                id={`cat-${j.id}`}
-                value={form.categoria_id}
-                disabled={!categorias}
-                onChange={(e) => onChange({ categoria_id: e.target.value })}
-                className="w-full rounded-lg border bg-background px-2 py-1.5 text-sm"
-              >
-                {/* Sin la lista, se muestra la que tiene (no "Sin categoría") y no se cambia. */}
-                {!categorias && form.categoria_id !== "" && (
-                  <option value={form.categoria_id}>Categoría actual</option>
-                )}
-                <option value="">Sin categoría</option>
-                {(categorias ?? []).map((c) => (
-                  <option key={c.id} value={String(c.id)}>
-                    {c.nombre}
-                  </option>
-                ))}
-              </select>
-            </div>
             <CampoNumero
               id={`num-${j.id}`}
               etiqueta={`Número (${NUMERO_SIN_ASIGNAR} = sin número)`}
@@ -926,10 +905,7 @@ function TarjetaJugador({
             </div>
           </>
         ) : (
-          <>
-            <Dato etiqueta="Categoría">{nombreCategoria ?? "—"}</Dato>
-            <Dato etiqueta="Número">{j.numero_camiseta ?? "—"}</Dato>
-          </>
+          <Dato etiqueta="Número">{j.numero_camiseta ?? "—"}</Dato>
         )}
       </div>
     </div>

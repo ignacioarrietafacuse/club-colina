@@ -54,7 +54,7 @@ const apoderadoBase: Extract<RutLookupResponse, { tipo: "apoderado" }> = {
       posicion: 1,
       primer_nombre: "Beto",
       ya_registrado: false,
-      faltantes: ["foto", "numero_camiseta", "categoria"],
+      faltantes: ["foto", "numero_camiseta", "fecha_nacimiento"],
     },
     { posicion: 2, primer_nombre: "Caro", ya_registrado: true, faltantes: [] },
   ],
@@ -106,25 +106,25 @@ describe("inicio según la consulta del RUT", () => {
 });
 
 describe("qué se pregunta", () => {
-  it("persona nueva: todo menos la categoría, que calcula el servidor", () => {
+  it("persona nueva: todo, incluida la fecha (con ella el servidor calcula la categoría)", () => {
     const c = camposTitular({ tipo: "jugador_adulto", lookup: null });
     expect(c.pedir.has("disciplina")).toBe(true);
-    expect(c.pedir.has("categoria")).toBe(false);
+    expect(c.pedir.has("fecha_nacimiento")).toBe(true);
     const h = nuevoHijoPorRut();
     h.origen = { tipo: "rut", rut: RUT_HIJO, busqueda: { estado: "nuevo" } };
-    expect(camposHijo(h).pedir.has("categoria")).toBe(false);
+    expect(camposHijo(h).pedir.has("fecha_nacimiento")).toBe(true);
     expect(camposTitular({ tipo: "apoderado", lookup: null }).pedir.has("numero_camiseta")).toBe(
       false,
     );
   });
 
-  it("precargado: solo lo que falta; la categoría, si el servidor dice que falta, es obligatoria", () => {
+  it("precargado: solo lo que falta; sin fecha válida en la base, se pide la fecha", () => {
     const f = formulario(iniciarFormulario(RUT, apoderadoBase));
     const [ana, beto, caro] = tresHijos(f);
     expect([...camposHijo(ana).pedir].sort()).toEqual(["foto", "numero_camiseta"]);
-    expect(camposHijo(beto).pedir.has("categoria")).toBe(true);
+    expect(camposHijo(beto).pedir.has("fecha_nacimiento")).toBe(true);
     expect(camposHijo(caro).pedir.size).toBe(0);
-    expect(validarHijos(f, HOY)[`hijo.${beto.clave}.categoria_id`]).toMatch(/categoría/);
+    expect(validarHijos(f, HOY)[`hijo.${beto.clave}.fecha_nacimiento`]).toMatch(/fecha/);
   });
 
   it("a un hijo por RUT nunca se le pide teléfono, aunque el servidor lo trate como adulto", () => {
@@ -217,7 +217,6 @@ describe("validación", () => {
       fecha_nacimiento: "2030-01-01",
       disciplina: "",
       numero_camiseta: "100",
-      categoria_id: "",
     };
     const e = validarTitular(f, HOY);
     expect(Object.keys(e).sort()).toEqual(
@@ -244,7 +243,6 @@ describe("validación", () => {
       fecha_nacimiento: "2000-02-29",
       disciplina: "voleibol",
       numero_camiseta: "00",
-      categoria_id: "",
     };
     f.foto = foto();
     expect(validarTitular(f, HOY)).toEqual({});
@@ -314,7 +312,6 @@ describe("armado de la solicitud", () => {
       fecha_nacimiento: "2014-05-01",
       disciplina: "basketball",
       numero_camiseta: "99",
-      categoria_id: "",
     };
     nuevo.foto = foto();
     f.hijos.push(nuevo);
@@ -387,7 +384,7 @@ describe("armado de la solicitud", () => {
     expect(Object.keys(fotos)).toEqual([]);
   });
 
-  it("jugador adulto nuevo: sin categoría (la calcula el servidor) y sin hijos", () => {
+  it("jugador adulto nuevo: nunca manda categoría (la calcula el servidor) y sin hijos", () => {
     const f = nuevoFormulario(RUT, { tipo: "jugador_adulto", lookup: null });
     f.datos = {
       nombre: "Ana",
@@ -396,12 +393,10 @@ describe("armado de la solicitud", () => {
       fecha_nacimiento: "2004-01-01",
       disciplina: "voleibol",
       numero_camiseta: "7",
-      categoria_id: "9",
     };
     f.foto = foto();
     const { datos } = cumpleContrato(f);
     expect(datos).toMatchObject({ tipo: "jugador_adulto", disciplina: "voleibol", hijos: [] });
-    // Aunque quedara un valor en el estado, una categoría que no se preguntó no se manda.
     expect(datos).not.toHaveProperty("categoria_id");
     expect(datos).not.toHaveProperty("paga_mensualidad");
   });
@@ -425,7 +420,6 @@ describe("armado de la solicitud", () => {
       fecha_nacimiento: "2004-01-01",
       disciplina: "voleibol",
       numero_camiseta: "7",
-      categoria_id: "",
     };
     f.foto = foto();
     expect(validarTitular(f, HOY)).toEqual({});

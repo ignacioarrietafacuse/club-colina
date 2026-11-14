@@ -1,8 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { dbTest } from "../../test/db";
-import { calcularCategoria, edad, esAdulto, primerNombre, SIN_NOMBRE } from "./consulta";
+import { edad, esAdulto, faltantesJugador, primerNombre, SIN_NOMBRE } from "./consulta";
 import { vaciarRegistro } from "./datos-prueba";
-import { categorias } from "../../db/schema";
 
 const { db, cerrar } = dbTest();
 afterAll(cerrar);
@@ -30,13 +29,12 @@ describe("consulta: piezas", () => {
     expect(primerNombre("")).toBe(SIN_NOMBRE);
   });
 
-  it("categoría por año: U11 F no se calcula, vóley 2017 no tiene", async () => {
-    const todas = await db.select().from(categorias);
-    const id = (nombre: string, disciplina: string) =>
-      todas.find((c) => c.nombre === nombre && c.disciplina === disciplina)?.id;
-    expect(await calcularCategoria(db, "basketball", "2015-06-01")).toBe(id("U11", "basketball"));
-    expect(await calcularCategoria(db, "voleibol", "2015-06-01")).toBe(id("U12", "voleibol"));
-    expect(await calcularCategoria(db, "voleibol", "2017-06-01")).toBeNull();
-    expect(await calcularCategoria(db, "basketball", null)).toBeNull();
+  it("la categoría nunca se pregunta: sin fecha, o con una inválida, se pide la fecha", () => {
+    const base = { nombre: "A", apellido: "B", numero_camiseta: "7", telefono: null, foto_id: "f" };
+    const con = (fecha_nacimiento: string | null) => faltantesJugador({ ...base, fecha_nacimiento }, { adulto: false });
+    // Nacido en 2016 (en vóley, sin categoría: no hay U10): no falta nada.
+    expect(con("2016-06-01")).toEqual([]);
+    expect(con(null)).toEqual(["fecha_nacimiento"]);
+    expect(con("2999-01-01")).toEqual(["fecha_nacimiento"]);
   });
 });

@@ -5,8 +5,9 @@ import { ClipboardList, IdCard, UserCog, UserMinus, UserRoundX, Users } from "lu
 import type { ReactNode } from "react";
 import { EtiquetaPendiente } from "@/components/panel/Pendiente";
 import { PageHeader } from "@/components/panel/ui";
+import { TEXTO_DISCIPLINA } from "@/components/panel/textos";
 import { api, mensajeDeError } from "@/lib/api";
-import { INDICADORES_ETAPA_2, saludo } from "./dashboard";
+import { filasPorCategoria, INDICADORES_ETAPA_2, saludo } from "./dashboard";
 
 export const CLAVE_DASHBOARD = ["panel", "dashboard"] as const;
 
@@ -14,6 +15,11 @@ export function DashboardPage() {
   const consulta = useQuery({
     queryKey: CLAVE_DASHBOARD,
     queryFn: ({ signal }) => api.panel.dashboard(signal),
+  });
+  const categorias = useQuery({
+    queryKey: ["panel", "categorias"],
+    queryFn: ({ signal }) => api.panel.categorias(signal),
+    staleTime: 5 * 60_000,
   });
 
   return (
@@ -27,7 +33,14 @@ export function DashboardPage() {
           {mensajeDeError(consulta.error)}
         </p>
       ) : (
-        <IndicadoresEtapa1 datos={consulta.data} />
+        <>
+          <IndicadoresEtapa1 datos={consulta.data} />
+          {consulta.data && (
+            <PorCategoria
+              filas={filasPorCategoria(consulta.data.jugadores_por_categoria, categorias.data)}
+            />
+          )}
+        </>
       )}
 
       <h2 className="mt-8 mb-3 text-sm font-semibold text-muted-foreground">Próximamente</h2>
@@ -103,6 +116,38 @@ export function IndicadoresEtapa1({ datos }: { datos: DashboardResponse | undefi
         }
       />
     </div>
+  );
+}
+
+/** Jugadores activos por categoría, calculada hoy: la categoría cambia sola el 1 de enero. */
+function PorCategoria({ filas }: { filas: ReturnType<typeof filasPorCategoria> }) {
+  if (filas.length === 0) return null;
+  return (
+    <>
+      <h2 className="mt-8 mb-3 text-sm font-semibold text-muted-foreground">
+        Jugadores activos por categoría
+      </h2>
+      <div className="card-surface overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
+            <tr>
+              <th className="px-4 py-2 font-medium">Rama</th>
+              <th className="px-4 py-2 font-medium">Categoría</th>
+              <th className="px-4 py-2 text-right font-medium">Jugadores</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((f) => (
+              <tr key={f.clave} className="border-t">
+                <td className="px-4 py-2">{f.disciplina ? TEXTO_DISCIPLINA[f.disciplina] : "—"}</td>
+                <td className="px-4 py-2">{f.nombre}</td>
+                <td className="px-4 py-2 text-right tabular-nums">{f.jugadores}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
