@@ -36,6 +36,8 @@ const ANCHO_MEDIDO = 270;
 const RECORTE_C = { left: 15, top: 31, width: 54, height: 88 };
 /** Alto máximo de los logos que usa la interfaz (4 veces lo que se muestra, para pantallas retina). */
 const ALTO_MAX_LOGO = 160;
+/** Ancho al que se rasteriza un original SVG. */
+const ANCHO_SVG = 1600;
 
 /** El único original de la carpeta, en RGB sobre FONDO (un SVG se rasteriza a buen tamaño). */
 async function cargarOriginal() {
@@ -55,8 +57,18 @@ async function cargarOriginal() {
     );
   }
   const [ruta] = encontrados;
-  const entrada = ruta.endsWith(".svg") ? sharp(ruta, { density: 600 }) : sharp(ruta);
-  return sharp(await entrada.flatten({ background: FONDO }).removeAlpha().png().toBuffer());
+  // Un SVG se rasteriza a un ancho fijo: el resultado más grande que se usa es la og-image.
+  const entrada = ruta.endsWith(".svg")
+    ? sharp(ruta, { density: 300 }).resize({ width: ANCHO_SVG })
+    : sharp(ruta);
+  return sharp(
+    await entrada
+      .flatten({ background: FONDO })
+      .removeAlpha()
+      .toColourspace("srgb")
+      .png()
+      .toBuffer(),
+  );
 }
 
 async function pixeles(imagen) {
@@ -163,6 +175,12 @@ async function main() {
   const recorte = Object.fromEntries(
     Object.entries(RECORTE_C).map(([k, v]) => [k, Math.round(v * f)]),
   );
+  const { height: altoOriginal } = await original.metadata();
+  if (recorte.left + recorte.width > anchoOriginal || recorte.top + recorte.height > altoOriginal) {
+    throw new Error(
+      "El recorte de la C se sale del original: tiene otra composición. Mide RECORTE_C de nuevo.",
+    );
+  }
   const recorteC = sharp(await original.clone().extract(recorte).png().toBuffer());
   const pngs = [];
   for (const lado of [16, 32, 48]) {
@@ -183,8 +201,8 @@ async function main() {
     ],
     theme_color: COLOR_TEMA,
     background_color: COLOR_FONDO_APP,
-    display: "standalone",
-    start_url: "/",
+    // Sin start_url ni display: quien guarde en la pantalla de inicio su /familia o su /c/:token
+    // tiene que volver a esa página, no al panel (un start_url fijo lo mandaría a /login).
   };
   await escribir("site.webmanifest", JSON.stringify(manifiesto, null, 2) + "\n");
 }

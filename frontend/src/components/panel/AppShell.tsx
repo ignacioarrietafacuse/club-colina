@@ -174,10 +174,16 @@ function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
     <Link to="/" className="flex items-center gap-3 group" aria-label="Club Colina">
       {compact ? (
-        <img src="/logo-colina-fondo.png" alt="" className="h-9 w-auto rounded-md" />
+        <img
+          src="/logo-colina-fondo.png"
+          alt=""
+          width={270}
+          height={148}
+          className="h-9 w-auto rounded-md"
+        />
       ) : (
         <div className="leading-tight">
-          <img src="/logo-colina.png" alt="" className="h-10 w-auto" />
+          <img src="/logo-colina.png" alt="" width={228} height={112} className="h-10 w-auto" />
           <div className="mt-1.5 text-[10px] uppercase tracking-widest text-white/50">
             Plataforma Deportiva
           </div>

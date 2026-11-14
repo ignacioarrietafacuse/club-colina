@@ -37,6 +37,8 @@ export function LoginPage() {
           <img
             src="/logo-colina-fondo.png"
             alt="Club Colina"
+            width={270}
+            height={148}
             className="mx-auto h-20 w-auto rounded-lg"
           />
           <p className="mt-1 text-sm text-muted-foreground">Ingresa al panel del club</p>
