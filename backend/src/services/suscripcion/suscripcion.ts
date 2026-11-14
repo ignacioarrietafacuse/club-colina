@@ -45,6 +45,8 @@ const importeFlow = z.object({
   amount: numero.pipe(z.number().nonnegative()),
   status: numero,
   error: numero.nullish(),
+  /** Intentos de cobro que Flow ya hizo sobre este importe. */
+  attemp_count: numero.nullish(),
   due_date: fechaFlow.nullish(),
 });
 const suscripcionFlow = z.object({
@@ -59,6 +61,11 @@ const listaSuscripciones = z.object({
   data: z.array(suscripcionFlow.pick({ subscriptionId: true, planId: true, status: true })),
 });
 const importeCobrado = z.object({ status: numero });
+/** Página de `customer/list`. Solo lo necesario para reconocer al cliente del club. */
+const listaClientes = z.object({
+  total: numero,
+  data: z.array(z.object({ customerId: z.string(), externalId: z.string().nullish(), status: z.coerce.string().nullish() })),
+});
 
 type ImporteFlow = z.infer<typeof importeFlow>;
 
@@ -73,6 +80,11 @@ function deFlow<T extends z.ZodType>(esquema: T, servicio: string): (cuerpo: unk
 
 /** Estado de una suscripción en Flow: 0 no iniciada, 1 activa, 2 en trial, 4 cancelada. */
 const SUSCRIPCION_CANCELADA = 4;
+
+/** Cómo se crea el cliente del club en Flow. El externalId es fijo: Flow no acepta dos iguales. */
+export const CLIENTE_FLOW = { name: "Club Colina", externalId: "club-colina" } as const;
+/** Páginas de 100 (el máximo de Flow) que se recorren buscando al cliente. */
+const PAGINAS_CLIENTES_MAX = 5;
 
 // --- Base -------------------------------------------------------------------------------------
 
@@ -139,6 +151,35 @@ async function buscarVigente(flow: ClienteFlow, customerId: string): Promise<str
   return lista.data.find((s) => s.planId === PLAN_SUSCRIPCION && s.status !== SUSCRIPCION_CANCELADA)?.subscriptionId;
 }
 
+/**
+ * El cliente del club ya creado en Flow, buscado por su externalId exacto. Flow no documenta un
+ * servicio por externalId: `customer/list` filtra solo por nombre ("Filtro por nombre del cliente"),
+ * así que se filtra por el nombre con que se crea y se compara el externalId. Devuelve el cliente
+ * solo si hay exactamente uno activo (status 1); si no hay o hay más de uno, undefined.
+ */
+async function buscarClienteDelClub(flow: ClienteFlow): Promise<string | undefined> {
+  const encontrados: string[] = [];
+  for (let pagina = 0; pagina < PAGINAS_CLIENTES_MAX; pagina++) {
+    const start = pagina * 100;
+    const lista = deFlow(listaClientes, "customer/list")(
+      await flow.get("customer/list", { filter: CLIENTE_FLOW.name, start, limit: 100 }),
+    );
+    for (const c of lista.data) {
+      if (c.externalId === CLIENTE_FLOW.externalId && c.status === "1") encontrados.push(c.customerId);
+    }
+    if (lista.data.length === 0 || start + lista.data.length >= lista.total) break;
+  }
+  return encontrados.length === 1 ? encontrados[0] : undefined;
+}
+
+/**
+ * Flow rechazó `customer/create` como error de negocio (400 o 401 con su código; con el externalId
+ * repetido responde 401 y código 501, visto en sandbox). Un error de red o un 5xx no lo es.
+ */
+function esRechazoDeNegocio(error: unknown): error is ErrorFlow {
+  return error instanceof ErrorFlow && (error.status === 400 || error.status === 401) && error.codigoFlow !== undefined;
+}
+
 // --- Fechas -----------------------------------------------------------------------------------
 
 /** Hoy en Chile continental, "AAAA-MM-DD" (el primer cobro es el día en que se inscribe la tarjeta). */
@@ -162,15 +203,20 @@ function esVencido(importe: ImporteFlow, hoy: string): boolean {
   return importe.status === 0 && importe.due_date != null && importe.due_date < hoy;
 }
 
-/** Importe impago cuyo cobro falló o que ya venció. */
-function esFallido(importe: ImporteFlow, hoy: string): boolean {
-  return importe.status === 0 && (importe.error === 1 || esVencido(importe, hoy));
+/**
+ * Importe impago (status 0) cuyo cobro Flow ya intentó y no salió: con error, o con intentos hechos.
+ * No se mira `due_date`: Flow lo pone días después de emitir el importe ("Fecha en que este importe
+ * será considerado moroso"; en sandbox, 3 días) aunque el cobro salga el mismo día. Que un importe
+ * venza sin pagarse lo informa Flow en la suscripción (`morose = 1`).
+ */
+function esFallido(importe: ImporteFlow): boolean {
+  return importe.status === 0 && (importe.error === 1 || (importe.attemp_count ?? 0) > 0);
 }
 
-function estadoCobro(importe: ImporteFlow, hoy: string) {
+function estadoCobro(importe: ImporteFlow) {
   if (importe.status === 1) return "pagado" as const;
   if (importe.status === 2) return "anulado" as const;
-  return esFallido(importe, hoy) ? ("fallido" as const) : ("pendiente" as const);
+  return esFallido(importe) ? ("fallido" as const) : ("pendiente" as const);
 }
 
 /**
@@ -230,17 +276,18 @@ export async function leerEstado(
   }
   // Con suscripción viva, una tarjeta que Flow ya no informa no esconde un cobro fallido.
   const importes = [...(suscripcion.invoices ?? [])].sort((a, b) => b.created.localeCompare(a.created) || b.id - a.id);
-  const fallido = suscripcion.morose === 1 || importes.some((i) => esFallido(i, hoy));
+  const fallido = suscripcion.morose === 1 || importes.some(esFallido);
   return {
     ...base,
     estado: fallido ? "cobro_fallido" : "activa",
-    // "Reintentar cobro" solo sirve con un importe vencido (Flow no reintenta los demás).
-    puede_reintentar: importes.some((i) => esVencido(i, hoy)),
+    // "Reintentar cobro" solo sirve con un cobro fallido y un importe vencido: Flow reintenta solo
+    // "un invoice vencido" (invoice/retryToCollect). Acá sí importa `due_date`.
+    puede_reintentar: fallido && importes.some((i) => esVencido(i, hoy)),
     proximo_cobro: suscripcion.next_invoice_date ?? null,
     tarjeta,
     historial: importes
       .slice(0, HISTORIAL_MAX)
-      .map((i) => ({ fecha: i.created, monto: i.amount, estado: estadoCobro(i, hoy) })),
+      .map((i) => ({ fecha: i.created, monto: i.amount, estado: estadoCobro(i) })),
   };
 }
 
@@ -248,6 +295,7 @@ export async function leerEstado(
 
 export type ResultadoInscribir =
   | { tipo: "url"; url: string }
+  | { tipo: "recuperada" }
   | { tipo: "falta_email" }
   | { tipo: "produccion_activa" }
   | { tipo: "fila_cambiada" };
@@ -266,20 +314,33 @@ export async function inscribirTarjeta(
 ): Promise<ResultadoInscribir> {
   // 1) El cliente, guardado en su propia transacción: si después falla el registro de tarjeta, el
   //    cliente ya creado en Flow no se pierde (y el siguiente intento no crea otro).
+  //    Si Flow ya tiene al cliente del club (el externalId es fijo y Flow no acepta dos iguales: por
+  //    ejemplo, se perdió la fila), se recupera en vez de crear otro. Y si ese cliente ya tiene la
+  //    suscripción vigente, se guarda y no se vuelve a pasar por Flow: nunca una segunda suscripción.
   const cliente = await conCandado(db, ESPERA_CANDADO_MS.inscribir, async (tx): Promise<ResultadoInscribir | string> => {
     const fila = await leerFila(tx);
     if (fila && fila.modo === "produccion" && flow.modo === "sandbox") return { tipo: "produccion_activa" };
     let customerId = fila?.modo === flow.modo ? fila.flow_customer_id : null;
     if (!customerId) {
       if (!opciones.email) return { tipo: "falta_email" };
-      const creado = deFlow(clienteFlow, "customer/create")(
-        await flow.post("customer/create", { name: "Club Colina", externalId: "club-colina", email: opciones.email }),
-      );
-      customerId = creado.customerId;
+      let recuperado = false;
+      try {
+        customerId = deFlow(clienteFlow, "customer/create")(
+          await flow.post("customer/create", { ...CLIENTE_FLOW, email: opciones.email }),
+        ).customerId;
+      } catch (error) {
+        if (!esRechazoDeNegocio(error)) throw error;
+        // Sin cliente reconocible, se mantiene el error de Flow: nunca otro externalId.
+        const existente = await buscarClienteDelClub(flow);
+        if (!existente) throw error;
+        customerId = existente;
+        recuperado = true;
+      }
+      const vigente = recuperado ? await buscarVigente(flow, customerId) : undefined;
       const nueva = {
         modo: flow.modo,
         flow_customer_id: customerId,
-        flow_subscription_id: null,
+        flow_subscription_id: vigente ?? null,
         email: opciones.email,
         registro_token_hash: null,
         registro_token_expira: null,
@@ -288,6 +349,7 @@ export async function inscribirTarjeta(
         .insert(suscripcionServicio)
         .values({ id: 1, ...nueva })
         .onConflictDoUpdate({ target: suscripcionServicio.id, set: nueva });
+      if (vigente) return { tipo: "recuperada" };
     }
     return customerId;
   });

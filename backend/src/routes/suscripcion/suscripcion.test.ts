@@ -400,7 +400,7 @@ describe("inscribir la tarjeta y retorno", () => {
     const flow = sandbox();
     const { app, cookies: c } = await armar(flow);
     await inscribir(app, c, flow);
-    flow.clientes.set("cus_ajeno", { customerId: "cus_ajeno", email: "otro@ejemplo.test" });
+    flow.clientes.set("cus_ajeno", { customerId: "cus_ajeno", email: "otro@ejemplo.test", name: "Otro", externalId: "otro", status: "1" });
     flow.registros.set("TOKAJENO123", { customerId: "cus_ajeno", exito: true });
     const antes = flow.llamadas.length;
     const r = await retorno(app, "TOKAJENO123");
@@ -413,7 +413,7 @@ describe("inscribir la tarjeta y retorno", () => {
     const { app, cookies: c } = await armar(flow);
     await inscribir(app, c, flow);
     // Aunque el token calzara con el pendiente, Flow dice que es de otro cliente.
-    flow.clientes.set("cus_ajeno", { customerId: "cus_ajeno", email: "otro@ejemplo.test" });
+    flow.clientes.set("cus_ajeno", { customerId: "cus_ajeno", email: "otro@ejemplo.test", name: "Otro", externalId: "otro", status: "1" });
     flow.registros.set("TOKAJENO123", { customerId: "cus_ajeno", exito: true });
     await db.update(suscripcionServicio).set({ registro_token_hash: hashToken("TOKAJENO123") });
     const r = await retorno(app, "TOKAJENO123");
@@ -677,5 +677,158 @@ describe("cobro fallido, reintento y aviso", () => {
       codigos.push(r.statusCode);
     }
     expect(codigos).toEqual([409, 409, 409, 429]);
+  });
+});
+
+describe("cliente del club ya creado en Flow (externalId repetido)", () => {
+  async function pedirInscripcion(app: App, c: Record<string, string>) {
+    return app.inject({
+      method: "POST",
+      url: "/api/suscripcion/inscribir-tarjeta",
+      cookies: c,
+      headers: { origin: BASE },
+      payload: { email: EMAIL },
+    });
+  }
+
+  it("con suscripción vigente la recupera y la guarda: no va a Flow ni cobra de nuevo", async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    const { token } = await inscribir(app, c, flow);
+    flow.completarRegistro(token);
+    await retorno(app, token);
+    const [cliente] = [...flow.clientes.keys()];
+    const [sus] = [...flow.suscripciones.keys()];
+    const historial = (await estado(app, c)).historial;
+    // Se perdió la fila (o se borró): la página vuelve a "sin tarjeta" y pide el correo.
+    await db.delete(suscripcionServicio);
+    expect((await estado(app, c)).estado).toBe("sin_tarjeta");
+
+    flow.llamadas = [];
+    const r = await pedirInscripcion(app, c);
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual({ resultado: "recuperada" });
+    expect(flow.servicios()).toEqual(["customer/create", "customer/list", "customer/getSubscriptions"]);
+    const list = flow.llamadas.find((l) => l.servicio === "customer/list");
+    expect(list?.parametros).toMatchObject({ filter: "Club Colina", start: "0", limit: "100" });
+    const [fila] = await db.select().from(suscripcionServicio);
+    expect(fila).toMatchObject({ modo: "sandbox", flow_customer_id: cliente, flow_subscription_id: sus, registro_token_hash: null });
+
+    const e = await estado(app, c);
+    expect(e.estado).toBe("activa");
+    expect(e.historial).toEqual(historial);
+    expect(flow.clientes.size).toBe(1);
+    expect(flow.suscripciones.size).toBe(1);
+    expect(flow.servicios()).not.toContain("subscription/create");
+    expect(flow.servicios()).not.toContain("customer/register");
+  });
+
+  it("sin suscripción recupera al cliente y sigue a inscribir la tarjeta, con una sola suscripción", async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    await inscribir(app, c, flow); // crea el cliente y no completa la tarjeta en Flow
+    const [cliente] = [...flow.clientes.keys()];
+    await db.delete(suscripcionServicio);
+
+    const r = await pedirInscripcion(app, c);
+    expect(r.statusCode).toBe(200);
+    const cuerpo = r.json<{ resultado: string; url: string }>();
+    expect(cuerpo.resultado).toBe("flow");
+    expect(flow.llamadas.at(-1)?.parametros.customerId).toBe(cliente);
+    const [fila] = await db.select().from(suscripcionServicio);
+    expect(fila).toMatchObject({ flow_customer_id: cliente, flow_subscription_id: null });
+
+    const token = new URL(cuerpo.url).searchParams.get("token") ?? "";
+    flow.completarRegistro(token);
+    expect((await retorno(app, token)).headers.location).toBe(`${BASE}/suscripcion?resultado=ok`);
+    expect(flow.clientes.size).toBe(1);
+    expect(flow.suscripciones.size).toBe(1);
+    expect((await estado(app, c)).estado).toBe("activa");
+  });
+
+  it("si no lo encuentra, o hay más de uno, o Flow falla al buscarlo, mantiene el error y no guarda nada", async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    // Un cliente con el externalId del club pero con otro nombre: customer/list no lo trae.
+    flow.clientes.set("cus_renombrado", { customerId: "cus_renombrado", email: "x@ejemplo.test", name: "Otro nombre", externalId: "club-colina", status: "1" });
+    const r = await pedirInscripcion(app, c);
+    expect(r.statusCode).toBe(503);
+    expect(r.json<{ error: { codigo: string } }>().error.codigo).toBe("no_disponible");
+    expect(await db.select().from(suscripcionServicio)).toHaveLength(0);
+    // Nunca se inventa otro externalId para esquivar el rechazo.
+    const creados = flow.llamadas.filter((l) => l.servicio === "customer/create");
+    expect(creados.every((l) => l.parametros.externalId === "club-colina")).toBe(true);
+    expect(flow.clientes.size).toBe(1);
+
+    // Dos clientes activos que calzan: no se adivina cuál.
+    flow.clientes.set("cus_a", { customerId: "cus_a", email: "a@ejemplo.test", name: "Club Colina", externalId: "club-colina", status: "1" });
+    flow.clientes.set("cus_b", { customerId: "cus_b", email: "b@ejemplo.test", name: "Club Colina", externalId: "club-colina", status: "1" });
+    expect((await pedirInscripcion(app, c)).statusCode).toBe(503);
+    expect(await db.select().from(suscripcionServicio)).toHaveLength(0);
+
+    // Uno solo, pero Flow cae al listar.
+    flow.clientes.delete("cus_b");
+    flow.fallaLista = true;
+    expect((await pedirInscripcion(app, c)).statusCode).toBe(503);
+    expect(await db.select().from(suscripcionServicio)).toHaveLength(0);
+    expect(flow.servicios()).not.toContain("customer/register");
+  });
+
+  it("un cliente inactivo (status 0) con el mismo externalId no se recupera", async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    flow.clientes.set("cus_inactivo", { customerId: "cus_inactivo", email: "x@ejemplo.test", name: "Club Colina", externalId: "club-colina", status: "0" });
+    expect((await pedirInscripcion(app, c)).statusCode).toBe(503);
+    expect(await db.select().from(suscripcionServicio)).toHaveLength(0);
+  });
+
+  it("recorre las páginas de customer/list (100 por página) hasta encontrarlo", async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    for (let i = 0; i < 150; i++) {
+      flow.clientes.set(`cus_otro${i}`, { customerId: `cus_otro${i}`, email: "o@ejemplo.test", name: `Club Colina filial ${i}`, externalId: `otro-${i}`, status: "1" });
+    }
+    flow.clientes.set("cus_club", { customerId: "cus_club", email: "x@ejemplo.test", name: "Club Colina", externalId: "club-colina", status: "1" });
+    const r = await pedirInscripcion(app, c);
+    expect(r.statusCode).toBe(200);
+    expect(flow.llamadas.filter((l) => l.servicio === "customer/list").map((l) => l.parametros.start)).toEqual(["0", "100"]);
+    const [fila] = await db.select().from(suscripcionServicio);
+    expect(fila?.flow_customer_id).toBe("cus_club");
+  });
+});
+
+describe("estado del cobro según el importe, no según due_date", () => {
+  async function conSuscripcion() {
+    const flow = sandbox();
+    const armado = await armar(flow);
+    const { token } = await inscribir(armado.app, armado.cookies, flow);
+    flow.completarRegistro(token);
+    await retorno(armado.app, token);
+    const sus = [...flow.suscripciones.values()][0];
+    if (!sus) throw new Error("sin suscripción");
+    sus.invoices = [];
+    return { ...armado, sus };
+  }
+
+  it("un importe pagado el mismo día con due_date 3 días después es Pagado y la suscripción Activa", async () => {
+    const { app, cookies: c, sus } = await conSuscripcion();
+    sus.invoices.push({ id: 1, created: "2026-11-13 21:59:55", amount: 200000, status: 1, error: 0, attemp_count: 1, due_date: "2026-11-16 00:00:00" });
+    const e = await estado(app, c);
+    expect(e).toMatchObject({ estado: "activa", puede_reintentar: false });
+    expect(e.historial).toEqual([{ fecha: "2026-11-13", monto: 200000, estado: "pagado" }]);
+  });
+
+  it("un importe impago sin intentos ni error es Pendiente aunque su due_date haya pasado; lo vencido lo dice morose", async () => {
+    const { app, cookies: c, sus } = await conSuscripcion();
+    sus.invoices.push({ id: 2, created: "2020-01-13 10:00:00", amount: 200000, status: 0, error: 0, attemp_count: 0, due_date: "2020-01-16 00:00:00" });
+    expect(await estado(app, c)).toMatchObject({ estado: "activa", puede_reintentar: false, historial: [{ estado: "pendiente" }] });
+    sus.morose = 1;
+    expect(await estado(app, c)).toMatchObject({ estado: "cobro_fallido", puede_reintentar: true });
+  });
+
+  it("un importe impago con un intento de cobro hecho es Fallido aunque no tenga error ni haya vencido", async () => {
+    const { app, cookies: c, sus } = await conSuscripcion();
+    sus.invoices.push({ id: 3, created: "2099-01-13 10:00:00", amount: 200000, status: 0, error: 0, attemp_count: 1, due_date: "2099-01-16 00:00:00" });
+    expect(await estado(app, c)).toMatchObject({ estado: "cobro_fallido", puede_reintentar: false, historial: [{ estado: "fallido" }] });
   });
 });

@@ -12,7 +12,9 @@ import {
   formatoFecha,
   formatoMonto,
   mensajeResultado,
+  mostrarAviso,
   TEXTO_ESTADO_COBRO,
+  type AvisoResultado,
 } from "./suscripcion";
 
 const CAMPO =
@@ -27,10 +29,12 @@ export function SuscripcionPage() {
   const { resultado: enUrl } = useSearch({ from: "/_panel/suscripcion" });
   const navigate = useNavigate();
   // El mensaje de vuelta de Flow se muestra una vez: se guarda y se limpia la URL, así no reaparece
-  // al recargar.
-  const [resultado] = useState(enUrl);
+  // al recargar. Y solo mientras no lo contradiga el estado que se ve (mostrarAviso).
+  const [resultado, setResultado] = useState<AvisoResultado | undefined>(enUrl);
   useEffect(() => {
-    if (enUrl) void navigate({ to: "/suscripcion", search: {}, replace: true });
+    if (!enUrl) return;
+    setResultado(enUrl);
+    void navigate({ to: "/suscripcion", search: {}, replace: true });
   }, [enUrl, navigate]);
   const queryClient = useQueryClient();
   const consulta = useQuery({
@@ -56,7 +60,7 @@ export function SuscripcionPage() {
         }
       />
 
-      {resultado && (
+      {resultado && mostrarAviso(resultado, consulta.data?.estado) && (
         <p
           role={resultado === "ok" ? "status" : "alert"}
           className={`rounded-lg px-4 py-3 text-sm ${resultado === "ok" ? "bg-success/10" : "bg-destructive/10 text-destructive"}`}
@@ -72,7 +76,14 @@ export function SuscripcionPage() {
       ) : consulta.isError ? (
         <MensajeSimple texto={mensajeDeError(consulta.error)} />
       ) : (
-        <Contenido datos={consulta.data} alCambiar={actualizar} />
+        <Contenido
+          datos={consulta.data}
+          alCambiar={actualizar}
+          alRecuperar={() => {
+            setResultado("recuperada");
+            actualizar();
+          }}
+        />
       )}
     </div>
   );
@@ -86,7 +97,15 @@ function MensajeSimple({ texto }: { texto: string }) {
   );
 }
 
-function Contenido({ datos, alCambiar }: { datos: SuscripcionResponse; alCambiar: () => void }) {
+function Contenido({
+  datos,
+  alCambiar,
+  alRecuperar,
+}: {
+  datos: SuscripcionResponse;
+  alCambiar: () => void;
+  alRecuperar: () => void;
+}) {
   switch (datos.estado) {
     case "pendiente_configuracion":
       return (
@@ -97,32 +116,42 @@ function Contenido({ datos, alCambiar }: { datos: SuscripcionResponse; alCambiar
         <MensajeSimple texto="No pudimos consultar Flow en este momento. El resto del panel funciona normalmente; intenta más tarde." />
       );
     case "sin_tarjeta":
-      return <SinTarjeta datos={datos} />;
+      return <SinTarjeta datos={datos} alRecuperar={alRecuperar} />;
     case "activa":
     case "cobro_fallido":
-      return <Activa datos={datos} alCambiar={alCambiar} />;
+      return <Activa datos={datos} alCambiar={alCambiar} alRecuperar={alRecuperar} />;
   }
 }
 
-/** Lleva el navegador a Flow para inscribir (o cambiar) la tarjeta. */
-function useInscribir() {
+/**
+ * Lleva el navegador a Flow para inscribir (o cambiar) la tarjeta. Si el backend recuperó de Flow la
+ * suscripción vigente, no se va a Flow: la página se vuelve a leer.
+ */
+function useInscribir(alRecuperar: () => void) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (email: string | undefined) => {
-      const { url } = await api.suscripcion.inscribirTarjeta(email ? { email } : {});
-      if (!esUrlDeFlow(url)) throw new Error("Dirección inesperada");
-      return url;
+      const r = await api.suscripcion.inscribirTarjeta(email ? { email } : {});
+      if (r.resultado === "flow" && !esUrlDeFlow(r.url)) throw new Error("Dirección inesperada");
+      return r;
     },
-    onSuccess: (url) => {
+    onSuccess: (r) => {
       void queryClient.invalidateQueries({ queryKey: CLAVE_AVISO_SUSCRIPCION });
-      window.location.assign(url);
+      if (r.resultado === "flow") window.location.assign(r.url);
+      else alRecuperar();
     },
   });
 }
 
-function SinTarjeta({ datos }: { datos: SuscripcionResponse }) {
+function SinTarjeta({
+  datos,
+  alRecuperar,
+}: {
+  datos: SuscripcionResponse;
+  alRecuperar: () => void;
+}) {
   const [email, setEmail] = useState("");
-  const inscribir = useInscribir();
+  const inscribir = useInscribir(alRecuperar);
   // Con cliente ya creado en Flow, el correo no se pide (Flow sigue usando el primero).
   const pideEmail = !datos.tiene_cliente;
   const falta = pideEmail && email.trim() === "";
@@ -185,8 +214,16 @@ function SinTarjeta({ datos }: { datos: SuscripcionResponse }) {
   );
 }
 
-function Activa({ datos, alCambiar }: { datos: SuscripcionResponse; alCambiar: () => void }) {
-  const inscribir = useInscribir();
+function Activa({
+  datos,
+  alCambiar,
+  alRecuperar,
+}: {
+  datos: SuscripcionResponse;
+  alCambiar: () => void;
+  alRecuperar: () => void;
+}) {
+  const inscribir = useInscribir(alRecuperar);
   const reintento = useMutation({
     mutationFn: () => api.suscripcion.reintentar(),
     onSettled: alCambiar,

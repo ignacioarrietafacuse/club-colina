@@ -6,6 +6,7 @@ import {
   formatoFecha,
   formatoMonto,
   mensajeResultado,
+  mostrarAviso,
 } from "./suscripcion";
 
 describe("suscripción", () => {
@@ -33,5 +34,27 @@ describe("suscripción", () => {
 
   it("no agrega Suscripción al menú principal (va junto a Cambiar clave)", () => {
     expect(nav.some((i) => i.to === "/suscripcion")).toBe(false);
+  });
+});
+
+describe("aviso de resultado", () => {
+  it("'Listo' y 'recuperada' solo encima de una suscripción viva; nunca mientras carga", () => {
+    for (const r of ["ok", "recuperada"] as const) {
+      expect(mostrarAviso(r, "activa")).toBe(true);
+      expect(mostrarAviso(r, "cobro_fallido")).toBe(true);
+      expect(mostrarAviso(r, "sin_tarjeta")).toBe(false);
+      expect(mostrarAviso(r, "no_disponible")).toBe(false);
+      expect(mostrarAviso(r, "pendiente_configuracion")).toBe(false);
+      expect(mostrarAviso(r, undefined)).toBe(false);
+    }
+    expect(mensajeResultado("recuperada")).toContain("No se hizo ningún cobro nuevo");
+  });
+
+  it("el error de inscripción se muestra con sin tarjeta o con una suscripción viva", () => {
+    expect(mostrarAviso("error", "sin_tarjeta")).toBe(true);
+    expect(mostrarAviso("error", "activa")).toBe(true);
+    expect(mostrarAviso("error", "no_disponible")).toBe(false);
+    expect(mostrarAviso("error", undefined)).toBe(false);
+    expect(mostrarAviso(undefined, "activa")).toBe(false);
   });
 });

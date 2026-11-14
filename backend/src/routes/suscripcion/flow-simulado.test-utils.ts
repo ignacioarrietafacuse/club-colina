@@ -18,6 +18,7 @@ interface Importe {
   amount: number;
   status: number;
   error: number;
+  attemp_count?: number;
   due_date: string;
 }
 
@@ -48,7 +49,12 @@ export class FlowSimulado {
   /** Demora de `subscription/create`, para simular a Flow lento. */
   demoraCreacionMs = 0;
   plan = { planId: "suscripcion_clubcolina", name: "Suscripción Club Colina", amount: 200000, currency: "CLP" };
-  clientes = new Map<string, { customerId: string; email: string; creditCardType?: string; last4CardDigits?: string }>();
+  clientes = new Map<
+    string,
+    { customerId: string; email: string; name: string; externalId: string; status: string; creditCardType?: string; last4CardDigits?: string }
+  >();
+  /** Si es true, `customer/list` responde 500 (Flow cae justo al buscar el cliente). */
+  fallaLista = false;
   /** token de registro → customerId y si la inscripción fue exitosa. */
   registros = new Map<string, { customerId: string; exito: boolean }>();
   suscripciones = new Map<
@@ -103,9 +109,23 @@ export class FlowSimulado {
       case "plans/get":
         return p.planId === this.plan.planId ? Response.json(this.plan) : error(404);
       case "customer/create": {
+        // Como Flow (visto en sandbox): un externalId repetido es 401 con código 501.
+        if ([...this.clientes.values()].some((c) => c.externalId === p.externalId)) {
+          return Response.json({ code: 501, message: "externalId" }, { status: 401 });
+        }
         const customerId = `cus_${this.n}`;
-        this.clientes.set(customerId, { customerId, email: p.email ?? "" });
+        this.clientes.set(customerId, { customerId, email: p.email ?? "", name: p.name ?? "", externalId: p.externalId ?? "", status: "1" });
         return Response.json({ customerId, email: p.email, name: p.name, externalId: p.externalId, status: "1" });
+      }
+      case "customer/list": {
+        if (this.fallaLista) return Response.json({ code: 500, message: "error" }, { status: 500 });
+        // `filter` filtra por nombre (contiene, sin mayúsculas), como en sandbox.
+        const filtro = (p.filter ?? "").toLowerCase();
+        const todos = [...this.clientes.values()].filter((c) => c.name.toLowerCase().includes(filtro));
+        const start = Number(p.start ?? 0);
+        const limit = Number(p.limit ?? 10);
+        const data = todos.slice(start, start + limit);
+        return Response.json({ total: todos.length, hasMore: start + limit < todos.length, data });
       }
       case "customer/get": {
         const c = this.clientes.get(p.customerId ?? "");
