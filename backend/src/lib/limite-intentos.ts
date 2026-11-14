@@ -102,7 +102,30 @@ export const LIMITES = {
       return `cambiar-clave|${token ? hashToken(token) : ipCliente(request)}`;
     },
   },
+  /**
+   * Suscripción del club (docs/suscripcion-flow.md). Las de inscribir y reintentar van con sesión
+   * (llave: el usuario); el retorno es público y va por IP. Cada uno de estos pedidos llama a Flow.
+   */
+  suscripcionInscribir: {
+    max: 10,
+    timeWindow: "15 minutes",
+    keyGenerator: (request: FastifyRequest) => `suscripcion-inscribir|${llaveSesion(request)}`,
+  },
+  suscripcionReintentar: {
+    max: 3,
+    timeWindow: "15 minutes",
+    keyGenerator: (request: FastifyRequest) => `suscripcion-reintentar|${llaveSesion(request)}`,
+  },
+  suscripcionRetorno: { max: 20, timeWindow: "10 minutes" },
 } as const;
+
+/**
+ * El usuario del panel (corre después de `exigirSesion`), así abrir otra sesión no suma intentos;
+ * sin usuario, la IP.
+ */
+function llaveSesion(request: FastifyRequest): string {
+  return request.usuarioPanel ? `usuario|${request.usuarioPanel.id}` : ipCliente(request);
+}
 
 export async function registrarLimiteIntentos(app: FastifyInstance) {
   await app.register(rateLimit, { global: false, keyGenerator: ipCliente });

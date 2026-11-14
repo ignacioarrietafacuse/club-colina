@@ -156,6 +156,7 @@ export const CODIGOS_ERROR = [
   "conflicto",
   "archivo_invalido",
   "debe_cambiar_clave",
+  "no_disponible",
   "error_interno",
 ] as const;
 export type CodigoError = (typeof CODIGOS_ERROR)[number];
@@ -714,12 +715,83 @@ export const API = {
     marcaRetiro: (i: string) => `/api/panel/jugadores/${seg(i)}/marca-retiro`,
     categorias: "/api/panel/categorias",
   },
+  /** Suscripción del club en Flow. Con sesión, salvo `retorno` (lo llama Flow, no el panel). */
+  suscripcion: {
+    estado: "/api/suscripcion",
+    aviso: "/api/suscripcion/aviso",
+    inscribirTarjeta: "/api/suscripcion/inscribir-tarjeta",
+    reintentar: "/api/suscripcion/reintentar",
+    retorno: "/api/suscripcion/retorno",
+  },
 } as const;
 
 /** URL que va dentro del QR. `baseUrl` es PUBLIC_BASE_URL (sin barra final). */
 export function urlCredencial(baseUrl: string, credencialToken: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/c/${encodeURIComponent(credencialToken)}`;
 }
+
+// ---------------------------------------------------------------------------
+// Suscripción del club al servicio (Flow, cargo automático). Ver docs/suscripcion-flow.md.
+// No tiene relación con los pagos de las familias ni con Forpay.
+// ---------------------------------------------------------------------------
+
+/** Valores de `FLOW_MODO`. Cualquier otro valor (o vacío) deja el módulo sin configurar. */
+export const MODOS_FLOW = ["sandbox", "produccion"] as const;
+export const modoFlow = z.enum(MODOS_FLOW);
+/** El plan de Flow al que se suscribe el club. Existe con este ID en sandbox y en producción. */
+export const PLAN_SUSCRIPCION = "suscripcion_clubcolina";
+export const ESTADOS_SUSCRIPCION = [
+  "sin_tarjeta",
+  "activa",
+  "cobro_fallido",
+  "no_disponible",
+  "pendiente_configuracion",
+] as const;
+export const estadoSuscripcion = z.enum(ESTADOS_SUSCRIPCION);
+export const ESTADOS_COBRO = ["pagado", "pendiente", "fallido", "anulado"] as const;
+export const estadoCobro = z.enum(ESTADOS_COBRO);
+
+/**
+ * GET /api/suscripcion — con sesión. Se arma leyendo Flow en el momento; si Flow falla o tarda más
+ * de 8 s, `no_disponible`. `modo` es null solo en `pendiente_configuracion`. El monto viene siempre
+ * del plan en Flow (nunca fijo en el código).
+ */
+export const suscripcionResponse = z.object({
+  estado: estadoSuscripcion,
+  modo: modoFlow.nullable(),
+  /** Ya hay cliente en Flow para el modo activo: para inscribir otra tarjeta no se pide el correo. */
+  tiene_cliente: z.boolean(),
+  /** Hay un importe vencido: "Reintentar cobro" puede servir. Si no, solo "Cambiar tarjeta". */
+  puede_reintentar: z.boolean(),
+  plan: z.object({ nombre: z.string(), monto: z.number().nonnegative(), moneda: z.string() }).nullable(),
+  proximo_cobro: fecha.nullable(),
+  tarjeta: z.object({ tipo: z.string(), ultimos4: z.string().regex(/^[0-9]{4}$/) }).nullable(),
+  historial: z.array(z.object({ fecha, monto: z.number().nonnegative(), estado: estadoCobro })),
+});
+
+/**
+ * POST /api/suscripcion/inscribir-tarjeta — con sesión. `email` es obligatorio solo la primera vez
+ * (cuando aún no hay cliente en Flow para el modo activo); para cambiar la tarjeta no se pide.
+ * Responde la URL de Flow a la que el navegador tiene que ir. 409 `conflicto` si falta el correo o si
+ * se intenta desde sandbox con una suscripción de producción guardada; 503 `no_disponible` si Flow
+ * falla o no está configurado.
+ */
+export const inscribirTarjetaRequest = z.object({ email: email.optional() });
+export const inscribirTarjetaResponse = z.object({ url: z.url() });
+
+/**
+ * POST /api/suscripcion/reintentar — con sesión y límite de intentos. Reintenta el cobro del
+ * importe vencido más antiguo. 409 `conflicto` si no hay ninguno o si Flow no acepta el reintento.
+ */
+export const reintentarCobroResponse = z.object({ resultado: z.enum(["pagado", "rechazado"]) });
+
+/** GET /api/suscripcion/aviso — con sesión; con caché de 15 minutos en el backend. */
+export const avisoSuscripcionResponse = z.object({ cobro_fallido: z.boolean() });
+
+/** `?resultado=` con que /api/suscripcion/retorno redirige a la página del panel. */
+export const RESULTADOS_RETORNO = ["ok", "error"] as const;
+/** Ruta de la página del panel (el retorno de Flow redirige acá). */
+export const RUTA_SUSCRIPCION = "/suscripcion";
 
 // ---------------------------------------------------------------------------
 // Tipos inferidos
@@ -757,3 +829,10 @@ export type AprobarRequest = z.input<typeof aprobarRequest>;
 export type RechazarRequest = z.input<typeof rechazarRequest>;
 export type CambioEstadoResponse = z.infer<typeof cambioEstadoResponse>;
 export type CategoriaPanel = z.infer<typeof categoriaPanel>;
+export type ModoFlow = z.infer<typeof modoFlow>;
+export type EstadoSuscripcion = z.infer<typeof estadoSuscripcion>;
+export type SuscripcionResponse = z.infer<typeof suscripcionResponse>;
+export type InscribirTarjetaRequest = z.input<typeof inscribirTarjetaRequest>;
+export type InscribirTarjetaResponse = z.infer<typeof inscribirTarjetaResponse>;
+export type ReintentarCobroResponse = z.infer<typeof reintentarCobroResponse>;
+export type AvisoSuscripcionResponse = z.infer<typeof avisoSuscripcionResponse>;

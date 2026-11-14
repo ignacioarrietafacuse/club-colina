@@ -32,6 +32,7 @@ import {
   FOTO_MAX_BYTES,
   FOTO_MIMES,
   METODOS_PAGO,
+  MODOS_FLOW,
   ORIGENES,
   TIPOS_SOLICITUD,
 } from "@club-colina/shared";
@@ -396,5 +397,38 @@ export const fichasPrevias = pgTable(
     unique("fichas_previas_apoderado_key").on(t.apoderado_id),
     check("fichas_previas_una_persona_check", sql.raw(`num_nonnulls("jugador_id", "apoderado_id") = 1`)),
     index("fichas_previas_solicitud_idx").on(t.solicitud_id),
+  ],
+);
+
+/**
+ * La suscripción del club al servicio en Flow (ver docs/suscripcion-flow.md). Flow es la fuente de
+ * verdad: acá solo quedan los ids para encontrarla. Una sola fila (`id = 1`).
+ *
+ * `modo` es el `FLOW_MODO` con que se crearon los ids: los de sandbox no existen en producción. Si
+ * el backend corre con otro modo, ignora la fila (la página queda "sin tarjeta") y la reemplaza al
+ * inscribir una tarjeta en el modo nuevo.
+ */
+export const suscripcionServicio = pgTable(
+  "suscripcion_servicio",
+  {
+    id: smallint("id").primaryKey().default(1),
+    modo: text("modo").notNull(),
+    flow_customer_id: text("flow_customer_id").notNull(),
+    flow_subscription_id: text("flow_subscription_id"),
+    /** El correo con que se creó el cliente en Flow (uno del club, no uno personal). */
+    email: text("email").notNull(),
+    /**
+     * `hashToken()` del token de la última inscripción de tarjeta pedida a Flow. El retorno solo
+     * acepta ese token: así un token viejo (del historial del navegador, por ejemplo) no vuelve a
+     * crear una suscripción cancelada. Mientras `registro_token_expira` tiene fecha, está pendiente;
+     * al usarse queda en NULL, y un retorno repetido con el mismo token responde "ok" sin tocar Flow.
+     */
+    registro_token_hash: text("registro_token_hash"),
+    registro_token_expira: timestamp("registro_token_expira", { withTimezone: true }),
+    ...tiempos,
+  },
+  () => [
+    check("suscripcion_servicio_una_fila_check", sql.raw(`"id" = 1`)),
+    check("suscripcion_servicio_modo_check", enLista("modo", MODOS_FLOW)),
   ],
 );

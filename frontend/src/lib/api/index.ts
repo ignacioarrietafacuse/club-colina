@@ -8,8 +8,9 @@
 import * as auth from "./auth";
 import * as panel from "./panel";
 import * as publico from "./publico";
+import * as suscripcion from "./suscripcion";
 
-export const api = { auth, panel, publico };
+export const api = { auth, panel, publico, suscripcion };
 export {
   ErrorApi,
   esErrorApi,

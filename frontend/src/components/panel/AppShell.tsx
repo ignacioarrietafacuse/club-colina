@@ -1,7 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { KeyRound, LogOut, Menu, X } from "lucide-react";
+import { AlertTriangle, KeyRound, LogOut, Menu, Wallet, X } from "lucide-react";
 import { esItemActivo, nav } from "./navegacion";
 
 export function AppShell({
@@ -11,6 +11,7 @@ export function AppShell({
   saliendo,
   errorSalir,
   soloCambiarClave = false,
+  avisoCobroFallido = false,
 }: {
   children: ReactNode;
   nombreUsuario: string;
@@ -20,6 +21,8 @@ export function AppShell({
   errorSalir?: string;
   /** Usuario con clave temporal: sin menú, solo cambiar la clave y salir. */
   soloCambiarClave?: boolean;
+  /** El último cobro de la suscripción del club falló: aviso arriba de todo, sin bloquear nada. */
+  avisoCobroFallido?: boolean;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
@@ -85,6 +88,20 @@ export function AppShell({
           </nav>
 
           <div className="border-t border-sidebar-border/60 p-3">
+            {!soloCambiarClave && (
+              <Link
+                to="/suscripcion"
+                onClick={() => setOpen(false)}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all ${
+                  pathname === "/suscripcion"
+                    ? "bg-white/10 text-white font-medium"
+                    : "text-sidebar-foreground/80 hover:bg-white/5 hover:text-white"
+                }`}
+              >
+                <Wallet className="size-4" />
+                <span className="flex-1">Suscripción</span>
+              </Link>
+            )}
             <Link
               to="/cambiar-clave"
               onClick={() => setOpen(false)}
@@ -122,6 +139,19 @@ export function AppShell({
 
         <div className="flex-1 min-w-0">
           <main className="p-4 sm:p-6 lg:p-8 max-w-[1500px] mx-auto animate-in-up">
+            {/* En la página de la suscripción ya está su propio aviso. */}
+            {avisoCobroFallido && !soloCambiarClave && pathname !== "/suscripcion" && (
+              <div
+                role="alert"
+                className="mb-4 flex flex-wrap items-center gap-2 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive"
+              >
+                <AlertTriangle className="size-4 shrink-0" />
+                <span className="flex-1">No se pudo cobrar la suscripción del club.</span>
+                <Link to="/suscripcion" className="font-medium underline">
+                  Revisar la suscripción
+                </Link>
+              </div>
+            )}
             {errorSalir && (
               <p
                 role="alert"

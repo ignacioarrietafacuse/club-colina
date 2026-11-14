@@ -4,6 +4,12 @@ import { z } from "zod";
  * Configuración por variables de entorno. Cualquier variable nueva se documenta en
  * .env.example y en el PR que la agrega.
  */
+/** Texto opcional: vacío o solo espacios cuenta como ausente. */
+const opcional = z
+  .string()
+  .optional()
+  .transform((v) => (v === undefined || v.trim() === "" ? undefined : v.trim()));
+
 const esquema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   HOST: z.string().default("0.0.0.0"),
@@ -35,6 +41,17 @@ const esquema = z.object({
    * límite de intentos confía en `x-vercel-forwarded-for`. Sin él, usa `x-real-ip`.
    */
   PROXY_SECRETO: z.string().min(32).optional(),
+  /**
+   * Suscripción del club en Flow (docs/suscripcion-flow.md). `FLOW_MODO` es "sandbox" o
+   * "produccion"; con otro valor, vacía o sin las claves de ese modo, el módulo queda "pendiente de
+   * configuración" y el resto del sistema sigue igual (por eso acá no se valida: un valor malo no
+   * puede impedir que arranque el servidor). Nunca cae a producción por defecto.
+   */
+  FLOW_MODO: opcional,
+  FLOW_SANDBOX_API_KEY: opcional,
+  FLOW_SANDBOX_SECRET_KEY: opcional,
+  FLOW_PROD_API_KEY: opcional,
+  FLOW_PROD_SECRET_KEY: opcional,
 });
 
 export type Config = z.infer<typeof esquema>;

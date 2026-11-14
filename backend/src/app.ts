@@ -11,11 +11,23 @@ import { rutasAuth } from "./routes/auth";
 import { rutasHealth } from "./routes/health";
 import { rutasPanel } from "./routes/panel";
 import { rutasPublic } from "./routes/public";
+import { rutasSuscripcion } from "./routes/suscripcion";
+import type { FetchFlow } from "./services/suscripcion/flow-pagos";
 
 declare module "fastify" {
   interface FastifyInstance {
     db: Db;
     config: Config;
+    /** `fetch` para hablar con Flow; los tests ponen uno simulado. */
+    fetchFlow: FetchFlow;
+  }
+  interface FastifyContextConfig {
+    /**
+     * La ruta recibe escrituras desde otro sitio (el retorno de Flow es un POST desde flow.cl): no
+     * pasa por el chequeo de `Origin`. Solo para rutas sin sesión que validan lo recibido contra un
+     * tercero.
+     */
+    origenExterno?: boolean;
   }
 }
 
@@ -26,11 +38,13 @@ export interface OpcionesApp {
   db: Db;
   /** Para tests: dónde escribir los logs. */
   logStream?: NodeJS.WritableStream;
+  /** Para tests: Flow simulado. */
+  fetchFlow?: FetchFlow;
 }
 
 const METODOS_QUE_MODIFICAN = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-export async function construirApp({ config, db, logStream }: OpcionesApp): Promise<FastifyInstance> {
+export async function construirApp({ config, db, logStream, fetchFlow }: OpcionesApp): Promise<FastifyInstance> {
   const logger: OpcionesLogger = {
     level: config.LOG_LEVEL,
     serializers: { req: serializarRequest, err: resumirError },
@@ -52,6 +66,7 @@ export async function construirApp({ config, db, logStream }: OpcionesApp): Prom
 
   app.decorate("db", db);
   app.decorate("config", config);
+  app.decorate("fetchFlow", fetchFlow ?? ((url, init) => fetch(url, init)));
 
   app.setErrorHandler(manejarError);
   app.setNotFoundHandler((_request, reply) =>
@@ -64,6 +79,7 @@ export async function construirApp({ config, db, logStream }: OpcionesApp): Prom
   const origenes = new Set([config.PUBLIC_BASE_URL, ...config.ORIGENES_PERMITIDOS]);
   app.addHook("onRequest", async (request) => {
     if (!METODOS_QUE_MODIFICAN.has(request.method)) return;
+    if (request.routeOptions.config.origenExterno === true) return;
     const origin = request.headers.origin;
     if (origin !== undefined && !origenes.has(origin)) {
       throw new ErrorApi(403, "origen_no_permitido", "Origen no permitido");
@@ -91,6 +107,7 @@ export async function construirApp({ config, db, logStream }: OpcionesApp): Prom
   await app.register(rutasAuth, { prefix: "/api/auth" });
   await app.register(rutasPanel, { prefix: "/api/panel" });
   await app.register(rutasPublic, { prefix: "/api/public" });
+  await app.register(rutasSuscripcion, { prefix: "/api/suscripcion" });
 
   return app;
 }
