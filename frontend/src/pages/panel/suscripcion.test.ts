@@ -1,4 +1,4 @@
-import { inscribirTarjetaResponse } from "@club-colina/shared";
+import { inscribirTarjetaResponse, suscripcionResponse } from "@club-colina/shared";
 import { describe, expect, it } from "vitest";
 import { nav } from "@/components/panel/navegacion";
 import {
@@ -112,5 +112,21 @@ describe("período de cada cobro", () => {
     expect(periodoActual([pagadoSinPeriodo, fallidoDic, pagadoNov])).toEqual(pagadoNov.periodo);
     expect(periodoActual([fallidoDic])).toBeNull();
     expect(periodoActual([])).toBeNull();
+  });
+});
+
+describe("contrato del historial", () => {
+  it("acepta cobros sin periodo (backend anterior)", () => {
+    const r = suscripcionResponse.safeParse({
+      estado: "activa",
+      modo: "sandbox",
+      tiene_cliente: true,
+      puede_reintentar: false,
+      plan: { nombre: "Plan", monto: 200000, moneda: "CLP" },
+      proximo_cobro: "2026-12-13",
+      tarjeta: null,
+      historial: [{ fecha: "2026-11-13", monto: 200000, estado: "pagado" }],
+    });
+    expect(r.success).toBe(true);
   });
 });

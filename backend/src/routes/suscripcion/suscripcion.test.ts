@@ -900,10 +900,17 @@ describe("estado del cobro según el importe, no según due_date", () => {
     ]);
   });
 
-  it("sin period_start o period_end de Flow, el período queda vacío (no se calcula)", async () => {
+  it.each([
+    ["sin period_end", { period_start: "2026-11-13 00:00:00" }],
+    ["sin period_start", { period_end: "2026-12-12 00:00:00" }],
+    ["con period_end vacío", { period_start: "2026-11-13 00:00:00", period_end: "" }],
+    ["con period_start inválido", { period_start: "0000-00-00 00:00:00", period_end: "2026-12-12 00:00:00" }],
+  ])("%s, el período queda vacío (no se calcula) y la página se sigue leyendo", async (_caso, fechas) => {
     const { app, cookies: c, sus } = await conSuscripcion();
-    sus.invoices.push({ id: 5, created: "2026-11-13 10:00:00", amount: 200000, status: 1, error: 0, due_date: "2026-11-16 00:00:00", period_start: "2026-11-13 00:00:00" });
-    expect((await estado(app, c)).historial).toEqual([{ fecha: "2026-11-13", monto: 200000, estado: "pagado", periodo: null }]);
+    sus.invoices.push({ id: 5, created: "2026-11-13 10:00:00", amount: 200000, status: 1, error: 0, due_date: "2026-11-16 00:00:00", ...fechas });
+    const e = await estado(app, c);
+    expect(e.estado).toBe("activa");
+    expect(e.historial).toEqual([{ fecha: "2026-11-13", monto: 200000, estado: "pagado", periodo: null }]);
   });
 
   it("un importe impago sin intentos ni error es Pendiente aunque su due_date haya pasado; lo vencido lo dice morose", async () => {

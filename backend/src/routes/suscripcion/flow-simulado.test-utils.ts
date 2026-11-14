@@ -46,7 +46,10 @@ export class FlowSimulado {
   rechazarReintento = false;
   /** Si se pone, `subscription/get` devuelve este `next_invoice_date`. */
   proximoCobro = "2026-12-13 00:00:00";
-  /** `period_end` del primer importe de una suscripción nueva. */
+  /**
+   * `period_end` del primer importe de una suscripción nueva. Fijo, como `proximoCobro`: los tests
+   * lo comparan tal cual; no tiene que calzar con la fecha de hoy.
+   */
   periodoHasta = "2026-12-12 00:00:00";
   /** Si se pone, `customer/register` responde esta URL en vez de la de Flow. */
   urlRegistro: string | null = null;

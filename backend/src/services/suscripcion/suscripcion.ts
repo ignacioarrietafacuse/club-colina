@@ -46,8 +46,9 @@ const importeFlow = z.object({
   amount: numero.pipe(z.number().nonnegative()),
   status: numero,
   error: numero.nullish(),
-  period_start: fechaFlow.nullish(),
-  period_end: fechaFlow.nullish(),
+  // Solo se muestran: un valor raro deja el período vacío, nunca tumba la lectura de la suscripción.
+  period_start: fechaFlow.nullish().catch(null),
+  period_end: fechaFlow.nullish().catch(null),
   /** Intentos de cobro que Flow ya hizo sobre este importe. */
   attemp_count: numero.nullish(),
   due_date: fechaFlow.nullish(),

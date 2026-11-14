@@ -325,40 +325,42 @@ function Activa({
         {datos.historial.length === 0 ? (
           <p className="text-sm text-muted-foreground">Todavía no hay cobros.</p>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-muted-foreground">
-                <th className="pb-2 font-medium">Fecha</th>
-                <th className="pb-2 font-medium">Período</th>
-                <th className="pb-2 font-medium">Monto</th>
-                <th className="pb-2 font-medium">Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {datos.historial.map((c, i) => (
-                <tr key={`${c.fecha}-${i}`} className="border-t">
-                  <td className="py-2">{formatoFecha(c.fecha)}</td>
-                  <td className="py-2">{formatoPeriodo(c.periodo)}</td>
-                  <td className="py-2">
-                    {datos.plan ? formatoMonto({ ...datos.plan, monto: c.monto }) : c.monto}
-                  </td>
-                  <td className="py-2">
-                    <Badge
-                      tone={
-                        c.estado === "pagado"
-                          ? "success"
-                          : c.estado === "fallido"
-                            ? "danger"
-                            : "neutral"
-                      }
-                    >
-                      {TEXTO_ESTADO_COBRO[c.estado]}
-                    </Badge>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground">
+                  <th className="pb-2 font-medium">Fecha</th>
+                  <th className="pb-2 font-medium">Período</th>
+                  <th className="pb-2 font-medium">Monto</th>
+                  <th className="pb-2 font-medium">Estado</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {datos.historial.map((c, i) => (
+                  <tr key={`${c.fecha}-${i}`} className="border-t">
+                    <td className="py-2">{formatoFecha(c.fecha)}</td>
+                    <td className="py-2 whitespace-nowrap">{formatoPeriodo(c.periodo)}</td>
+                    <td className="py-2">
+                      {datos.plan ? formatoMonto({ ...datos.plan, monto: c.monto }) : c.monto}
+                    </td>
+                    <td className="py-2">
+                      <Badge
+                        tone={
+                          c.estado === "pagado"
+                            ? "success"
+                            : c.estado === "fallido"
+                              ? "danger"
+                              : "neutral"
+                        }
+                      >
+                        {TEXTO_ESTADO_COBRO[c.estado]}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
     </>
