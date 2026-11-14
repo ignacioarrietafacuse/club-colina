@@ -187,7 +187,7 @@ Cada jugador tendrá una ficha.
 - Fecha de nacimiento.
 - Edad (calculada).
 - Disciplina (rama).
-- Categoría.
+- Categoría (calculada por edad de temporada; la U11 F la marca el club).
 - Número de camiseta (obligatorio para aprobar; vacío solo en los precargados desde la base 2026; 99 = sin número asignado).
 - Foto.
 - Estado (precargado / pendiente / activo / rechazado / inactivo).
