@@ -55,7 +55,10 @@ export class FlowSimulado {
   urlRegistro: string | null = null;
   /** Demora de `subscription/create`, para simular a Flow lento. */
   demoraCreacionMs = 0;
-  plan = { planId: "suscripcion_clubcolina", name: "Suscripción Club Colina", amount: 200000, currency: "CLP" };
+  /** Como en sandbox: el ID del plan se guardó con mayúscula y `plans/get` lo busca sin distinguirlas. */
+  plan = { planId: "Suscripcion_clubcolina", name: "Suscripción Club Colina", amount: 200000, currency: "CLP" };
+  /** Número interno de Flow del plan: es el `planId` que devuelve `customer/getSubscriptions`. */
+  planNumero = 2711;
   clientes = new Map<
     string,
     { customerId: string; email: string; name: string; externalId: string; status: string; creditCardType?: string; last4CardDigits?: string }
@@ -116,7 +119,7 @@ export class FlowSimulado {
     this.n += 1;
     switch (servicio) {
       case "plans/get":
-        return p.planId === this.plan.planId ? Response.json(this.plan) : error(404);
+        return p.planId?.toLowerCase() === this.plan.planId.toLowerCase() ? Response.json(this.plan) : error(404);
       case "customer/create": {
         if (this.errorCreacion) {
           return Response.json({ code: this.errorCreacion.code, message: "error" }, { status: this.errorCreacion.status });
@@ -155,7 +158,15 @@ export class FlowSimulado {
         return r ? Response.json({ status: r.exito ? "1" : "0", customerId: r.customerId }) : error(404);
       }
       case "customer/getSubscriptions": {
-        const todas = [...this.suscripciones.values()].filter((s) => s.customerId === p.customerId);
+        // Forma real de Flow en esta lista: `planId` es el número interno y el ID del plan va en
+        // `planExternalId` (sandbox, 2026-11-14).
+        const todas = [...this.suscripciones.values()]
+          .filter((s) => s.customerId === p.customerId)
+          .map(({ invoices: _i, planId, ...s }) => ({
+            ...s,
+            planId: planId.toLowerCase() === this.plan.planId.toLowerCase() ? this.planNumero : 9999,
+            planExternalId: planId.toLowerCase() === this.plan.planId.toLowerCase() ? this.plan.planId : planId,
+          }));
         const start = Number(p.start ?? 0);
         const limit = Number(p.limit ?? 10);
         const data = todas.slice(start, start + limit);
@@ -167,7 +178,8 @@ export class FlowSimulado {
         this.suscripciones.set(subscriptionId, {
           subscriptionId,
           customerId: p.customerId ?? "",
-          planId: p.planId ?? "",
+          // Flow guarda el ID del plan con sus mayúsculas, no con las que se pidió.
+          planId: p.planId?.toLowerCase() === this.plan.planId.toLowerCase() ? this.plan.planId : (p.planId ?? ""),
           status: 1,
           start: hoy,
           trial: p.trial_period_days ?? "",

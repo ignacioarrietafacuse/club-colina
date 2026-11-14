@@ -144,5 +144,11 @@ actual" es el período del último cobro pagado. Sin las dos fechas de Flow, el 
 - **Período del importe:** `period_start` 2026-11-13 y `period_end` 2026-12-12: Flow ya termina el
   período el día anterior al cobro siguiente.
 - **externalId repetido:** Flow lo rechaza (401, código 501). Ver "Cliente ya creado en Flow".
+- **`customer/getSubscriptions`** (2026-11-14): en esa lista `planId` es un número interno de Flow
+  y el ID del plan viene en `planExternalId`; en `subscription/get`, `planId` es el ID como texto.
+  Flow guardó el plan como "Suscripcion_clubcolina" (con mayúscula) y `plans/get` lo encuentra sin
+  distinguirlas, así que el plan se reconoce por `planExternalId` sin distinguir mayúsculas
+  (`esDelPlan`). Antes la lista entera se rechazaba: la recuperación y el retorno de "Cambiar
+  tarjeta" terminaban en "no disponible".
 - **Página de registro de tarjeta:** `customer/register` devuelve una URL en `sandbox.flow.cl`
   (https), que la validación acepta.

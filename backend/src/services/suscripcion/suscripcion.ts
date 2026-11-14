@@ -66,10 +66,31 @@ const hayMas = z
   .union([z.boolean(), numero])
   .nullish()
   .transform((v) => v === true || v === 1);
+/**
+ * Ítem de `customer/getSubscriptions`, con la forma real de Flow (verificada en sandbox el
+ * 2026-11-14): ahí `planId` es un número interno de Flow y el ID del plan viene en
+ * `planExternalId`. (En `subscription/get`, en cambio, `planId` es el ID del plan como texto.)
+ */
+const itemSuscripcion = z.object({
+  subscriptionId: z.string(),
+  status: numero,
+  planId: z.union([z.string(), z.number()]).nullish(),
+  planExternalId: z.string().nullish(),
+});
 const listaSuscripciones = z.object({
   hasMore: hayMas,
-  data: z.array(suscripcionFlow.pick({ subscriptionId: true, planId: true, status: true })),
+  data: z.array(itemSuscripcion),
 });
+
+/**
+ * Si un ítem de la lista es del plan del club. Flow guarda el ID con las mayúsculas con que se creó
+ * (en sandbox, "Suscripcion_clubcolina") y `plans/get` lo encuentra sin distinguirlas: se compara
+ * igual, sin mayúsculas.
+ */
+export function esDelPlan(item: z.infer<typeof itemSuscripcion>): boolean {
+  const id = item.planExternalId ?? (typeof item.planId === "string" ? item.planId : undefined);
+  return id?.toLowerCase() === PLAN_SUSCRIPCION.toLowerCase();
+}
 const importeCobrado = z.object({ status: numero });
 /** Página de `customer/list`. Solo lo necesario para reconocer al cliente del club. */
 const listaClientes = z.object({
@@ -164,7 +185,7 @@ async function buscarVigente(flow: ClienteFlow, customerId: string): Promise<str
     const lista = deFlow(listaSuscripciones, "customer/getSubscriptions")(
       await flow.get("customer/getSubscriptions", { customerId, start: pagina * 100, limit: 100 }),
     );
-    const vigente = lista.data.find((s) => s.planId === PLAN_SUSCRIPCION && s.status !== SUSCRIPCION_CANCELADA);
+    const vigente = lista.data.find((s) => esDelPlan(s) && s.status !== SUSCRIPCION_CANCELADA);
     if (vigente) return vigente.subscriptionId;
     if (!lista.hasMore || lista.data.length === 0) return undefined;
   }
