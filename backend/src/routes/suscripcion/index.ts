@@ -207,6 +207,7 @@ export async function rutasSuscripcion(app: FastifyInstance) {
           const resultado = await inscribirTarjeta(request.server.db, flow, {
             email,
             urlRetorno: `${request.server.config.PUBLIC_BASE_URL}/api/suscripcion/retorno`,
+            log: request.log,
           });
           if (resultado.tipo === "falta_email") {
             throw new ErrorApi(409, "conflicto", "Falta el correo para inscribir la tarjeta.");
@@ -217,7 +218,8 @@ export async function rutasSuscripcion(app: FastifyInstance) {
           if (resultado.tipo === "produccion_activa") {
             throw new ErrorApi(409, "conflicto", "Hay una suscripción de producción guardada: no se inscribe en modo de prueba.");
           }
-          return respuesta(inscribirTarjetaResponse, { url: resultado.url });
+          if (resultado.tipo === "recuperada") return respuesta(inscribirTarjetaResponse, { resultado: "recuperada" });
+          return respuesta(inscribirTarjetaResponse, { resultado: "flow", url: resultado.url });
         } catch (error) {
           if (!(error instanceof ErrorFlow)) throw error;
           registrarFallaFlow(request, error);

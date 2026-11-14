@@ -772,12 +772,24 @@ export const suscripcionResponse = z.object({
 /**
  * POST /api/suscripcion/inscribir-tarjeta — con sesión. `email` es obligatorio solo la primera vez
  * (cuando aún no hay cliente en Flow para el modo activo); para cambiar la tarjeta no se pide.
- * Responde la URL de Flow a la que el navegador tiene que ir. 409 `conflicto` si falta el correo o si
+ * Responde la URL de Flow a la que el navegador tiene que ir, o `recuperada` si Flow ya tenía al
+ * cliente del club (externalId repetido) con su suscripción vigente. 409 `conflicto` si falta el correo o si
  * se intenta desde sandbox con una suscripción de producción guardada; 503 `no_disponible` si Flow
  * falla o no está configurado.
  */
 export const inscribirTarjetaRequest = z.object({ email: email.optional() });
-export const inscribirTarjetaResponse = z.object({ url: z.url() });
+/**
+ * `flow`: hay que llevar el navegador a `url` (el registro de tarjeta en Flow). `recuperada`: Flow ya
+ * tenía al cliente del club con su suscripción vigente; quedó guardada y no hay que ir a Flow.
+ */
+export const inscribirTarjetaResponse = z
+  .object({
+    // Sin `resultado` es "flow": así el frontend nuevo entiende al backend anterior mientras uno de
+    // los dos aún no se publica (Vercel y Railway publican por separado).
+    resultado: z.enum(["flow", "recuperada"]).default("flow"),
+    url: z.url().optional(),
+  })
+  .refine((r) => r.resultado === "recuperada" || r.url !== undefined, { path: ["url"] });
 
 /**
  * POST /api/suscripcion/reintentar — con sesión y límite de intentos. Reintenta el cobro del

@@ -19,7 +19,10 @@ export function aviso(signal?: AbortSignal) {
   return pedir(API.suscripcion.aviso, avisoSuscripcionResponse, { signal });
 }
 
-/** Devuelve la URL de Flow a la que hay que llevar el navegador. Sirve también para cambiar la tarjeta. */
+/**
+ * Devuelve la URL de Flow a la que hay que llevar el navegador (sirve también para cambiar la
+ * tarjeta), o `recuperada` si Flow ya tenía la suscripción vigente del club.
+ */
 export function inscribirTarjeta(datos: InscribirTarjetaRequest) {
   return pedir(API.suscripcion.inscribirTarjeta, inscribirTarjetaResponse, {
     metodo: "POST",

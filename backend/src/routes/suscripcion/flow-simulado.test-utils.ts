@@ -18,6 +18,7 @@ interface Importe {
   amount: number;
   status: number;
   error: number;
+  attemp_count?: number;
   due_date: string;
 }
 
@@ -48,7 +49,14 @@ export class FlowSimulado {
   /** Demora de `subscription/create`, para simular a Flow lento. */
   demoraCreacionMs = 0;
   plan = { planId: "suscripcion_clubcolina", name: "Suscripción Club Colina", amount: 200000, currency: "CLP" };
-  clientes = new Map<string, { customerId: string; email: string; creditCardType?: string; last4CardDigits?: string }>();
+  clientes = new Map<
+    string,
+    { customerId: string; email: string; name: string; externalId: string; status: string; creditCardType?: string; last4CardDigits?: string }
+  >();
+  /** Si es true, `customer/list` responde 500 (Flow cae justo al buscar el cliente). */
+  fallaLista = false;
+  /** Si se pone, `customer/create` responde este error (estado HTTP y código de Flow). */
+  errorCreacion: { status: number; code: number } | null = null;
   /** token de registro → customerId y si la inscripción fue exitosa. */
   registros = new Map<string, { customerId: string; exito: boolean }>();
   suscripciones = new Map<
@@ -103,9 +111,27 @@ export class FlowSimulado {
       case "plans/get":
         return p.planId === this.plan.planId ? Response.json(this.plan) : error(404);
       case "customer/create": {
+        if (this.errorCreacion) {
+          return Response.json({ code: this.errorCreacion.code, message: "error" }, { status: this.errorCreacion.status });
+        }
+        // Como Flow (visto en sandbox): un externalId repetido es 401 con código 501.
+        if ([...this.clientes.values()].some((c) => c.externalId === p.externalId)) {
+          return Response.json({ code: 501, message: "externalId" }, { status: 401 });
+        }
         const customerId = `cus_${this.n}`;
-        this.clientes.set(customerId, { customerId, email: p.email ?? "" });
+        this.clientes.set(customerId, { customerId, email: p.email ?? "", name: p.name ?? "", externalId: p.externalId ?? "", status: "1" });
         return Response.json({ customerId, email: p.email, name: p.name, externalId: p.externalId, status: "1" });
+      }
+      case "customer/list": {
+        if (this.fallaLista) return Response.json({ code: 500, message: "error" }, { status: 500 });
+        // `filter` filtra por nombre (contiene, sin mayúsculas), como en sandbox.
+        const filtro = (p.filter ?? "").toLowerCase();
+        const todos = [...this.clientes.values()].filter((c) => c.name.toLowerCase().includes(filtro));
+        const start = Number(p.start ?? 0);
+        const limit = Number(p.limit ?? 10);
+        const data = todos.slice(start, start + limit);
+        // Sin `total`: el backend corta con `hasMore` (lo verificado en sandbox).
+        return Response.json({ hasMore: start + limit < todos.length, data });
       }
       case "customer/get": {
         const c = this.clientes.get(p.customerId ?? "");
@@ -122,8 +148,11 @@ export class FlowSimulado {
         return r ? Response.json({ status: r.exito ? "1" : "0", customerId: r.customerId }) : error(404);
       }
       case "customer/getSubscriptions": {
-        const data = [...this.suscripciones.values()].filter((s) => s.customerId === p.customerId);
-        return Response.json({ total: data.length, hasMore: 0, data });
+        const todas = [...this.suscripciones.values()].filter((s) => s.customerId === p.customerId);
+        const start = Number(p.start ?? 0);
+        const limit = Number(p.limit ?? 10);
+        const data = todas.slice(start, start + limit);
+        return Response.json({ total: todas.length, hasMore: start + limit < todas.length ? 1 : 0, data });
       }
       case "subscription/create": {
         const subscriptionId = `sus_${this.n}`;

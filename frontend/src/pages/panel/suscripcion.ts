@@ -9,10 +9,44 @@ export function busquedaSuscripcion(search: Record<string, unknown>): BusquedaSu
     : {};
 }
 
-export function mensajeResultado(resultado: "ok" | "error"): string {
-  return resultado === "ok"
-    ? "Listo: la tarjeta quedó inscrita en Flow. El cargo es automático y mensual."
-    : "No se pudo inscribir la tarjeta. Vuelve a intentarlo; si se repite, avisa a Ignacio.";
+/**
+ * El aviso de arriba de la página: lo que dijo el retorno de Flow (`ok`, `error`) o que la
+ * suscripción vigente se recuperó de Flow sin pasar por su sitio (`recuperada`).
+ */
+export type AvisoResultado = "ok" | "error" | "recuperada";
+
+export function mensajeResultado(
+  resultado: AvisoResultado,
+  estado?: SuscripcionResponse["estado"],
+): string {
+  const viva = estado === "activa" || estado === "cobro_fallido";
+  switch (resultado) {
+    case "ok":
+      return estado === "cobro_fallido"
+        ? "Listo: la tarjeta nueva quedó inscrita en Flow. El cobro pendiente sigue abajo."
+        : "Listo: la tarjeta quedó inscrita en Flow. El cargo es automático y mensual.";
+    case "recuperada":
+      return "Encontramos en Flow la suscripción vigente del club y quedó guardada. No se hizo ningún cobro nuevo.";
+    case "error":
+      // Con una suscripción viva, lo que falló fue el cambio de tarjeta: la suscripción sigue.
+      return viva
+        ? "No se pudo completar el cambio de tarjeta en Flow. La suscripción sigue como se ve abajo."
+        : "No se pudo inscribir la tarjeta. Vuelve a intentarlo; si se repite, avisa a Ignacio.";
+  }
+}
+
+/**
+ * Si el aviso se muestra con el estado que se ve ahora: nunca uno que lo contradiga. "Listo" (o
+ * "recuperada") solo con una suscripción viva; ninguno mientras carga ni si Flow no responde.
+ */
+export function mostrarAviso(
+  resultado: AvisoResultado | undefined,
+  estado: SuscripcionResponse["estado"] | undefined,
+): boolean {
+  if (!resultado || !estado) return false;
+  if (resultado === "error")
+    return estado === "sin_tarjeta" || estado === "activa" || estado === "cobro_fallido";
+  return estado === "activa" || estado === "cobro_fallido";
 }
 
 /**
