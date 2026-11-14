@@ -25,6 +25,11 @@ export default defineConfig(({ command, mode }) => {
       tanstackRouter({ target: "react", autoCodeSplitting: true }),
       react(),
       tailwindcss(),
+      {
+        // Las metas Open Graph piden una URL absoluta para la imagen (index.html).
+        name: "base-publica-en-html",
+        transformIndexHtml: (html) => html.replaceAll("__BASE_PUBLICA__", basePublica),
+      },
     ],
     resolve: { tsconfigPaths: true },
     server: {

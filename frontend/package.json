@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "typecheck": "tsr generate && tsc -p tsconfig.json",
     "test": "vitest run",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "generar:iconos": "node scripts/generar-iconos.mjs"
   },
   "dependencies": {
     "@club-colina/shared": "workspace:*",
@@ -81,6 +82,7 @@
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^15.15.0",
     "prettier": "^3.7.3",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",

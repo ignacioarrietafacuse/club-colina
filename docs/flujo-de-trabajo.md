@@ -233,7 +233,7 @@ Además de lo que dice `roadmap-etapa1.md`:
 
 **Pendientes no bloqueantes** (al 2026-11-12):
 - Railway, "Wait for CI": está **apagada**, y queda así como riesgo aceptado (decisión de Ignacio, 2026-11-12). El panel de Railway no tiene ese interruptor; solo existe en la API (`deploymentTriggerUpdate(input: { checkSuites: true })` sobre el disparador del servicio `club-colina`). Medido por la API: `checkSuites: false` y `validCheckSuites: 1`, es decir, Railway sí ve el check de GitHub. Mitigación: solo se fusiona con el chequeo del PR en verde, y Railway compila solo el backend.
-- El logo del club: hoy hay uno provisorio de solo texto ("Club Colina").
+- El logo del club: el original vive en `frontend/src/assets/fuente/logo-colina.jpg` (JPG de 270x148; nada lo importa y no entra al build). Los íconos, la og-image y los logos de la interfaz salen de ahí con `pnpm --filter @club-colina/frontend generar:iconos` (`frontend/scripts/generar-iconos.mjs`). Cuando llegue un PNG grande o un SVG: se guarda en esa misma carpeta como `logo-colina.png` o `logo-colina.svg`, se borra el JPG, se corre `generar:iconos` y se revisa a ojo el favicon (la "C" recortada) antes de comitear.
 - `VITE_PUBLIC_BASE_URL` (la dirección que va en los QR) vive en tres lugares: Vercel Production (`https://panel.clubcolina.com` desde el 2026-11-13), Vercel Preview y `.github/workflows/ci.yml` (los dos siguen con `https://club-colina.vercel.app`, que redirige al dominio del club). Railway ya no la necesita (ver la bitácora, 2026-11-12). Ninguna variable secreta lleva el prefijo `VITE_`: Vite la mete en el bundle público.
 
 ## Bitácora de decisiones

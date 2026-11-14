@@ -3,9 +3,40 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Ninguna página se indexa (el panel, /familia, /completar y /c/:token son privados). robots.txt
+         no bloquea a propósito: con Disallow, Google no vería este noindex y los lectores de vista
+         previa (WhatsApp, Facebook) podrían no leer las metas Open Graph. -->
     <meta name="robots" content="noindex, nofollow" />
     <title>Club Colina</title>
-    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+    <!-- Metas fijas e iguales en todas las rutas: nunca datos de una familia, un jugador ni un token.
+         __BASE_PUBLICA__ lo reemplaza vite.config.ts por VITE_PUBLIC_BASE_URL al compilar. -->
+    <meta
+      name="description"
+      content="Registro y credenciales de Club Basketball Colina y Club Voleibol Colina."
+    />
+    <meta name="theme-color" content="#0f1e3b" />
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Club Colina" />
+    <meta property="og:title" content="Club Colina" />
+    <meta
+      property="og:description"
+      content="Registro y credenciales de Club Basketball Colina y Club Voleibol Colina."
+    />
+    <meta property="og:image" content="__BASE_PUBLICA__/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Logo de Club Colina" />
+    <meta property="og:locale" content="es_CL" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Club Colina" />
+    <meta
+      name="twitter:description"
+      content="Registro y credenciales de Club Basketball Colina y Club Voleibol Colina."
+    />
+    <meta name="twitter:image" content="__BASE_PUBLICA__/og-image.png" />
   </head>
   <body>
     <div id="root"></div>
