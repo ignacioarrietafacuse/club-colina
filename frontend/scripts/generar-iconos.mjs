@@ -58,9 +58,7 @@ async function cargarOriginal() {
   }
   const [ruta] = encontrados;
   // Un SVG se rasteriza a un ancho fijo: el resultado más grande que se usa es la og-image.
-  const entrada = ruta.endsWith(".svg")
-    ? sharp(ruta).resize({ width: ANCHO_SVG })
-    : sharp(ruta);
+  const entrada = ruta.endsWith(".svg") ? sharp(ruta).resize({ width: ANCHO_SVG }) : sharp(ruta);
   return sharp(
     await entrada
       .flatten({ background: FONDO })
