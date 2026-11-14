@@ -78,6 +78,12 @@ export function esUrlDeFlow(url: string): boolean {
   }
 }
 
+/**
+ * El nombre del plan en pantalla, fijo: el `name` de Flow es el ID técnico ("suscripcion_clubcolina")
+ * y no se le muestra a Mony. El monto sí se lee de Flow.
+ */
+export const NOMBRE_PLAN = "Plan Club Colina";
+
 export function formatoMonto(plan: NonNullable<SuscripcionResponse["plan"]>): string {
   const monto = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(plan.monto);
   return plan.moneda === "CLP" ? `$${monto}` : `${monto} ${plan.moneda}`;
