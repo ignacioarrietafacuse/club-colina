@@ -14,6 +14,7 @@ import {
   formatoPeriodo,
   mensajeResultado,
   mostrarAviso,
+  NOMBRE_PLAN,
   textoNoDisponible,
   tonoResultado,
   pagadoHasta,
@@ -169,7 +170,7 @@ function SinTarjeta({
     <Card>
       {datos.plan && (
         <div className="mb-4">
-          <div className="text-sm text-muted-foreground">{datos.plan.nombre}</div>
+          <div className="text-sm text-muted-foreground">{NOMBRE_PLAN}</div>
           <div className="text-2xl font-semibold">
             {formatoMonto(datos.plan)}{" "}
             <span className="text-sm font-normal text-muted-foreground">mensual, IVA incluido</span>

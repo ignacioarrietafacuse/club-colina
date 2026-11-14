@@ -53,8 +53,8 @@ Ignacio.
   código (vistos el 2026-11-14):
   - sandbox, apiKey desconocida: 400 con código 109; secretKey equivocada: 400 con código 108;
   - producción, apiKey desconocida (p. ej. la de sandbox): 401 con código 501, "apiKey not found";
-  - `plans/get` de un plan que no existe (visto en sandbox; en producción no se pudo probar sin
-    claves válidas): 401 con código 501, "the plan ... was not found".
+  - `plans/get` de un plan que no existe (visto en sandbox y en producción): 401 con código 501,
+    "the plan ... was not found".
 
   El 501 también es el externalId repetido, así que con 501 decide el mensaje
   (`configuracionRechazada` en `flow-pagos.ts`; el mensaje nunca se loguea). Con claves rechazadas
@@ -133,7 +133,8 @@ el token de un `GET` queda en los logs de borde de Vercel y Railway, pero sirve 
 
 ## Pantalla
 
-Ítem "Suscripción" en el menú, junto a "Cambiar clave". Estados: sin tarjeta (plan, monto, correo
+Ítem "Suscripción" en el menú, junto a "Cambiar clave". Estados: sin tarjeta ("Plan Club Colina",
+texto fijo en el frontend porque el `name` del plan en Flow es su ID técnico; monto de Flow, correo
 del club e "Inscribir tarjeta"), activa (estado, monto, próximo cobro, tarjeta, "Cambiar tarjeta" e
 historial), cobro fallido (aviso arriba con "Cambiar tarjeta" y "Reintentar cobro") y un mensaje
 simple para no disponible o pendiente de configuración. En sandbox, la etiqueta "Modo de prueba".
@@ -196,9 +197,7 @@ Lo hace Ignacio; los agentes no tocan las variables.
      claves y que no es una caída; en los logs, "claves rechazadas por Flow" con `motivo` `apiKey`
      (la apiKey no existe en ese Flow) o `firma` (la secretKey no es la de esa apiKey).
    - Plan que no existe con ese ID: la página dice que Flow no encuentra el plan; en los logs,
-     "plan no encontrado en Flow". Si producción lo responde distinto que sandbox, la página dirá
-     "intenta más tarde", pero el log igual muestra `plans/get` con un estado 4xx y su código: con
-     un 4xx no es una caída.
+     "plan no encontrado en Flow".
    - "No pudimos consultar Flow… intenta más tarde" sale en caídas y plazos vencidos; si el log
      muestra un 4xx de Flow, no es una caída: mirar el servicio y el código.
 4. Recién con eso, Mony inscribe la tarjeta: el primer cobro es ese mismo día.

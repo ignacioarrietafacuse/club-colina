@@ -9,6 +9,7 @@ import {
   formatoPeriodo,
   mensajeResultado,
   mostrarAviso,
+  NOMBRE_PLAN,
   pagadoHasta,
   textoNoDisponible,
   tonoResultado,
@@ -173,5 +174,12 @@ describe("no disponible: caída o configuración", () => {
       suscripcionResponse.parse({ ...base, configuracion_incorrecta: "claves" })
         .configuracion_incorrecta,
     ).toBe("claves");
+  });
+});
+
+describe("nombre del plan", () => {
+  it("es el texto fijo, nunca el ID técnico de Flow", () => {
+    expect(NOMBRE_PLAN).toBe("Plan Club Colina");
+    expect(NOMBRE_PLAN.toLowerCase()).not.toContain("suscripcion_clubcolina");
   });
 });
