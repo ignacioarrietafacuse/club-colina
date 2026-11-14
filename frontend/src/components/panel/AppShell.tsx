@@ -169,33 +169,20 @@ export function AppShell({
 }
 
 function BrandMark({ compact = false }: { compact?: boolean }) {
-  // Logo provisorio de solo texto, sin imágenes externas. Pendiente: el logo real del club.
+  // Compacto va en la barra blanca del celular: el logo con su fondo. Si no, sobre el azul del
+  // menú lateral: el logo sin fondo (los dos salen de public/, ver scripts/generar-iconos.mjs).
   return (
     <Link to="/" className="flex items-center gap-3 group" aria-label="Club Colina">
-      <div className="leading-tight">
-        <div
-          className={
-            compact
-              ? "text-white font-bold text-[11px] leading-[1.05] text-center"
-              : "text-white font-bold text-lg tracking-tight"
-          }
-        >
-          {compact ? (
-            <>
-              Club
-              <br />
-              Colina
-            </>
-          ) : (
-            "Club Colina"
-          )}
-        </div>
-        {!compact && (
-          <div className="text-[10px] uppercase tracking-widest text-white/50">
+      {compact ? (
+        <img src="/logo-colina-fondo.png" alt="" className="h-9 w-auto rounded-md" />
+      ) : (
+        <div className="leading-tight">
+          <img src="/logo-colina.png" alt="" className="h-10 w-auto" />
+          <div className="mt-1.5 text-[10px] uppercase tracking-widest text-white/50">
             Plataforma Deportiva
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </Link>
   );
 }

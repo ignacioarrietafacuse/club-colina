@@ -5,8 +5,8 @@ export function Marco({ titulo, children }: { titulo?: string; children: ReactNo
   return (
     <div className="min-h-screen bg-background">
       <header className="bg-primary text-primary-foreground">
-        <div className="mx-auto max-w-md px-4 py-3 text-base font-semibold tracking-tight">
-          Club Colina
+        <div className="mx-auto max-w-md px-4 py-2.5">
+          <img src="/logo-colina.png" alt="Club Colina" className="h-8 w-auto" />
         </div>
       </header>
       <main className="mx-auto max-w-md px-4 pb-16 pt-6">

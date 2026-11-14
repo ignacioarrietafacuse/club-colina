@@ -34,7 +34,11 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <form onSubmit={enviar} className="card-surface w-full max-w-sm p-6" noValidate>
         <div className="mb-6 text-center">
-          <div className="text-xl font-bold tracking-tight">Club Colina</div>
+          <img
+            src="/logo-colina-fondo.png"
+            alt="Club Colina"
+            className="mx-auto h-20 w-auto rounded-lg"
+          />
           <p className="mt-1 text-sm text-muted-foreground">Ingresa al panel del club</p>
         </div>
 
