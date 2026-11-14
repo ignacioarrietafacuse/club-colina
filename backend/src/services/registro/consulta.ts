@@ -49,7 +49,7 @@ export const EDAD_ADULTO = 18;
  * adulto sin fecha llena el formulario completo; la fecha que escriba se revisa al enviar.
  */
 export function esAdulto(j: Pick<Jugador, "fecha_nacimiento">): boolean {
-  return j.fecha_nacimiento !== null && edad(j.fecha_nacimiento) >= EDAD_ADULTO;
+  return fechaNacimientoValida(j.fecha_nacimiento) && edad(j.fecha_nacimiento) >= EDAD_ADULTO;
 }
 
 /** Ya pasó por el formulario o por el panel: no es un precargado que falta completar. */

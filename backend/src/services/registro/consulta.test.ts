@@ -21,6 +21,9 @@ describe("consulta: piezas", () => {
     expect(esAdulto({ fecha_nacimiento: null })).toBe(false);
     expect(esAdulto({ fecha_nacimiento: "2000-01-01" })).toBe(true);
     expect(esAdulto({ fecha_nacimiento: "2015-01-01" })).toBe(false);
+    // Una fecha inválida (anterior a 1900 o futura) no da certeza de nada.
+    expect(esAdulto({ fecha_nacimiento: "1850-01-01" })).toBe(false);
+    expect(esAdulto({ fecha_nacimiento: "2999-01-01" })).toBe(false);
   });
 
   it("primer nombre, con un texto fijo si falta", () => {

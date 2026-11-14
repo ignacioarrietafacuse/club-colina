@@ -171,13 +171,14 @@ describe("POST /api/public/rut-lookup", () => {
     await app.close();
   });
 
-  it("un jugador sin fecha en la base (puede ser menor) tampoco revela su nombre", async () => {
+  it("un jugador sin fecha, o con una fecha inválida, en la base (puede ser menor) tampoco revela su nombre", async () => {
     const apoderado = await crearApoderado(db);
     const sinFecha = await crearJugador(db, { nombre: "Emilia", fecha_nacimiento: null });
     await vincular(db, sinFecha.id, apoderado.id);
     const huerfano = await crearJugador(db, { nombre: "Josefa", fecha_nacimiento: null });
+    const fechaInvalida = await crearJugador(db, { nombre: "Antonia", fecha_nacimiento: "1850-01-01" });
     const app = await construirApp({ config: configTest(), db });
-    for (const rut of [sinFecha.rut, huerfano.rut]) {
+    for (const rut of [sinFecha.rut, huerfano.rut, fechaInvalida.rut]) {
       const r = await consultar(app, rut);
       expect(r.json()).toEqual({ encontrado: false });
     }

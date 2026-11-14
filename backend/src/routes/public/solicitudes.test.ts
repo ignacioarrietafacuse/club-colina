@@ -498,23 +498,25 @@ describe("POST /api/public/solicitudes", () => {
     await app.close();
   });
 
-  it("jugador adulto: un menor, un precargado sin fecha, uno con apoderado o un RUT de apoderado dan 409 sin tocar nada", async () => {
+  it("jugador adulto: un menor, un precargado sin fecha o con fecha inválida, uno con apoderado o un RUT de apoderado dan 409 sin tocar nada", async () => {
     const apoderado = await crearApoderado(db);
     const menor = await crearJugador(db, { fecha_nacimiento: "2013-01-01" });
     const sinFecha = await crearJugador(db, { fecha_nacimiento: null, telefono: null });
+    const fechaInvalida = await crearJugador(db, { fecha_nacimiento: "1850-01-01", telefono: null });
     const conApoderado = await crearJugador(db, { fecha_nacimiento: "2000-01-01" });
     await vincular(db, conApoderado.id, apoderado.id);
     const rutDoble = generarRutFicticio(8080);
     await crearApoderado(db, { rut: rutDoble });
     await crearJugador(db, { rut: rutDoble, fecha_nacimiento: "1990-01-01" });
     const app = await construirApp({ config: configTest(), db });
-    for (const rut of [menor.rut, sinFecha.rut, conApoderado.rut, rutDoble]) {
+    for (const rut of [menor.rut, sinFecha.rut, fechaInvalida.rut, conApoderado.rut, rutDoble]) {
       const r = await enviar(app, adultoCompleto(rut), { t: JPEG_PRUEBA });
       expect(r.statusCode).toBe(409);
       expect(r.json().error.codigo).toBe("conflicto");
     }
     expect(await contar("solicitudes_registro")).toBe(0);
     expect(await jugadorRut(sinFecha.rut)).toMatchObject({ fecha_nacimiento: null, telefono: null, estado: "precargado", solicitud_id: null });
+    expect(await jugadorRut(fechaInvalida.rut)).toMatchObject({ fecha_nacimiento: "1850-01-01", estado: "precargado", solicitud_id: null });
     await app.close();
   });
 

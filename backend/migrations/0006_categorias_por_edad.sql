@@ -4,6 +4,8 @@
 -- (UN cubre N−1 y N) y `jugadores.categoria_id` se reemplaza por la marca U11 F de una temporada.
 -- Ignacio confirmó 0 jugadores en producción antes de migrar. Por si acaso, la guarda de abajo
 -- hace fallar la migración (y el arranque) si hay alguno: así no se pierde ninguna categoría real.
+-- El candado evita que entre un jugador entre la revisión y el DROP (corre en la transacción del migrador).
+LOCK TABLE "jugadores" IN ACCESS EXCLUSIVE MODE;--> statement-breakpoint
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM "jugadores") THEN
