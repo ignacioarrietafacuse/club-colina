@@ -104,7 +104,9 @@ lo pide.
   solicitud hacia un hijo que no llegó en esa misma solicitud (un jugador que ya existía, nombrado
   por RUT); aparece cuando Mony aprueba el vínculo. Un jugador que no es adulto con certeza (menor,
   o sin fecha en la base) responde igual que un RUT desconocido (`encontrado: false`): si su apoderado lo nombra por RUT, el formulario pide todo
-  y el servidor completa solo lo que falta. La solicitud los nombra con `ref.precargado` y el
+  y el servidor completa solo lo que falta. Si es un adulto sin fecha válida en la base, llena todo y se completa su
+  ficha precargada solo si su primer nombre es el de la base y no tiene apoderados (si no, 409), con
+  el aviso `adulto_precargado_sin_fecha_en_base` (2026-11-14). La solicitud los nombra con `ref.precargado` y el
   `primer_nombre` que vio; al recibirla, el servidor recalcula la lista desde el RUT de quien llena
   y responde 409 `conflicto` si la posición no existe o el nombre no coincide. Ignora la tabla `entrenadores`. Si un RUT es apoderado y
   jugador adulto a la vez, el formulario lo trata como apoderado; Mony completa la parte

@@ -66,6 +66,11 @@ export const AVISOS_SOLICITUD = [
    * otra recibe `hay_solicitud_posterior`.
    */
   "cambios_bloqueados_por_otra_solicitud",
+  /**
+   * Un jugador adulto completó su ficha precargada, que en la base no tenía fecha de nacimiento
+   * (o la tenía inválida): la fecha es la que escribió. Mony confirma que es él y que es adulto.
+   */
+  "adulto_precargado_sin_fecha_en_base",
 ] as const;
 /** Segmento de URL de `/api/panel/:tipo/:id/...`. */
 export const TIPOS_PERSONA = ["jugadores", "apoderados", "entrenadores"] as const;
@@ -397,10 +402,7 @@ export const dashboardResponse = z.object({
    * Jugadores activos por categoría, calculada hoy: todas las categorías en el orden de
    * `GET /api/panel/categorias` (también con 0) y al final `categoria_id: null` (sin categoría).
    */
-  // Con valor por defecto, igual que arriba: un frontend nuevo con un backend anterior.
-  jugadores_por_categoria: z
-    .array(z.object({ categoria_id: categoriaId.nullable(), jugadores: z.int().min(0) }))
-    .default([]),
+  jugadores_por_categoria: z.array(z.object({ categoria_id: categoriaId.nullable(), jugadores: z.int().min(0) })),
 });
 
 const becas = {
@@ -434,8 +436,7 @@ export const jugadorResumen = z.object({
 
 export const jugadorDetalle = jugadorResumen.extend({
   /** Mony la marcó U11 F en la temporada actual (solo básquet). */
-  // Con valor por defecto: un frontend nuevo con un backend anterior (despliegue a medias).
-  u11f: z.boolean().default(false),
+  u11f: z.boolean(),
   fecha_nacimiento: fecha.nullable(),
   /** Calculada; no se guarda. */
   edad: z.int().min(0).nullable(),
@@ -668,9 +669,8 @@ export const categoriaPanel = z.object({
   nombre: z.string(),
   disciplina,
   /** Edades de temporada (temporada − año de nacimiento) que cubre: UN cubre N−1 y N. */
-  // Opcionales solo para que un frontend nuevo lea la lista de un backend anterior; el panel no las usa.
-  edad_min: z.int().optional(),
-  edad_max: z.int().optional(),
+  edad_min: z.int(),
+  edad_max: z.int(),
   /** false en U11 F: no se calcula, la marca Mony en la ficha. */
   se_calcula: z.boolean(),
 });

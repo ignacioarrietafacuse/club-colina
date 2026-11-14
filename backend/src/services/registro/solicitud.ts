@@ -23,6 +23,7 @@ import {
   hijosDeApoderado,
   type Jugador,
   jugadorPorRut,
+  mismoPrimerNombre,
   primerNombre,
 } from "./consulta";
 
@@ -349,8 +350,15 @@ class Proceso {
   /**
    * Jugador adulto. Exige el formulario completo antes de mirar la base, para que la respuesta
    * no revele si el RUT está (un menor responde `encontrado: false` en la consulta). Una ficha
-   * existente solo se completa si es un precargado adulto con certeza y sin apoderados: si no,
-   * 409 sin tocar nada (un menor sin fecha en la base no se puede "adoptar" como adulto).
+   * existente solo se completa si es un precargado sin solicitud ni apoderados y no es menor con
+   * certeza; si no, 409 sin tocar nada.
+   *
+   * Precargado sin fecha, o con una fecha inválida en la base (decisión de Ignacio, 2026-11-14):
+   * la consulta respondió `encontrado: false`, así que llenó el formulario completo. Se completa
+   * con la fecha que escribió (adulta, ya revisada) y lo demás que falte, y Mony recibe el aviso
+   * `adulto_precargado_sin_fecha_en_base` para confirmar que es él. Solo si su primer nombre es el
+   * de la base: `/familia` muestra el primer nombre de la ficha, y así no revela el nombre de un
+   * posible menor a quien solo tiene su RUT. Si no coincide, 409 como antes.
    */
   private async jugadorAdulto() {
     const d = this.datos;
@@ -394,14 +402,16 @@ class Proceso {
       return;
     }
 
+    const fechaBaseValida = fechaNacimientoValida(existente.fecha_nacimiento);
     if (
       existente.estado !== "precargado" ||
       existente.solicitud_id !== null ||
-      !esAdulto(existente) ||
+      (fechaBaseValida ? !esAdulto(existente) : !mismoPrimerNombre(existente.nombre, seguro(nombre))) ||
       (await this.cantidadApoderados(existente.id)) > 0
     ) {
       throw conflicto();
     }
+    if (!fechaBaseValida) this.avisos.add("adulto_precargado_sin_fecha_en_base");
     this.jugadoresInvolucrados.add(existente.id);
     this.titularJugadorId = existente.id;
     this.coincideBase = true;
