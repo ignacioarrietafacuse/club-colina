@@ -207,6 +207,7 @@ export async function rutasSuscripcion(app: FastifyInstance) {
           const resultado = await inscribirTarjeta(request.server.db, flow, {
             email,
             urlRetorno: `${request.server.config.PUBLIC_BASE_URL}/api/suscripcion/retorno`,
+            log: request.log,
           });
           if (resultado.tipo === "falta_email") {
             throw new ErrorApi(409, "conflicto", "Falta el correo para inscribir la tarjeta.");

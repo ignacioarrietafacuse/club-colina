@@ -774,6 +774,51 @@ describe("cliente del club ya creado en Flow (externalId repetido)", () => {
     expect(flow.servicios()).not.toContain("customer/register");
   });
 
+  it("con la suscripción del plan cancelada, o solo de otro plan, no la recupera: va a Flow", async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    flow.clientes.set("cus_club", { customerId: "cus_club", email: "x@ejemplo.test", name: "Club Colina", externalId: "club-colina", status: "1" });
+    const base = { customerId: "cus_club", start: "2026-01-01", trial: "0", morose: 0, invoices: [] };
+    flow.suscripciones.set("sus_cancelada", { ...base, subscriptionId: "sus_cancelada", planId: "suscripcion_clubcolina", status: 4 });
+    flow.suscripciones.set("sus_otro", { ...base, subscriptionId: "sus_otro", planId: "otro_plan", status: 1 });
+    const r = await pedirInscripcion(app, c);
+    expect(r.statusCode).toBe(200);
+    expect(r.json<{ resultado: string }>().resultado).toBe("flow");
+    const [fila] = await db.select().from(suscripcionServicio);
+    expect(fila).toMatchObject({ flow_customer_id: "cus_club", flow_subscription_id: null });
+  });
+
+  it("encuentra la suscripción vigente aunque esté después de la primera página", async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    flow.clientes.set("cus_club", { customerId: "cus_club", email: "x@ejemplo.test", name: "Club Colina", externalId: "club-colina", status: "1" });
+    const base = { customerId: "cus_club", planId: "suscripcion_clubcolina", start: "2026-01-01", trial: "0", morose: 0, invoices: [] };
+    for (let i = 0; i < 120; i++) flow.suscripciones.set(`sus_c${i}`, { ...base, subscriptionId: `sus_c${i}`, status: 4 });
+    flow.suscripciones.set("sus_vigente", { ...base, subscriptionId: "sus_vigente", status: 1 });
+    expect((await pedirInscripcion(app, c)).json()).toEqual({ resultado: "recuperada" });
+    const [fila] = await db.select().from(suscripcionServicio);
+    expect(fila?.flow_subscription_id).toBe("sus_vigente");
+  });
+
+  it("solo un 401 con código 501 dispara la búsqueda; otro error de customer/create no", async () => {
+    const flow = sandbox();
+    const { app, cookies: c, logs } = await armar(flow);
+    flow.clientes.set("cus_club", { customerId: "cus_club", email: "x@ejemplo.test", name: "Club Colina", externalId: "club-colina", status: "1" });
+    for (const errorCreacion of [{ status: 500, code: 500 }, { status: 401, code: 108 }, { status: 400, code: 501 }]) {
+      flow.errorCreacion = errorCreacion;
+      flow.llamadas = [];
+      expect((await pedirInscripcion(app, c)).statusCode).toBe(503);
+      expect(flow.servicios()).toEqual(["customer/create"]);
+    }
+    expect(await db.select().from(suscripcionServicio)).toHaveLength(0);
+    // Con el 501, el log dice cuántos calzan, sin ids ni datos de los clientes.
+    flow.errorCreacion = { status: 401, code: 501 };
+    expect((await pedirInscripcion(app, c)).statusCode).toBe(200);
+    expect(logs()).toContain('"recuperar_cliente":{"coincidencias":1,"activos":1}');
+    expect(logs()).not.toContain("cus_club");
+    expect(logs()).not.toContain("x@ejemplo.test");
+  });
+
   it("un cliente inactivo (status 0) con el mismo externalId no se recupera", async () => {
     const flow = sandbox();
     const { app, cookies: c } = await armar(flow);

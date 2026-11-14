@@ -15,14 +15,23 @@ export function busquedaSuscripcion(search: Record<string, unknown>): BusquedaSu
  */
 export type AvisoResultado = "ok" | "error" | "recuperada";
 
-export function mensajeResultado(resultado: AvisoResultado): string {
+export function mensajeResultado(
+  resultado: AvisoResultado,
+  estado?: SuscripcionResponse["estado"],
+): string {
+  const viva = estado === "activa" || estado === "cobro_fallido";
   switch (resultado) {
     case "ok":
-      return "Listo: la tarjeta quedó inscrita en Flow. El cargo es automático y mensual.";
+      return estado === "cobro_fallido"
+        ? "Listo: la tarjeta nueva quedó inscrita en Flow. El cobro pendiente sigue abajo."
+        : "Listo: la tarjeta quedó inscrita en Flow. El cargo es automático y mensual.";
     case "recuperada":
       return "Encontramos en Flow la suscripción vigente del club y quedó guardada. No se hizo ningún cobro nuevo.";
     case "error":
-      return "No se pudo inscribir la tarjeta. Vuelve a intentarlo; si se repite, avisa a Ignacio.";
+      // Con una suscripción viva, lo que falló fue el cambio de tarjeta: la suscripción sigue.
+      return viva
+        ? "No se pudo completar el cambio de tarjeta en Flow. La suscripción sigue como se ve abajo."
+        : "No se pudo inscribir la tarjeta. Vuelve a intentarlo; si se repite, avisa a Ignacio.";
   }
 }
 

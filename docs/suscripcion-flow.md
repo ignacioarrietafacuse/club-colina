@@ -65,14 +65,16 @@ Todas con sesión del panel y la clave al día, salvo el retorno.
 | `POST /api/suscripcion/reintentar` | `invoice/retryToCollect` sobre el importe vencido más antiguo (Flow solo reintenta vencidos). 409 si no hay vencidos o si Flow rechaza el reintento; 503 solo si Flow no responde. 3 intentos cada 15 minutos por usuario |
 | `GET /api/suscripcion/aviso` | Solo `{cobro_fallido}`, con caché en memoria de 15 minutos. Se invalida al inscribir, al volver de Flow y al reintentar; `GET /api/suscripcion` la deja al día |
 
-"Reintentar cobro" aparece solo con un importe vencido (`puede_reintentar`); con un cobro fallido
-que aún no vence, la página ofrece solo "Cambiar tarjeta".
+"Reintentar cobro" aparece solo con un cobro fallido y un importe vencido (`puede_reintentar`); con
+un cobro fallido que aún no vence, la página ofrece solo "Cambiar tarjeta".
 
 "Cobro fallido": la suscripción está morosa en Flow (`morose = 1`) o tiene un importe impago
 (`status 0`) cuyo cobro Flow ya intentó (`error = 1` o `attemp_count > 0`), aunque Flow ya no
 informe la tarjeta. **No se mira `due_date`:** Flow lo pone días después de emitir el importe ("Fecha
 en que este importe será considerado moroso"; en sandbox, 3 días) aunque el cobro salga el mismo
-día. `due_date` solo decide "Reintentar cobro", porque Flow reintenta solo importes vencidos.
+día. `due_date` solo decide "Reintentar cobro", porque Flow reintenta solo importes vencidos. Un
+importe que vence sin que Flow alcance a intentar el cobro lo informa la suscripción: según la
+documentación de Flow, `morose` es "1 si uno o más invoices están vencidos".
 
 ### Cliente ya creado en Flow
 
@@ -80,14 +82,17 @@ El externalId "club-colina" es fijo y Flow no acepta dos clientes con el mismo (
 sandbox el 2026-11-14: el segundo `customer/create` responde 401 con código 501). Si se pierde la
 fila de `suscripcion_servicio`, inscribir lo recupera en vez de crear otro:
 
-1. Si `customer/create` falla con un error de negocio de Flow (400 o 401 con código), se busca al
-   cliente con `customer/list`. Flow no documenta un servicio por externalId: `customer/list` filtra
-   solo por nombre ("Filtro por nombre del cliente"), así que se filtra por "Club Colina", se
-   recorren hasta 5 páginas de 100 y se compara el externalId exacto. Solo sirve un único cliente
-   activo (status 1).
+1. Solo si `customer/create` responde 401 con código 501 (cualquier otro error se mantiene tal cual),
+   se busca al cliente con `customer/list`. Flow no documenta un servicio por externalId:
+   `customer/list` filtra solo por nombre ("Filtro por nombre del cliente"), así que se filtra por
+   "Club Colina", se recorren hasta 5 páginas de 100 (cortando con `hasMore`) y se compara el
+   externalId exacto. Solo sirve un único cliente activo (status 1). El log anota cuántos calzan y
+   cuántos están activos, sin ids ni datos.
 2. Con el cliente recuperado se guarda su `customerId` con el modo activo y se revisa
-   `customer/getSubscriptions`. Si tiene la suscripción vigente del plan, se guarda y la página
-   queda Activa sin pasar por Flow ni cobrar. Si no, sigue a inscribir la tarjeta.
+   `customer/getSubscriptions` (todas sus páginas, hasta 5 de 100; si hubiera más, Flow cuenta como
+   no disponible). Si tiene la suscripción vigente del plan, se guarda y la página queda Activa sin
+   pasar por Flow ni cobrar. Si no, sigue a inscribir la tarjeta. El correo que escribió Mony se
+   guarda solo como referencia: Flow sigue con el del cliente recuperado.
 3. Si no se encuentra (o hay más de uno, o Flow falla), se mantiene el error: "El servicio de pagos
    no está disponible". Nunca se usa otro externalId para esquivar el rechazo.
 
@@ -118,7 +123,12 @@ del club e "Inscribir tarjeta"), activa (estado, monto, próximo cobro, tarjeta,
 historial), cobro fallido (aviso arriba con "Cambiar tarjeta" y "Reintentar cobro") y un mensaje
 simple para no disponible o pendiente de configuración. En sandbox, la etiqueta "Modo de prueba".
 El aviso de `?resultado=ok|error` (o "recuperada") se muestra una sola vez: se quita de la URL al
-llegar, y nunca encima de un estado que lo contradiga ("Listo" solo con una suscripción viva).
+llegar, y nunca encima de un estado que lo contradiga ("Listo" solo con una suscripción viva; un
+error encima de una suscripción viva dice que falló el cambio de tarjeta y que la suscripción
+sigue).
+
+`inscribirTarjetaResponse` sin `resultado` cuenta como `flow`: el frontend nuevo entiende al backend
+anterior mientras Vercel y Railway publican por separado.
 Aviso global en todas las pantallas del panel cuando hay cobro fallido, con enlace a la página; no
 bloquea nada. Sin "Cancelar suscripción" ni cambio de plan.
 

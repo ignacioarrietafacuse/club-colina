@@ -1,3 +1,4 @@
+import { inscribirTarjetaResponse } from "@club-colina/shared";
 import { describe, expect, it } from "vitest";
 import { nav } from "@/components/panel/navegacion";
 import {
@@ -48,6 +49,8 @@ describe("aviso de resultado", () => {
       expect(mostrarAviso(r, undefined)).toBe(false);
     }
     expect(mensajeResultado("recuperada")).toContain("No se hizo ningún cobro nuevo");
+    expect(mensajeResultado("ok", "activa")).toContain("El cargo es automático");
+    expect(mensajeResultado("ok", "cobro_fallido")).toContain("El cobro pendiente sigue abajo");
   });
 
   it("el error de inscripción se muestra con sin tarjeta o con una suscripción viva", () => {
@@ -56,5 +59,19 @@ describe("aviso de resultado", () => {
     expect(mostrarAviso("error", "no_disponible")).toBe(false);
     expect(mostrarAviso("error", undefined)).toBe(false);
     expect(mostrarAviso(undefined, "activa")).toBe(false);
+    // Encima de una suscripción viva, el error habla del cambio de tarjeta, no de "inscribir".
+    expect(mensajeResultado("error", "activa")).toContain("La suscripción sigue");
+    expect(mensajeResultado("error", "cobro_fallido")).toContain("La suscripción sigue");
+    expect(mensajeResultado("error", "sin_tarjeta")).toContain("No se pudo inscribir");
+  });
+
+  it("entiende la respuesta de inscribir del backend anterior (solo url) y rechaza flow sin url", () => {
+    const url = "https://sandbox.flow.cl/app/customer/disclaimer.php?token=ABC";
+    expect(inscribirTarjetaResponse.parse({ url })).toEqual({ resultado: "flow", url });
+    expect(inscribirTarjetaResponse.parse({ resultado: "recuperada" })).toEqual({
+      resultado: "recuperada",
+    });
+    expect(inscribirTarjetaResponse.safeParse({ resultado: "flow" }).success).toBe(false);
+    expect(inscribirTarjetaResponse.safeParse({}).success).toBe(false);
   });
 });

@@ -65,7 +65,7 @@ export function SuscripcionPage() {
           role={resultado === "ok" ? "status" : "alert"}
           className={`rounded-lg px-4 py-3 text-sm ${resultado === "ok" ? "bg-success/10" : "bg-destructive/10 text-destructive"}`}
         >
-          {mensajeResultado(resultado)}
+          {mensajeResultado(resultado, consulta.data?.estado)}
         </p>
       )}
 
@@ -132,12 +132,13 @@ function useInscribir(alRecuperar: () => void) {
   return useMutation({
     mutationFn: async (email: string | undefined) => {
       const r = await api.suscripcion.inscribirTarjeta(email ? { email } : {});
-      if (r.resultado === "flow" && !esUrlDeFlow(r.url)) throw new Error("Dirección inesperada");
-      return r;
+      if (r.resultado === "recuperada") return null;
+      if (!r.url || !esUrlDeFlow(r.url)) throw new Error("Dirección inesperada");
+      return r.url;
     },
-    onSuccess: (r) => {
+    onSuccess: (url) => {
       void queryClient.invalidateQueries({ queryKey: CLAVE_AVISO_SUSCRIPCION });
-      if (r.resultado === "flow") window.location.assign(r.url);
+      if (url) window.location.assign(url);
       else alRecuperar();
     },
   });

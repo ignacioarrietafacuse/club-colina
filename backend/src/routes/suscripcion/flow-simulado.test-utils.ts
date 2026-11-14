@@ -55,6 +55,8 @@ export class FlowSimulado {
   >();
   /** Si es true, `customer/list` responde 500 (Flow cae justo al buscar el cliente). */
   fallaLista = false;
+  /** Si se pone, `customer/create` responde este error (estado HTTP y código de Flow). */
+  errorCreacion: { status: number; code: number } | null = null;
   /** token de registro → customerId y si la inscripción fue exitosa. */
   registros = new Map<string, { customerId: string; exito: boolean }>();
   suscripciones = new Map<
@@ -109,6 +111,9 @@ export class FlowSimulado {
       case "plans/get":
         return p.planId === this.plan.planId ? Response.json(this.plan) : error(404);
       case "customer/create": {
+        if (this.errorCreacion) {
+          return Response.json({ code: this.errorCreacion.code, message: "error" }, { status: this.errorCreacion.status });
+        }
         // Como Flow (visto en sandbox): un externalId repetido es 401 con código 501.
         if ([...this.clientes.values()].some((c) => c.externalId === p.externalId)) {
           return Response.json({ code: 501, message: "externalId" }, { status: 401 });
@@ -125,7 +130,8 @@ export class FlowSimulado {
         const start = Number(p.start ?? 0);
         const limit = Number(p.limit ?? 10);
         const data = todos.slice(start, start + limit);
-        return Response.json({ total: todos.length, hasMore: start + limit < todos.length, data });
+        // Sin `total`: el backend corta con `hasMore` (lo verificado en sandbox).
+        return Response.json({ hasMore: start + limit < todos.length, data });
       }
       case "customer/get": {
         const c = this.clientes.get(p.customerId ?? "");
@@ -142,8 +148,11 @@ export class FlowSimulado {
         return r ? Response.json({ status: r.exito ? "1" : "0", customerId: r.customerId }) : error(404);
       }
       case "customer/getSubscriptions": {
-        const data = [...this.suscripciones.values()].filter((s) => s.customerId === p.customerId);
-        return Response.json({ total: data.length, hasMore: 0, data });
+        const todas = [...this.suscripciones.values()].filter((s) => s.customerId === p.customerId);
+        const start = Number(p.start ?? 0);
+        const limit = Number(p.limit ?? 10);
+        const data = todas.slice(start, start + limit);
+        return Response.json({ total: todas.length, hasMore: start + limit < todas.length ? 1 : 0, data });
       }
       case "subscription/create": {
         const subscriptionId = `sus_${this.n}`;

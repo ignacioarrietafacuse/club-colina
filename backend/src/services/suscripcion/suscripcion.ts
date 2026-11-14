@@ -6,6 +6,7 @@
 import { PLAN_SUSCRIPCION, type ModoFlow, type SuscripcionResponse } from "@club-colina/shared";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import type { FastifyBaseLogger } from "fastify";
 import type { Db, Ejecutor } from "../../db/cliente";
 import { suscripcionServicio } from "../../db/schema";
 import { ErrorApi } from "../../lib/errores";
@@ -57,13 +58,19 @@ const suscripcionFlow = z.object({
   next_invoice_date: fechaFlow.nullish(),
   invoices: z.array(importeFlow).nullish(),
 });
+/** `hasMore` de las listas de Flow: booleano en sandbox; la documentación dice 1 o 0. */
+const hayMas = z
+  .union([z.boolean(), numero])
+  .nullish()
+  .transform((v) => v === true || v === 1);
 const listaSuscripciones = z.object({
+  hasMore: hayMas,
   data: z.array(suscripcionFlow.pick({ subscriptionId: true, planId: true, status: true })),
 });
 const importeCobrado = z.object({ status: numero });
 /** Página de `customer/list`. Solo lo necesario para reconocer al cliente del club. */
 const listaClientes = z.object({
-  total: numero,
+  hasMore: hayMas,
   data: z.array(z.object({ customerId: z.string(), externalId: z.string().nullish(), status: z.coerce.string().nullish() })),
 });
 
@@ -83,8 +90,10 @@ const SUSCRIPCION_CANCELADA = 4;
 
 /** Cómo se crea el cliente del club en Flow. El externalId es fijo: Flow no acepta dos iguales. */
 export const CLIENTE_FLOW = { name: "Club Colina", externalId: "club-colina" } as const;
-/** Páginas de 100 (el máximo de Flow) que se recorren buscando al cliente. */
-const PAGINAS_CLIENTES_MAX = 5;
+/** Páginas de 100 (el máximo de Flow) que se recorren en una lista de Flow. */
+const PAGINAS_MAX = 5;
+/** Código de Flow al crear un cliente con un externalId que ya existe (visto en sandbox, no documentado). */
+const CODIGO_EXTERNAL_ID_REPETIDO = 501;
 
 // --- Base -------------------------------------------------------------------------------------
 
@@ -143,41 +152,52 @@ async function conCandado<T>(db: Db, esperaMs: number, fn: (tx: Ejecutor) => Pro
   }
 }
 
-/** La suscripción vigente (no cancelada) del plan para este cliente, buscada en Flow. */
+/**
+ * La suscripción vigente (no cancelada) del plan para este cliente, buscada en Flow. Recorre las
+ * páginas: una vigente que no se ve terminaría en una segunda suscripción.
+ */
 async function buscarVigente(flow: ClienteFlow, customerId: string): Promise<string | undefined> {
-  const lista = deFlow(listaSuscripciones, "customer/getSubscriptions")(
-    await flow.get("customer/getSubscriptions", { customerId, start: 0, limit: 100 }),
-  );
-  return lista.data.find((s) => s.planId === PLAN_SUSCRIPCION && s.status !== SUSCRIPCION_CANCELADA)?.subscriptionId;
+  for (let pagina = 0; pagina < PAGINAS_MAX; pagina++) {
+    const lista = deFlow(listaSuscripciones, "customer/getSubscriptions")(
+      await flow.get("customer/getSubscriptions", { customerId, start: pagina * 100, limit: 100 }),
+    );
+    const vigente = lista.data.find((s) => s.planId === PLAN_SUSCRIPCION && s.status !== SUSCRIPCION_CANCELADA);
+    if (vigente) return vigente.subscriptionId;
+    if (!lista.hasMore || lista.data.length === 0) return undefined;
+  }
+  // Más páginas de las que se recorren: no se puede asegurar que no exista. Flow "no responde".
+  throw new ErrorFlow("customer/getSubscriptions", 200);
 }
 
 /**
  * El cliente del club ya creado en Flow, buscado por su externalId exacto. Flow no documenta un
  * servicio por externalId: `customer/list` filtra solo por nombre ("Filtro por nombre del cliente"),
- * así que se filtra por el nombre con que se crea y se compara el externalId. Devuelve el cliente
- * solo si hay exactamente uno activo (status 1); si no hay o hay más de uno, undefined.
+ * así que se filtra por el nombre con que se crea y se compara el externalId. `customerId` solo si
+ * hay exactamente uno activo (status 1). Los conteos sirven para el log (sin ids ni datos).
  */
-async function buscarClienteDelClub(flow: ClienteFlow): Promise<string | undefined> {
-  const encontrados: string[] = [];
-  for (let pagina = 0; pagina < PAGINAS_CLIENTES_MAX; pagina++) {
-    const start = pagina * 100;
+async function buscarClienteDelClub(
+  flow: ClienteFlow,
+): Promise<{ customerId: string | undefined; coincidencias: number; activos: number }> {
+  const coincidencias = new Set<string>();
+  const activos = new Set<string>();
+  for (let pagina = 0; pagina < PAGINAS_MAX; pagina++) {
     const lista = deFlow(listaClientes, "customer/list")(
-      await flow.get("customer/list", { filter: CLIENTE_FLOW.name, start, limit: 100 }),
+      await flow.get("customer/list", { filter: CLIENTE_FLOW.name, start: pagina * 100, limit: 100 }),
     );
     for (const c of lista.data) {
-      if (c.externalId === CLIENTE_FLOW.externalId && c.status === "1") encontrados.push(c.customerId);
+      if (c.externalId !== CLIENTE_FLOW.externalId) continue;
+      coincidencias.add(c.customerId);
+      if (c.status === "1") activos.add(c.customerId);
     }
-    if (lista.data.length === 0 || start + lista.data.length >= lista.total) break;
+    if (!lista.hasMore || lista.data.length === 0) break;
   }
-  return encontrados.length === 1 ? encontrados[0] : undefined;
+  const [unico] = activos;
+  return { customerId: activos.size === 1 ? unico : undefined, coincidencias: coincidencias.size, activos: activos.size };
 }
 
-/**
- * Flow rechazó `customer/create` como error de negocio (400 o 401 con su código; con el externalId
- * repetido responde 401 y código 501, visto en sandbox). Un error de red o un 5xx no lo es.
- */
-function esRechazoDeNegocio(error: unknown): error is ErrorFlow {
-  return error instanceof ErrorFlow && (error.status === 400 || error.status === 401) && error.codigoFlow !== undefined;
+/** Flow rechazó `customer/create` porque el externalId ya existe (401 con código 501). */
+function esExternalIdRepetido(error: unknown): error is ErrorFlow {
+  return error instanceof ErrorFlow && error.status === 401 && error.codigoFlow === CODIGO_EXTERNAL_ID_REPETIDO;
 }
 
 // --- Fechas -----------------------------------------------------------------------------------
@@ -310,7 +330,7 @@ export type ResultadoInscribir =
 export async function inscribirTarjeta(
   db: Db,
   flow: ClienteFlow,
-  opciones: { email: string | undefined; urlRetorno: string },
+  opciones: { email: string | undefined; urlRetorno: string; log?: FastifyBaseLogger },
 ): Promise<ResultadoInscribir> {
   // 1) El cliente, guardado en su propia transacción: si después falla el registro de tarjeta, el
   //    cliente ya creado en Flow no se pierde (y el siguiente intento no crea otro).
@@ -329,11 +349,16 @@ export async function inscribirTarjeta(
           await flow.post("customer/create", { ...CLIENTE_FLOW, email: opciones.email }),
         ).customerId;
       } catch (error) {
-        if (!esRechazoDeNegocio(error)) throw error;
-        // Sin cliente reconocible, se mantiene el error de Flow: nunca otro externalId.
-        const existente = await buscarClienteDelClub(flow);
-        if (!existente) throw error;
-        customerId = existente;
+        if (!esExternalIdRepetido(error)) throw error;
+        // Sin un cliente reconocible (o si Flow falla al buscarlo), se mantiene el error de
+        // customer/create: nunca otro externalId.
+        const busqueda = await buscarClienteDelClub(flow).catch(() => null);
+        opciones.log?.warn(
+          { flow: { modo: flow.modo, recuperar_cliente: busqueda ? { coincidencias: busqueda.coincidencias, activos: busqueda.activos } : "fallo" } },
+          "externalId repetido en Flow: buscando al cliente del club",
+        );
+        if (!busqueda?.customerId) throw error;
+        customerId = busqueda.customerId;
         recuperado = true;
       }
       const vigente = recuperado ? await buscarVigente(flow, customerId) : undefined;
@@ -341,6 +366,7 @@ export async function inscribirTarjeta(
         modo: flow.modo,
         flow_customer_id: customerId,
         flow_subscription_id: vigente ?? null,
+        // Al recuperar es solo referencial: Flow sigue con el correo con que se creó el cliente.
         email: opciones.email,
         registro_token_hash: null,
         registro_token_expira: null,

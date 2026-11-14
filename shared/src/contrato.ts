@@ -782,10 +782,14 @@ export const inscribirTarjetaRequest = z.object({ email: email.optional() });
  * `flow`: hay que llevar el navegador a `url` (el registro de tarjeta en Flow). `recuperada`: Flow ya
  * tenía al cliente del club con su suscripción vigente; quedó guardada y no hay que ir a Flow.
  */
-export const inscribirTarjetaResponse = z.discriminatedUnion("resultado", [
-  z.object({ resultado: z.literal("flow"), url: z.url() }),
-  z.object({ resultado: z.literal("recuperada") }),
-]);
+export const inscribirTarjetaResponse = z
+  .object({
+    // Sin `resultado` es "flow": así el frontend nuevo entiende al backend anterior mientras uno de
+    // los dos aún no se publica (Vercel y Railway publican por separado).
+    resultado: z.enum(["flow", "recuperada"]).default("flow"),
+    url: z.url().optional(),
+  })
+  .refine((r) => r.resultado === "recuperada" || r.url !== undefined, { path: ["url"] });
 
 /**
  * POST /api/suscripcion/reintentar — con sesión y límite de intentos. Reintenta el cobro del
