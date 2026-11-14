@@ -53,7 +53,7 @@ export function faltantesJugador(
   const faltan: FaltanteJugador[] = [];
   if (j.nombre === null) faltan.push("nombre");
   if (j.apellido === null) faltan.push("apellido");
-  if (!fechaNacimientoValida(j.fecha_nacimiento)) faltan.push("fecha_nacimiento");
+  if (!fechaNacimientoValida(j.fecha_nacimiento, hoy)) faltan.push("fecha_nacimiento");
   if (j.numero_camiseta === null) faltan.push("numero_camiseta");
   const edad = calcularEdad(j.fecha_nacimiento, hoy);
   if (j.telefono === null && !tieneApoderado && (edad === null || edad >= EDAD_ADULTO)) faltan.push("telefono");

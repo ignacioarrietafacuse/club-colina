@@ -1,5 +1,5 @@
 {
-  "id": "5827840b-53f1-46d6-b6c1-58e05cd2c341",
+  "id": "fcd7bc93-393b-47a0-b24e-d63f72b16934",
   "prevId": "3d291dfa-4ef6-4fb2-a7c3-311e618bc6ce",
   "version": "7",
   "dialect": "postgresql",
@@ -996,6 +996,10 @@
         "jugadores_token_solo_activo_check": {
           "name": "jugadores_token_solo_activo_check",
           "value": "\"estado\" = 'activo' OR \"credencial_token\" IS NULL"
+        },
+        "jugadores_u11f_basquet_check": {
+          "name": "jugadores_u11f_basquet_check",
+          "value": "\"disciplina\" = 'basketball' OR \"u11f_temporada\" IS NULL"
         }
       },
       "isRLSEnabled": false

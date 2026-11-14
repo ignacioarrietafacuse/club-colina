@@ -266,6 +266,8 @@ export const jugadores = pgTable(
     ),
     // Revocación garantizada por la base: solo una persona activa tiene credencial vigente.
     check("jugadores_token_solo_activo_check", sql.raw(`"estado" = 'activo' OR "credencial_token" IS NULL`)),
+    // La marca U11 F solo existe en básquet: así no reaparece si pasa a vóley y vuelve.
+    check("jugadores_u11f_basquet_check", sql.raw(`"disciplina" = 'basketball' OR "u11f_temporada" IS NULL`)),
     index("jugadores_estado_idx").on(t.estado),
     index("jugadores_solicitud_idx").on(t.solicitud_id),
   ],

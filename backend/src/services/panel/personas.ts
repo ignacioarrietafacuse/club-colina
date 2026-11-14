@@ -13,7 +13,13 @@ import { and, asc, eq, ilike, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import type { z } from "zod";
 import type { Ejecutor } from "../../db/cliente";
 import { apoderados, jugadorApoderado, jugadores } from "../../db/schema";
-import { cargarCategorias, categoriaDelJugador, type CategoriaRegla, temporada } from "../../lib/categorias";
+import {
+  cargarCategorias,
+  categoriaDelJugador,
+  type CategoriaRegla,
+  fechaNacimientoValida,
+  temporada,
+} from "../../lib/categorias";
 import { ErrorApi, noEncontrado } from "../../lib/errores";
 import { conRestricciones } from "./errores-db";
 import {
@@ -206,6 +212,10 @@ export async function editarJugador(
       .for("update");
     if (!actual) throw noEncontrado();
     const { u11f, ...datos } = cambios;
+    // Misma regla que el formulario: con una fecha imposible no se calcula la categoría.
+    if (datos.fecha_nacimiento != null && !fechaNacimientoValida(datos.fecha_nacimiento)) {
+      throw new ErrorApi(400, "validacion", "Datos inválidos: fecha_nacimiento");
+    }
     const disciplina = datos.disciplina ?? actual.disciplina;
     // La marca U11 F vale solo en básquet y solo la temporada en que Mony la pone. Pasar a vóley
     // la borra, para que no reaparezca si vuelve a básquet en la misma temporada.

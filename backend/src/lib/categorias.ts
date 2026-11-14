@@ -28,7 +28,7 @@ export interface JugadorParaCategoria {
 
 const FECHA = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/** La fecha de hoy en Chile, `AAAA-MM-DD`. */
+/** La fecha de hoy en Chile, `AAAA-MM-DD` (la temporada y la edad cambian a medianoche de acá). */
 export function hoyEnChile(ahora: Date = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Santiago",
@@ -48,13 +48,13 @@ export function temporada(ahora: Date = new Date()): number {
  * criterio que el formulario). Si no lo es, la categoría no se puede calcular y lo que falta es
  * la fecha, no la categoría.
  */
-export function fechaNacimientoValida(fecha: string | null, ahora: Date = new Date()): fecha is string {
+export function fechaNacimientoValida(fecha: string | null, hoy: string = hoyEnChile()): fecha is string {
   if (fecha === null) return false;
   const m = FECHA.exec(fecha);
   if (!m) return false;
   const d = new Date(`${fecha}T00:00:00Z`);
   if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== fecha) return false;
-  return Number(m[1]) >= 1900 && fecha <= hoyEnChile(ahora);
+  return Number(m[1]) >= 1900 && fecha <= hoy;
 }
 
 /**
@@ -71,7 +71,7 @@ export function categoriaDelJugador(
     const marcada = lista.filter((c) => c.disciplina === j.disciplina && !c.se_calcula);
     if (marcada.length === 1 && marcada[0]) return marcada[0].id;
   }
-  if (!fechaNacimientoValida(j.fecha_nacimiento, ahora)) return null;
+  if (!fechaNacimientoValida(j.fecha_nacimiento, hoyEnChile(ahora))) return null;
   const edad = actual - Number(j.fecha_nacimiento.slice(0, 4));
   const opciones = lista.filter(
     (c) => c.disciplina === j.disciplina && c.se_calcula && c.edad_min <= edad && edad <= c.edad_max,

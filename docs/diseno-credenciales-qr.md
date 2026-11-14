@@ -164,7 +164,7 @@ Tablas definitivas del sistema (no temporales). Postgres en Railway.
 | rut | único; formato `12345678-9`; evita duplicados |
 | fecha_nacimiento | la edad se calcula, no se guarda |
 | disciplina | basketball / voleibol |
-| u11f_temporada | temporada (año) en que Mony la marcó U11 F en la ficha; vale solo esa temporada. La categoría no se guarda: se calcula por edad de temporada al responder |
+| u11f_temporada | temporada (año) en que Mony la marcó U11 F en la ficha; vale solo esa temporada. Solo en básquet (CHECK en la base; pasar a vóley la borra). La categoría no se guarda: se calcula por edad de temporada al responder |
 | numero_camiseta | nulo solo en precargados; obligatorio para aprobar. **99 = sin número asignado** |
 | postula_beca | verdadero si lo marcó en la inscripción; orienta a Mony al aprobar |
 | beca_mensualidad_pct | entero 0–100, por defecto 0. Lo define solo Mony |

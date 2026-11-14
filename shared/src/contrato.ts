@@ -434,7 +434,8 @@ export const jugadorResumen = z.object({
 
 export const jugadorDetalle = jugadorResumen.extend({
   /** Mony la marcó U11 F en la temporada actual (solo básquet). */
-  u11f: z.boolean(),
+  // Con valor por defecto: un frontend nuevo con un backend anterior (despliegue a medias).
+  u11f: z.boolean().default(false),
   fecha_nacimiento: fecha.nullable(),
   /** Calculada; no se guarda. */
   edad: z.int().min(0).nullable(),
@@ -667,8 +668,9 @@ export const categoriaPanel = z.object({
   nombre: z.string(),
   disciplina,
   /** Edades de temporada (temporada − año de nacimiento) que cubre: UN cubre N−1 y N. */
-  edad_min: z.int(),
-  edad_max: z.int(),
+  // Opcionales solo para que un frontend nuevo lea la lista de un backend anterior; el panel no las usa.
+  edad_min: z.int().optional(),
+  edad_max: z.int().optional(),
   /** false en U11 F: no se calcula, la marca Mony en la ficha. */
   se_calcula: z.boolean(),
 });

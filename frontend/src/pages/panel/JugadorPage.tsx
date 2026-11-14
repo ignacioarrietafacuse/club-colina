@@ -165,7 +165,9 @@ function FichaJugador({
               id="disciplina"
               etiqueta="Disciplina"
               valor={form.disciplina}
-              onChange={(v) => cambiar({ disciplina: v, u11f: v === "basketball" && form.u11f })}
+              // La marca se conserva en el formulario: ir y volver a básquet sin guardar no la
+              // borra. Si se guarda en vóley, `cambiosJugador` la manda apagada.
+              onChange={(v) => cambiar({ disciplina: v })}
               opciones={DISCIPLINAS.map((d) => [d, TEXTO_DISCIPLINA[d]] as const)}
             />
             <div className="space-y-2">

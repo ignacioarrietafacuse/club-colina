@@ -86,6 +86,21 @@ describe("dashboard y categorías", () => {
     expect(porCategoria.map((c) => c.categoria_id)).toEqual([...cats.map((c: { id: number }) => c.id), null]);
     const total = porCategoria.reduce((suma, c) => suma + c.jugadores, 0);
     expect(total).toBe(despues.jugadores_activos);
+    // Cada activo cuenta en su categoría calculada; la U11 F marcada, en U11 F; uno que no calza, en null.
+    const t = temporada();
+    await crearJugadorActivo(db, { disciplina: "basketball", fecha_nacimiento: `${t - 13}-01-01` });
+    await crearJugadorActivo(db, { disciplina: "basketball", fecha_nacimiento: `${t - 11}-01-01`, u11f_temporada: t });
+    await crearJugadorActivo(db, { disciplina: "voleibol", fecha_nacimiento: `${t - 10}-01-01` });
+    await crearJugador(db, { disciplina: "voleibol", fecha_nacimiento: `${t - 10}-01-01` });
+    const cuenta = (r: { categoria_id: number | null; jugadores: number }[], id: number | null) =>
+      r.find((c) => c.categoria_id === id)?.jugadores ?? 0;
+    const ahora = dashboardResponse.parse(
+      (await app.inject({ method: "GET", url: "/api/panel/dashboard", cookies })).json(),
+    ).jugadores_por_categoria;
+    expect(cuenta(ahora, await categoria("basketball", "U13"))).toBe(cuenta(porCategoria, await categoria("basketball", "U13")) + 1);
+    expect(cuenta(ahora, await categoria("basketball", "U11 F"))).toBe(cuenta(porCategoria, await categoria("basketball", "U11 F")) + 1);
+    // Vóley con edad 10 (no hay U10): sin categoría. El precargado no cuenta: solo activos.
+    expect(cuenta(ahora, null)).toBe(cuenta(porCategoria, null) + 1);
     await app.close();
   });
 });
@@ -198,6 +213,12 @@ describe("jugadores", () => {
     expect((await patch({ u11f: true, disciplina: "voleibol" })).statusCode).toBe(400);
     expect((await patch({ u11f: false })).json()).toMatchObject({ categoria_id: u11, u11f: false });
     expect((await patch({ beca_torneos_pct: 101 })).statusCode).toBe(400);
+    // Una fecha imposible no se guarda: sin ella no se calcula la categoría.
+    for (const fecha_nacimiento of ["2999-01-01", "1850-01-01"]) {
+      const malo = await patch({ fecha_nacimiento });
+      expect(malo.statusCode).toBe(400);
+      expect(malo.json().error.mensaje).toBe("Datos inválidos: fecha_nacimiento");
+    }
 
     // RUT repetido: 409.
     const otro = generarRutFicticio();

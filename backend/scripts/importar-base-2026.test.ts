@@ -413,8 +413,10 @@ describe("reglas de la carga inicial", () => {
       nombre_apoderado_faltante: [3],
       postula_beca_ambiguo: [3],
     });
-    // Una categoría que no existe no se importa: solo se cuenta.
+    // Una categoría que no existe no se importa: se cuenta y su fila queda en las notas (puede ser
+    // una U11 F mal escrita, que Mony marca a mano).
     expect(p.categoriaDistinta).toEqual({ "no reconocida": 1 });
+    expect(p.notas.categoria_basquet_no_reconocida).toEqual([3]);
   });
 
   it("la categoría de la base no se importa, salvo la U11 F como marca de la temporada 2026", async () => {

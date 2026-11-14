@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { categorias } from "../db/schema";
 import { dbTest } from "../test/db";
 import {
@@ -32,11 +32,14 @@ describe("categoría por edad de temporada (con las categorías de la migración
       ),
     );
 
-  it("carga las categorías", async () => {
+  beforeAll(async () => {
     cats = await cargarCategorias(db);
     for (const c of await db.select({ id: categorias.id, nombre: categorias.nombre }).from(categorias)) {
       nombres.set(c.id, c.nombre);
     }
+  });
+
+  it("trae las 12 categorías", () => {
     expect(cats).toHaveLength(12);
   });
 
@@ -115,13 +118,14 @@ describe("categoría por edad de temporada (con las categorías de la migración
 
 describe("fecha de nacimiento válida", () => {
   it("un día real, desde 1900 y no posterior a hoy en Chile", () => {
-    expect(fechaNacimientoValida("2015-06-15", FIN_2026)).toBe(true);
-    expect(fechaNacimientoValida("2026-12-31", FIN_2026)).toBe(true);
-    expect(fechaNacimientoValida("2027-01-01", FIN_2026)).toBe(false);
-    expect(fechaNacimientoValida("1900-01-01", FIN_2026)).toBe(true);
-    expect(fechaNacimientoValida("1899-12-31", FIN_2026)).toBe(false);
-    expect(fechaNacimientoValida("2015-02-29", FIN_2026)).toBe(false);
-    expect(fechaNacimientoValida("15-06-2015", FIN_2026)).toBe(false);
-    expect(fechaNacimientoValida(null, FIN_2026)).toBe(false);
+    const hoy = "2026-12-31";
+    expect(fechaNacimientoValida("2015-06-15", hoy)).toBe(true);
+    expect(fechaNacimientoValida("2026-12-31", hoy)).toBe(true);
+    expect(fechaNacimientoValida("2027-01-01", hoy)).toBe(false);
+    expect(fechaNacimientoValida("1900-01-01", hoy)).toBe(true);
+    expect(fechaNacimientoValida("1899-12-31", hoy)).toBe(false);
+    expect(fechaNacimientoValida("2015-02-29", hoy)).toBe(false);
+    expect(fechaNacimientoValida("15-06-2015", hoy)).toBe(false);
+    expect(fechaNacimientoValida(null, hoy)).toBe(false);
   });
 });

@@ -128,6 +128,10 @@ describe("edición del jugador", () => {
       ok: true,
       datos: { disciplina: "voleibol", u11f: false },
     });
+    // Ir a vóley y volver a básquet sin guardar: la marca sigue y no hay cambios.
+    expect(cambiosJugador(marcada, { ...formJugador(marcada), disciplina: "basketball" }).ok).toBe(
+      false,
+    );
     expect(
       cambiosJugador(jugador, { ...formJugador(jugador), disciplina: "voleibol", u11f: true }),
     ).toEqual({

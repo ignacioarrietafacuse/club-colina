@@ -16,6 +16,7 @@ ALTER TABLE "jugadores" DROP CONSTRAINT "jugadores_categoria_id_categorias_id_fk
 DROP INDEX "jugadores_categoria_idx";--> statement-breakpoint
 ALTER TABLE "jugadores" DROP COLUMN "categoria_id";--> statement-breakpoint
 ALTER TABLE "jugadores" ADD COLUMN "u11f_temporada" smallint;--> statement-breakpoint
+ALTER TABLE "jugadores" ADD CONSTRAINT "jugadores_u11f_basquet_check" CHECK ("disciplina" = 'basketball' OR "u11f_temporada" IS NULL);--> statement-breakpoint
 -- Ya nada apunta a `categorias`: se rehace con la tabla del club.
 DELETE FROM "categorias";--> statement-breakpoint
 ALTER TABLE "categorias" DROP CONSTRAINT "categorias_anios_check";--> statement-breakpoint

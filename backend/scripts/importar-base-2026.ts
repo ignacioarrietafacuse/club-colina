@@ -381,6 +381,7 @@ function categoriaDeLaBase(
   fecha: string | null,
   lista: readonly Categoria[],
   distinta: Record<string, number>,
+  noReconocida: () => void,
 ): { u11f_temporada: number | null } {
   if (disciplina !== "basketball") return { u11f_temporada: null };
   const t = texto(celdaCategoria);
@@ -388,6 +389,9 @@ function categoriaDeLaBase(
   const clave = claveCategoria(t);
   const base = lista.find((c) => c.disciplina === "basketball" && claveCategoria(c.nombre) === clave);
   if (base && !base.se_calcula) return { u11f_temporada: TEMPORADA_BASE };
+  // Una U11 F escrita de una forma que no se reconoce ("U11 Fem") se perdería en silencio: la fila
+  // queda en las notas para que Mony la marque a mano.
+  if (!base) noReconocida();
   const calculada = categoriaDelJugador({ fecha_nacimiento: fecha, disciplina, u11f_temporada: null }, lista, EN_TEMPORADA_BASE);
   if (base?.id !== calculada) {
     const nombre = base?.nombre ?? "no reconocida";
@@ -523,6 +527,7 @@ export function planificar(
           fecha,
           listaCategorias,
           plan.categoriaDistinta,
+          () => anotar(plan.notas, "categoria_basquet_no_reconocida", n),
         );
         let postula = normalizarSiNo(celda(fila, "postula_beca"));
         if (postula === null) {
