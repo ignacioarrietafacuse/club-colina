@@ -575,9 +575,17 @@ describe("POST /api/public/solicitudes", () => {
     ]);
     expect(await jugadorRut(distinto.rut)).toMatchObject({ nombre: "Valentina", apellido: "Prueba", fecha_nacimiento: "2000-02-02", estado: "pendiente" });
 
-    // Mony rechaza la que no calza: vuelve la ficha de la base y sale del link.
-    const s2 = (await solicitudes())[1];
+    // Solo Mony ve con qué comparar: el nombre de la base en el detalle, y sin "coincide con la base".
+    const todas = await solicitudes();
+    expect(todas.map((x) => x.coincide_base)).toEqual([true, false, false]);
+    const s2 = todas[1];
     const { app: panel, cookies } = await appConSesion(db);
+    const detalle = await panel.inject({ method: "GET", url: API.panel.solicitud(s2?.id ?? ""), cookies });
+    expect(detalle.json().jugadores).toEqual([expect.objectContaining({ id: distinto.id, nombre_en_base: "Antonia Real" })]);
+    const detalle1 = await panel.inject({ method: "GET", url: API.panel.solicitud(todas[0]?.id ?? ""), cookies });
+    expect(detalle1.json().jugadores).toEqual([expect.objectContaining({ id: coincide.id, nombre_en_base: null })]);
+
+    // Mony rechaza la que no calza: vuelve la ficha de la base y sale del link.
     const rechazo = await panel.inject({ method: "POST", url: API.panel.rechazar(s2?.id ?? ""), cookies, payload: {} });
     expect(rechazo.statusCode).toBe(200);
     expect(await jugadorRut(distinto.rut)).toMatchObject({

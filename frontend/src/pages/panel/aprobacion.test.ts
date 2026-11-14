@@ -31,6 +31,7 @@ function jugador(id: string, cambios: Partial<JugadorDeSolicitud> = {}): Jugador
   return {
     propia: true,
     en_link_familia: true,
+    nombre_en_base: null,
     id,
     nombre: "Ana",
     apellido: "Pérez",

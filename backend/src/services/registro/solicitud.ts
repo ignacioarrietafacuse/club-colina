@@ -413,15 +413,17 @@ class Proceso {
     ) {
       throw conflicto();
     }
+    this.jugadoresInvolucrados.add(existente.id);
+    this.titularJugadorId = existente.id;
+    this.coincideBase = true;
     if (!fechaBaseValida) {
       this.avisos.add("adulto_precargado_sin_fecha_en_base");
       if (nombreDistinto(existente.nombre, seguro(nombre)) || nombreDistinto(existente.apellido, seguro(apellido))) {
         this.avisos.add("nombre_distinto_base");
+        // No es "coincide con la base": el panel no muestra esa etiqueta junto a este aviso.
+        this.coincideBase = false;
       }
     }
-    this.jugadoresInvolucrados.add(existente.id);
-    this.titularJugadorId = existente.id;
-    this.coincideBase = true;
     const telefonoNuevo = this.telefono(existente.telefono, new Faltantes(), "telefono");
     const { cambios, foto: fotoFaltante } = await this.completarJugador(existente, d, "", new Faltantes());
     // Otra solicitud ya la modificó y Mony no la decidió: no se pisa. En la práctica no se llega

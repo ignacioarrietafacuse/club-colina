@@ -28,10 +28,14 @@ function normalizarNombre(valor: string): string {
   return valor.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim().replace(/\s+/g, " ");
 }
 
-/** Si lo escrito difiere de lo que tenía la base (sin mayúsculas, tildes ni espacios de más). Una base vacía no difiere. */
+/**
+ * Si la primera palabra escrita difiere de la de la base (sin mayúsculas, tildes ni espacios): un
+ * segundo nombre o apellido que falte no cuenta. Una base vacía no difiere.
+ */
 export function nombreDistinto(base: string | null, enviado: string): boolean {
   if (base === null || base.trim() === "") return false;
-  return normalizarNombre(base) !== normalizarNombre(enviado);
+  const primera = (v: string) => normalizarNombre(v).split(" ")[0];
+  return primera(base) !== primera(enviado);
 }
 
 export function nombreCompleto(p: { nombre: string | null; apellido: string | null }): string {

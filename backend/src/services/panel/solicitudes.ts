@@ -296,6 +296,7 @@ export async function detalleSolicitud(db: Ejecutor, id: string): Promise<Solici
           .filter((j) => entraPorSolicitud(s, j))
           .map((j) => j.id),
   );
+  const nombresEnBase = await nombresCambiados(db, s.id);
   return {
     id: s.id,
     creada_en: s.creada_en.toISOString(),
@@ -310,6 +311,7 @@ export async function detalleSolicitud(db: Ejecutor, id: string): Promise<Solici
         ...(await detalleJugador(db, j)),
         propia: m.propiosJ.includes(j),
         en_link_familia: enLink.has(j),
+        nombre_en_base: nombresEnBase.get(j) ?? null,
       })),
     ),
     apoderados: await Promise.all(
@@ -322,6 +324,26 @@ export async function detalleSolicitud(db: Ejecutor, id: string): Promise<Solici
       estado: v.estado,
     })),
   };
+}
+
+/**
+ * Jugadores a los que esta solicitud les cambió el nombre (el adulto sin fecha válida en la base
+ * toma el que escribió): su nombre completo de la copia previa, para que Mony compare. La copia
+ * se borra al decidir la solicitud; después ya no hay con qué comparar.
+ */
+async function nombresCambiados(db: Ejecutor, solicitudId: string): Promise<Map<string, string>> {
+  const copias = await db
+    .select({ jugador_id: fichasPrevias.jugador_id, datos: fichasPrevias.datos, nombre: jugadores.nombre, apellido: jugadores.apellido })
+    .from(fichasPrevias)
+    .innerJoin(jugadores, eq(jugadores.id, fichasPrevias.jugador_id))
+    .where(eq(fichasPrevias.solicitud_id, solicitudId));
+  const cambiados = new Map<string, string>();
+  for (const c of copias) {
+    const previo = previoJugador.pick({ nombre: true, apellido: true }).parse(c.datos);
+    const antes = nombreCompleto(previo.nombre ?? null, previo.apellido ?? null);
+    if (c.jugador_id && antes !== nombreCompleto(c.nombre, c.apellido)) cambiados.set(c.jugador_id, antes);
+  }
+  return cambiados;
 }
 
 // ---------------------------------------------------------------------------

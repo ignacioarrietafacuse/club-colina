@@ -601,7 +601,17 @@ export const solicitudDetalle = z.object({
    */
   // Con default: un backend anterior al campo (despliegue a medias) no lo manda; true solo omite el
   // recordatorio, no muestra nada de más.
-  jugadores: z.array(jugadorDetalle.extend({ propia: z.boolean(), en_link_familia: z.boolean().default(true) })),
+  //
+  // `nombre_en_base`: el nombre completo que tenía la base cuando esta solicitud se lo cambió (solo
+  // un adulto sin fecha válida en la base, aviso `nombre_distinto_base`); null si no cambió. Solo
+  // para el panel. Con default: un backend anterior al campo no lo manda.
+  jugadores: z.array(
+    jugadorDetalle.extend({
+      propia: z.boolean(),
+      en_link_familia: z.boolean().default(true),
+      nombre_en_base: z.string().nullable().default(null),
+    }),
+  ),
   apoderados: z.array(apoderadoDetalle.extend({ propia: z.boolean() })),
   vinculos: z.array(
     z.object({

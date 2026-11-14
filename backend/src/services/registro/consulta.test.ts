@@ -8,9 +8,11 @@ afterAll(cerrar);
 beforeEach(() => vaciarRegistro(db));
 
 describe("consulta: piezas", () => {
-  it("nombre distinto de la base: sin mayúsculas, tildes ni espacios de más; una base vacía no difiere", () => {
+  it("nombre distinto de la base: la primera palabra, sin mayúsculas, tildes ni espacios de más; una base vacía no difiere", () => {
     expect(nombreDistinto("José Tomás", "  JOSE   tomas ")).toBe(false);
-    expect(nombreDistinto("Valentina", "Valentina Andrea")).toBe(true);
+    expect(nombreDistinto("Valentina Andrea", "valentina")).toBe(false);
+    expect(nombreDistinto("Pérez González", "Perez")).toBe(false);
+    expect(nombreDistinto("Ana", "Anabel")).toBe(true);
     expect(nombreDistinto("Antonia", "Valentina")).toBe(true);
     expect(nombreDistinto(null, "Valentina")).toBe(false);
     expect(nombreDistinto("  ", "Valentina")).toBe(false);
