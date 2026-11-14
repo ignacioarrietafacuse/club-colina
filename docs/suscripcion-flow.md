@@ -132,6 +132,11 @@ anterior mientras Vercel y Railway publican por separado.
 Aviso global en todas las pantallas del panel cuando hay cobro fallido, con enlace a la página; no
 bloquea nada. Sin "Cancelar suscripción" ni cambio de plan.
 
+El historial tiene la columna "Período" ("13-11-2026 al 12-12-2026") con `period_start` y
+`period_end` del importe, tal cual los devuelve Flow: Flow ya termina el período el día anterior al
+cobro siguiente (verificado en sandbox), así que no se ajusta nada. Bajo "Próximo cobro", "Período
+actual" es el período del último cobro pagado. Sin las dos fechas de Flow, el período queda "—".
+
 ## Verificado en sandbox (2026-11-13 y 14)
 
 - **Primer cobro:** Flow emite y cobra el primer importe el mismo día de la inscripción, al crear la

@@ -46,6 +46,9 @@ const importeFlow = z.object({
   amount: numero.pipe(z.number().nonnegative()),
   status: numero,
   error: numero.nullish(),
+  // Solo se muestran: un valor raro deja el período vacío, nunca tumba la lectura de la suscripción.
+  period_start: fechaFlow.nullish().catch(null),
+  period_end: fechaFlow.nullish().catch(null),
   /** Intentos de cobro que Flow ya hizo sobre este importe. */
   attemp_count: numero.nullish(),
   due_date: fechaFlow.nullish(),
@@ -314,7 +317,13 @@ export async function leerEstado(
     tarjeta,
     historial: importes
       .slice(0, HISTORIAL_MAX)
-      .map((i) => ({ fecha: i.created, monto: i.amount, estado: estadoCobro(i) })),
+      .map((i) => ({
+        fecha: i.created,
+        monto: i.amount,
+        estado: estadoCobro(i),
+        // Tal cual viene de Flow, sin calcularlo: solo si trae las dos fechas.
+        periodo: i.period_start && i.period_end ? { desde: i.period_start, hasta: i.period_end } : null,
+      })),
   };
 }
 

@@ -75,6 +75,18 @@ export function formatoFecha(fecha: string): string {
   return a && m && d ? `${d}-${m}-${a}` : fecha;
 }
 
+type Cobro = SuscripcionResponse["historial"][number];
+
+/** "13-11-2026 al 12-12-2026": el período tal cual lo informa Flow, sin ajustar fechas. */
+export function formatoPeriodo(periodo: Cobro["periodo"]): string {
+  return periodo ? `${formatoFecha(periodo.desde)} al ${formatoFecha(periodo.hasta)}` : "—";
+}
+
+/** El período del último cobro pagado (el historial viene del más nuevo al más viejo). */
+export function periodoActual(historial: Cobro[]): NonNullable<Cobro["periodo"]> | null {
+  return historial.find((c) => c.estado === "pagado" && c.periodo)?.periodo ?? null;
+}
+
 export const TEXTO_ESTADO_COBRO = {
   pagado: "Pagado",
   pendiente: "Pendiente",

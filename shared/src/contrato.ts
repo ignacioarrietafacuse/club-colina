@@ -766,7 +766,18 @@ export const suscripcionResponse = z.object({
   plan: z.object({ nombre: z.string(), monto: z.number().nonnegative(), moneda: z.string() }).nullable(),
   proximo_cobro: fecha.nullable(),
   tarjeta: z.object({ tipo: z.string(), ultimos4: z.string().regex(/^[0-9]{4}$/) }).nullable(),
-  historial: z.array(z.object({ fecha, monto: z.number().nonnegative(), estado: estadoCobro })),
+  historial: z.array(
+    z.object({
+      fecha,
+      monto: z.number().nonnegative(),
+      estado: estadoCobro,
+      /**
+       * Período que cubre el cobro, tal cual lo informa Flow (`period_start`, `period_end`). Flow ya
+       * termina el período el día anterior al cobro siguiente. Opcional: el backend anterior no lo manda.
+       */
+      periodo: z.object({ desde: fecha, hasta: fecha }).nullish(),
+    }),
+  ),
 });
 
 /**
