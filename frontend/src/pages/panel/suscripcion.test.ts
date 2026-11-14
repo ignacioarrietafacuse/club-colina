@@ -6,8 +6,10 @@ import {
   esUrlDeFlow,
   formatoFecha,
   formatoMonto,
+  formatoPeriodo,
   mensajeResultado,
   mostrarAviso,
+  periodoActual,
 } from "./suscripcion";
 
 describe("suscripción", () => {
@@ -73,5 +75,42 @@ describe("aviso de resultado", () => {
     });
     expect(inscribirTarjetaResponse.safeParse({ resultado: "flow" }).success).toBe(false);
     expect(inscribirTarjetaResponse.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("período de cada cobro", () => {
+  it("formatea el período de Flow tal cual: 13-11-2026 al 12-12-2026", () => {
+    expect(formatoPeriodo({ desde: "2026-11-13", hasta: "2026-12-12" })).toBe(
+      "13-11-2026 al 12-12-2026",
+    );
+    expect(formatoPeriodo({ desde: "2026-12-31", hasta: "2027-01-30" })).toBe(
+      "31-12-2026 al 30-01-2027",
+    );
+    expect(formatoPeriodo(null)).toBe("—");
+    expect(formatoPeriodo(undefined)).toBe("—");
+  });
+
+  it("el período actual es el del último cobro pagado, saltando pendientes, fallidos y sin período", () => {
+    const pagadoNov = {
+      fecha: "2026-11-13",
+      monto: 200000,
+      estado: "pagado" as const,
+      periodo: { desde: "2026-11-13", hasta: "2026-12-12" },
+    };
+    const fallidoDic = {
+      fecha: "2026-12-13",
+      monto: 200000,
+      estado: "fallido" as const,
+      periodo: { desde: "2026-12-13", hasta: "2027-01-12" },
+    };
+    const pagadoSinPeriodo = {
+      fecha: "2026-12-14",
+      monto: 200000,
+      estado: "pagado" as const,
+      periodo: null,
+    };
+    expect(periodoActual([pagadoSinPeriodo, fallidoDic, pagadoNov])).toEqual(pagadoNov.periodo);
+    expect(periodoActual([fallidoDic])).toBeNull();
+    expect(periodoActual([])).toBeNull();
   });
 });

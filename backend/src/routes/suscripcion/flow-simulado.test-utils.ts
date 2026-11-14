@@ -20,6 +20,8 @@ interface Importe {
   error: number;
   attemp_count?: number;
   due_date: string;
+  period_start?: string;
+  period_end?: string;
 }
 
 interface Llamada {
@@ -44,6 +46,8 @@ export class FlowSimulado {
   rechazarReintento = false;
   /** Si se pone, `subscription/get` devuelve este `next_invoice_date`. */
   proximoCobro = "2026-12-13 00:00:00";
+  /** `period_end` del primer importe de una suscripción nueva. */
+  periodoHasta = "2026-12-12 00:00:00";
   /** Si se pone, `customer/register` responde esta URL en vez de la de Flow. */
   urlRegistro: string | null = null;
   /** Demora de `subscription/create`, para simular a Flow lento. */
@@ -165,7 +169,19 @@ export class FlowSimulado {
           start: hoy,
           trial: p.trial_period_days ?? "",
           morose: 0,
-          invoices: [{ id: this.n, created: `${hoy} 10:00:00`, amount: this.plan.amount, status: 1, error: 0, due_date: `${hoy} 00:00:00` }],
+          invoices: [
+            {
+              id: this.n,
+              created: `${hoy} 10:00:00`,
+              amount: this.plan.amount,
+              status: 1,
+              error: 0,
+              due_date: `${hoy} 00:00:00`,
+              // Como en sandbox: el período termina el día anterior al cobro siguiente.
+              period_start: `${hoy} 00:00:00`,
+              period_end: this.periodoHasta,
+            },
+          ],
         });
         return Response.json({ subscriptionId, planId: p.planId, customerId: p.customerId, status: 1 });
       }

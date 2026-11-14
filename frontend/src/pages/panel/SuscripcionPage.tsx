@@ -11,8 +11,10 @@ import {
   esUrlDeFlow,
   formatoFecha,
   formatoMonto,
+  formatoPeriodo,
   mensajeResultado,
   mostrarAviso,
+  periodoActual,
   TEXTO_ESTADO_COBRO,
   type AvisoResultado,
 } from "./suscripcion";
@@ -230,6 +232,7 @@ function Activa({
     onSettled: alCambiar,
   });
   const fallido = datos.estado === "cobro_fallido";
+  const actual = periodoActual(datos.historial);
   const botonCambiar = (
     <Button
       variant="outline"
@@ -299,6 +302,11 @@ function Activa({
           </Dato>
           <Dato titulo="Próximo cobro">
             {datos.proximo_cobro ? formatoFecha(datos.proximo_cobro) : "—"}
+            {actual && (
+              <div className="mt-1 text-xs font-normal text-muted-foreground">
+                Período actual: {formatoPeriodo(actual)}
+              </div>
+            )}
           </Dato>
           <Dato titulo="Tarjeta">
             {datos.tarjeta ? `${datos.tarjeta.tipo} terminada en ${datos.tarjeta.ultimos4}` : "—"}
@@ -321,6 +329,7 @@ function Activa({
             <thead>
               <tr className="text-left text-xs text-muted-foreground">
                 <th className="pb-2 font-medium">Fecha</th>
+                <th className="pb-2 font-medium">Período</th>
                 <th className="pb-2 font-medium">Monto</th>
                 <th className="pb-2 font-medium">Estado</th>
               </tr>
@@ -329,6 +338,7 @@ function Activa({
               {datos.historial.map((c, i) => (
                 <tr key={`${c.fecha}-${i}`} className="border-t">
                   <td className="py-2">{formatoFecha(c.fecha)}</td>
+                  <td className="py-2">{formatoPeriodo(c.periodo)}</td>
                   <td className="py-2">
                     {datos.plan ? formatoMonto({ ...datos.plan, monto: c.monto }) : c.monto}
                   </td>

@@ -224,7 +224,9 @@ describe("inscribir la tarjeta y retorno", () => {
 
     const e = await estado(app, c);
     expect(e).toMatchObject({ estado: "activa", tarjeta: { tipo: "Visa", ultimos4: "0366" } });
-    expect(e.historial).toEqual([{ fecha: hoyEnSantiago(), monto: 200000, estado: "pagado" }]);
+    expect(e.historial).toEqual([
+      { fecha: hoyEnSantiago(), monto: 200000, estado: "pagado", periodo: { desde: hoyEnSantiago(), hasta: "2026-12-12" } },
+    ]);
   });
 
   it("un retorno repetido (y uno por GET) no crea una segunda suscripción", async () => {
@@ -577,7 +579,7 @@ describe("cobro fallido, reintento y aviso", () => {
     // La página lee Flow en el momento y deja el aviso al día.
     const e = await estado(app, c);
     expect(e.estado).toBe("cobro_fallido");
-    expect(e.historial).toContainEqual({ fecha: "2020-01-13", monto: 200000, estado: "fallido" });
+    expect(e.historial).toContainEqual({ fecha: "2020-01-13", monto: 200000, estado: "fallido", periodo: null });
     expect((await app.inject({ method: "GET", url: "/api/suscripcion/aviso", cookies: c })).json()).toEqual({ cobro_fallido: true });
 
     const r = await app.inject({ method: "POST", url: "/api/suscripcion/reintentar", cookies: c, headers: { origin: BASE } });
@@ -878,10 +880,30 @@ describe("estado del cobro según el importe, no según due_date", () => {
 
   it("un importe pagado el mismo día con due_date 3 días después es Pagado y la suscripción Activa", async () => {
     const { app, cookies: c, sus } = await conSuscripcion();
-    sus.invoices.push({ id: 1, created: "2026-11-13 21:59:55", amount: 200000, status: 1, error: 0, attemp_count: 1, due_date: "2026-11-16 00:00:00" });
+    // El importe tal como lo devolvió sandbox el 2026-11-13.
+    sus.invoices.push({
+      id: 1,
+      created: "2026-11-13 21:59:55",
+      amount: 200000,
+      status: 1,
+      error: 0,
+      attemp_count: 1,
+      due_date: "2026-11-16 00:00:00",
+      period_start: "2026-11-13 00:00:00",
+      period_end: "2026-12-12 00:00:00",
+    });
     const e = await estado(app, c);
     expect(e).toMatchObject({ estado: "activa", puede_reintentar: false });
-    expect(e.historial).toEqual([{ fecha: "2026-11-13", monto: 200000, estado: "pagado" }]);
+    // El período va tal cual viene de Flow, sin ajustarlo.
+    expect(e.historial).toEqual([
+      { fecha: "2026-11-13", monto: 200000, estado: "pagado", periodo: { desde: "2026-11-13", hasta: "2026-12-12" } },
+    ]);
+  });
+
+  it("sin period_start o period_end de Flow, el período queda vacío (no se calcula)", async () => {
+    const { app, cookies: c, sus } = await conSuscripcion();
+    sus.invoices.push({ id: 5, created: "2026-11-13 10:00:00", amount: 200000, status: 1, error: 0, due_date: "2026-11-16 00:00:00", period_start: "2026-11-13 00:00:00" });
+    expect((await estado(app, c)).historial).toEqual([{ fecha: "2026-11-13", monto: 200000, estado: "pagado", periodo: null }]);
   });
 
   it("un importe impago sin intentos ni error es Pendiente aunque su due_date haya pasado; lo vencido lo dice morose", async () => {
