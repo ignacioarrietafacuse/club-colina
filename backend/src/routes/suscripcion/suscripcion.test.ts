@@ -12,7 +12,7 @@ import { COOKIE_SESION } from "@club-colina/shared";
 import { crearSesion } from "../../services/panel/sesiones";
 import { crearUsuario } from "../../services/panel/usuarios";
 import { cadenaParaFirmar, configFlow, firmar, URL_FLOW } from "../../services/suscripcion/flow-pagos";
-import { hoyEnSantiago } from "../../services/suscripcion/suscripcion";
+import { esDelPlan, hoyEnSantiago } from "../../services/suscripcion/suscripcion";
 import { hashToken } from "../../lib/tokens";
 import { CLAVES_PRUEBA, FlowSimulado } from "./flow-simulado.test-utils";
 
@@ -862,6 +862,77 @@ describe("cliente del club ya creado en Flow (externalId repetido)", () => {
     expect(flow.llamadas.filter((l) => l.servicio === "customer/list").map((l) => l.parametros.start)).toEqual(["0", "100"]);
     const [fila] = await db.select().from(suscripcionServicio);
     expect(fila?.flow_customer_id).toBe("cus_club");
+  });
+});
+
+describe("forma real de customer/getSubscriptions (sandbox, 2026-11-14)", () => {
+  // Ítem tal como lo devolvió sandbox, con los ids y el nombre reemplazados por ficticios.
+  const itemReal = {
+    subscriptionId: "sus_ficticia",
+    customerId: "cus_ficticio",
+    name: "Suscripción Club Colina",
+    created: "2026-11-13 21:59:55",
+    subscription_start: "2026-11-13 00:00:00",
+    subscription_end: null,
+    period_start: "2026-11-13 00:00:00",
+    period_end: "2026-12-12 00:00:00",
+    trial_period_days: 0,
+    trial_start: null,
+    trial_end: null,
+    cancel_at_period_end: 0,
+    cancel_at: null,
+    next_invoice_date: "2026-12-13 00:00:00",
+    status: 1,
+    planId: 2711,
+    planExternalId: "Suscripcion_clubcolina",
+    morose: 0,
+  };
+
+  it("reconoce el plan por planExternalId sin distinguir mayúsculas, con planId numérico", () => {
+    expect(esDelPlan(itemReal)).toBe(true);
+    expect(esDelPlan({ ...itemReal, planExternalId: "otro_plan" })).toBe(false);
+    // Sin el ID del plan como texto no se sabe (ver el test de abajo).
+    expect(esDelPlan({ ...itemReal, planExternalId: undefined })).toBeUndefined();
+    expect(esDelPlan({ ...itemReal, planExternalId: null })).toBeUndefined();
+    // planExternalId manda sobre planId.
+    expect(esDelPlan({ ...itemReal, planExternalId: "otro_plan", planId: "Suscripcion_clubcolina" })).toBe(false);
+    // Si Flow mandara el ID como texto en planId (como en subscription/get), también sirve.
+    expect(esDelPlan({ ...itemReal, planId: "Suscripcion_clubcolina", planExternalId: undefined })).toBe(true);
+  });
+
+  it("si la lista no trae el ID del plan, el retorno no crea otra suscripción: termina en error", async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    const { token } = await inscribir(app, c, flow);
+    flow.completarRegistro(token);
+    await retorno(app, token);
+    flow.sinPlanEnLista = true;
+    const cambio = await inscribir(app, c, flow, undefined);
+    flow.completarRegistro(cambio.token);
+    expect((await retorno(app, cambio.token)).headers.location).toBe(`${BASE}/suscripcion?resultado=error`);
+    expect(flow.suscripciones.size).toBe(1);
+    expect(flow.servicios().filter((x) => x === "subscription/create")).toHaveLength(1);
+    // Y la recuperación del cliente tampoco crea nada: 503.
+    await db.delete(suscripcionServicio);
+    const r = await app.inject({ method: "POST", url: "/api/suscripcion/inscribir-tarjeta", cookies: c, headers: { origin: BASE }, payload: { email: EMAIL } });
+    expect(r.statusCode).toBe(503);
+  });
+
+  it("con esa forma, inscribir recupera la suscripción vigente y el retorno de un cambio de tarjeta no crea otra", async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    const { token } = await inscribir(app, c, flow);
+    flow.completarRegistro(token);
+    await retorno(app, token);
+    await db.delete(suscripcionServicio);
+    const r = await app.inject({ method: "POST", url: "/api/suscripcion/inscribir-tarjeta", cookies: c, headers: { origin: BASE }, payload: { email: EMAIL } });
+    expect(r.json()).toEqual({ resultado: "recuperada" });
+    // Cambiar tarjeta de punta a punta: el retorno encuentra la vigente y no crea otra.
+    const cambio = await inscribir(app, c, flow, undefined);
+    flow.completarRegistro(cambio.token);
+    expect((await retorno(app, cambio.token)).headers.location).toBe(`${BASE}/suscripcion?resultado=ok`);
+    expect(flow.suscripciones.size).toBe(1);
+    expect(flow.servicios().filter((x) => x === "subscription/create")).toHaveLength(1);
   });
 });
 
