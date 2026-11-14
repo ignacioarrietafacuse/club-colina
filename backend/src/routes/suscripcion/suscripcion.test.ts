@@ -605,6 +605,15 @@ describe("cobro fallido, reintento y aviso", () => {
     expect(r.json<{ error: { codigo: string } }>().error.codigo).toBe("conflicto");
   });
 
+  it.each([108, 109])("claves rechazadas (%i) en el reintento son 'no disponible', no 'cambia la tarjeta'", async (code) => {
+    const { app, cookies: c, flow, sus } = await conSuscripcion();
+    sus.invoices.push({ id: 902, created: "2020-01-13 10:00:00", amount: 200000, status: 0, error: 1, due_date: "2020-01-16 00:00:00" });
+    flow.errorReintento = { status: 400, code };
+    const r = await app.inject({ method: "POST", url: "/api/suscripcion/reintentar", cookies: c, headers: { origin: BASE } });
+    expect(flow.servicios()).toContain("invoice/retryToCollect");
+    expect(r.statusCode).toBe(503);
+  });
+
   it("sin tarjeta informada en Flow, una suscripción morosa sigue siendo cobro fallido", async () => {
     const { app, cookies: c, flow, sus } = await conSuscripcion();
     sus.morose = 1;
@@ -865,7 +874,9 @@ describe("cliente del club ya creado en Flow (externalId repetido)", () => {
         .parse(JSON.parse(lineas[0] ?? "{}"));
       expect(linea.level).toBe(50);
       expect(linea.flow).toMatchObject({ modo: "sandbox", status: 400, codigo, motivo });
-      expect(logs()).not.toContain(extra.FLOW_SANDBOX_API_KEY ?? extra.FLOW_SANDBOX_SECRET_KEY ?? "");
+      // Ni las claves (las buenas ni la mal pegada) ni la firma.
+      for (const v of [...Object.values(CLAVES_PRUEBA), ...Object.values(extra)]) expect(logs()).not.toContain(v);
+      expect(logs()).not.toMatch(/"s":|[0-9a-f]{64}/);
     }
   });
 

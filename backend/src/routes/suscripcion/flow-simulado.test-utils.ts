@@ -45,6 +45,8 @@ export class FlowSimulado {
   falla: "caido" | "lento" | null = null;
   /** Si es true, `invoice/retryToCollect` responde un error de negocio (401 con código). */
   rechazarReintento = false;
+  /** Si se pone, `invoice/retryToCollect` responde este error (p. ej. las claves rechazadas). */
+  errorReintento: { status: number; code: number } | null = null;
   /** Si se pone, `subscription/get` devuelve este `next_invoice_date`. */
   proximoCobro = "2026-12-13 00:00:00";
   /**
@@ -210,6 +212,9 @@ export class FlowSimulado {
         return s ? Response.json({ ...s, next_invoice_date: this.proximoCobro }) : error(404);
       }
       case "invoice/retryToCollect": {
+        if (this.errorReintento) {
+          return Response.json({ code: this.errorReintento.code, message: "error" }, { status: this.errorReintento.status });
+        }
         if (this.rechazarReintento) return Response.json({ code: 1105, message: "rechazo" }, { status: 401 });
         for (const s of this.suscripciones.values()) {
           const i = s.invoices.find((x) => String(x.id) === p.invoiceId);

@@ -98,10 +98,11 @@ export function formatoPeriodo(periodo: Cobro["periodo"]): string {
 
 /**
  * Hasta qué día está pagado el servicio: el `period_end` del último cobro pagado, tal cual de Flow
- * (el historial viene del más nuevo al más viejo). null si no hay cobros pagados con período.
+ * (el historial viene del más nuevo al más viejo). null si no hay cobros pagados, o si el último no
+ * trae su período: nunca se muestra el de un cobro anterior, que diría menos de lo pagado.
  */
 export function pagadoHasta(historial: Cobro[]): string | null {
-  return historial.find((c) => c.estado === "pagado" && c.periodo)?.periodo?.hasta ?? null;
+  return historial.find((c) => c.estado === "pagado")?.periodo?.hasta ?? null;
 }
 
 export const TEXTO_ESTADO_COBRO = {

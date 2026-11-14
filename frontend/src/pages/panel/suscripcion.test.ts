@@ -117,7 +117,9 @@ describe("período de cada cobro", () => {
       estado: "pagado" as const,
       periodo: null,
     };
-    expect(pagadoHasta([pagadoSinPeriodo, fallidoDic, pagadoNov])).toBe("2026-12-12");
+    // El último pagado sin período: no se muestra el de noviembre, que diría menos de lo pagado.
+    expect(pagadoHasta([pagadoSinPeriodo, fallidoDic, pagadoNov])).toBeNull();
+    expect(pagadoHasta([fallidoDic, pagadoNov])).toBe("2026-12-12");
     expect(pagadoHasta([pendienteDic, pagadoNov])).toBe("2026-12-12");
     expect(formatoFecha(pagadoHasta([pagadoNov]) ?? "")).toBe("12-12-2026");
     // Sin cobros pagados no se muestra.
