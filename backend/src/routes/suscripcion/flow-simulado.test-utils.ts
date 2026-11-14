@@ -1,6 +1,7 @@
 /**
  * Flow simulado para los tests de la suscripción. Solo lo importan los `*.test.ts`. Verifica la
- * apiKey y la firma de cada llamada igual que Flow (si no calzan, 401), y guarda qué se llamó.
+ * apiKey y la firma de cada llamada igual que Flow (visto en sandbox: apiKey desconocida, 400 con
+ * código 109; firma que no calza, 400 con código 108), y guarda qué se llamó.
  * Todo ficticio: claves inventadas y un correo de ejemplo.
  */
 import { firmar, type FetchFlow, type ParametrosFlow } from "../../services/suscripcion/flow-pagos";
@@ -107,8 +108,9 @@ export class FlowSimulado {
     if (!url.startsWith(`${this.base}/`)) return Response.json({ code: 404, message: "otro host" }, { status: 404 });
     const { s, ...sinFirma } = params;
     const firmados: ParametrosFlow = sinFirma;
-    if (params.apiKey !== this.apiKey || s !== firmar(firmados, this.secretKey)) {
-      return Response.json({ code: 401, message: "firma" }, { status: 401 });
+    if (params.apiKey !== this.apiKey) return Response.json({ code: 109, message: "Invalid ApiKey" }, { status: 400 });
+    if (s !== firmar(firmados, this.secretKey)) {
+      return Response.json({ code: 108, message: "Invalid Signature" }, { status: 400 });
     }
     if (servicio === "subscription/create" && this.demoraCreacionMs > 0) {
       await new Promise((listo) => setTimeout(listo, this.demoraCreacionMs));
