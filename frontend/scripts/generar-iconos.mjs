@@ -59,7 +59,7 @@ async function cargarOriginal() {
   const [ruta] = encontrados;
   // Un SVG se rasteriza a un ancho fijo: el resultado más grande que se usa es la og-image.
   const entrada = ruta.endsWith(".svg")
-    ? sharp(ruta, { density: 300 }).resize({ width: ANCHO_SVG })
+    ? sharp(ruta).resize({ width: ANCHO_SVG })
     : sharp(ruta);
   return sharp(
     await entrada
@@ -178,7 +178,7 @@ async function main() {
   const { height: altoOriginal } = await original.metadata();
   if (recorte.left + recorte.width > anchoOriginal || recorte.top + recorte.height > altoOriginal) {
     throw new Error(
-      "El recorte de la C se sale del original: tiene otra composición. Mide RECORTE_C de nuevo.",
+      "El recorte de la C se sale del original. Mide RECORTE_C de nuevo y revisa el favicon a ojo.",
     );
   }
   const recorteC = sharp(await original.clone().extract(recorte).png().toBuffer());
