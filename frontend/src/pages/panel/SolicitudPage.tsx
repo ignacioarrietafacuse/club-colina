@@ -3,7 +3,6 @@ import {
   NUMERO_SIN_ASIGNAR,
   type ApoderadoDetalle,
   type CategoriaPanel,
-  type JugadorDetalle,
   type MetodoPago,
   type SolicitudDetalle,
 } from "@club-colina/shared";
@@ -796,7 +795,7 @@ function TarjetaJugador({
   form,
   onChange,
 }: {
-  j: JugadorDetalle;
+  j: SolicitudDetalle["jugadores"][number];
   soloSeMuestra: boolean;
   /** Adulto sin teléfono sin un vínculo aprobable desde acá (ver `contactoPosible`). */
   sinContactoPosible: boolean;
@@ -829,6 +828,12 @@ function TarjetaJugador({
           )}
           {soloSeMuestra && <NotaSoloSeMuestra />}
           {j.apoderados.length === 0 && <Badge tone="neutral">Adulto sin apoderado</Badge>}
+          {j.nombre_en_base !== null && (
+            <span className="w-full text-xs text-destructive">
+              En la base estaba como «{j.nombre_en_base}». Si lo apruebas, queda con el nombre de
+              arriba; si lo rechazas, vuelve el de la base.
+            </span>
+          )}
           {j.estado === "pendiente" &&
             j.faltantes.includes("telefono") &&
             (sinContactoPosible ? (

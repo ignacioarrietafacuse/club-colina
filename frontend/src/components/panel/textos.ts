@@ -32,6 +32,10 @@ export const TEXTO_AVISO: Record<AvisoSolicitud, string> = {
     "Un hijo de la base, nombrado por RUT, se completó con los datos de esta solicitud. Confirma que la familia es la suya.",
   cambios_bloqueados_por_otra_solicitud:
     "Otra solicitud pendiente ya había modificado a una persona de esta: esta no cambió su ficha, a lo más la vinculó.",
+  adulto_precargado_sin_fecha_en_base:
+    "Un jugador adulto completó su ficha de la base, que no tenía una fecha de nacimiento válida: nombre, apellido y fecha son los que escribió. Confirma que es él y que es adulto; si la rechazas, vuelve la ficha de la base.",
+  nombre_distinto_base:
+    "El nombre o el apellido que escribió no son los que tenía la base: puede no ser quien dice.",
 };
 
 export const TEXTO_ESTADO: Record<EstadoPersona, string> = {

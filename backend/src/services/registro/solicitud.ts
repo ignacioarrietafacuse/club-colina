@@ -23,6 +23,7 @@ import {
   hijosDeApoderado,
   type Jugador,
   jugadorPorRut,
+  nombreDistinto,
   primerNombre,
 } from "./consulta";
 
@@ -349,8 +350,17 @@ class Proceso {
   /**
    * Jugador adulto. Exige el formulario completo antes de mirar la base, para que la respuesta
    * no revele si el RUT está (un menor responde `encontrado: false` en la consulta). Una ficha
-   * existente solo se completa si es un precargado adulto con certeza y sin apoderados: si no,
-   * 409 sin tocar nada (un menor sin fecha en la base no se puede "adoptar" como adulto).
+   * existente solo se completa si es un precargado sin solicitud ni apoderados y no es menor con
+   * certeza; si no, 409 sin tocar nada.
+   *
+   * Precargado sin fecha, o con una fecha inválida en la base (decisión de Ignacio, 2026-11-14):
+   * la consulta respondió `encontrado: false`, así que llenó el formulario completo. Su ficha se
+   * completa con lo que escribió: nombre, apellido y fecha (adulta, ya revisada) reemplazan los de
+   * la base, y lo demás que falte se completa. Así ni la respuesta ni `/familia` dependen de lo que
+   * tenía la base: quien solo tiene el RUT de un posible menor no puede probar nombres hasta
+   * acertar, y el link muestra lo que él escribió (revisión de seguridad). La copia previa guarda
+   * la ficha de la base y se restaura si Mony rechaza. Mony recibe `adulto_precargado_sin_fecha_en_base`
+   * y, si el nombre o el apellido no son los de la base, `nombre_distinto_base`.
    */
   private async jugadorAdulto() {
     const d = this.datos;
@@ -394,10 +404,11 @@ class Proceso {
       return;
     }
 
+    const fechaBaseValida = fechaNacimientoValida(existente.fecha_nacimiento);
     if (
       existente.estado !== "precargado" ||
       existente.solicitud_id !== null ||
-      !esAdulto(existente) ||
+      (fechaBaseValida && !esAdulto(existente)) ||
       (await this.cantidadApoderados(existente.id)) > 0
     ) {
       throw conflicto();
@@ -405,6 +416,13 @@ class Proceso {
     this.jugadoresInvolucrados.add(existente.id);
     this.titularJugadorId = existente.id;
     this.coincideBase = true;
+    if (!fechaBaseValida) {
+      this.avisos.add("adulto_precargado_sin_fecha_en_base");
+      const distinto = nombreDistinto(existente.nombre, seguro(nombre)) || nombreDistinto(existente.apellido, seguro(apellido));
+      if (distinto) this.avisos.add("nombre_distinto_base");
+      // "Coincide con la base" solo si hubo con qué comparar: la base traía nombre y apellido y calzan.
+      this.coincideBase = !distinto && Boolean(existente.nombre?.trim()) && Boolean(existente.apellido?.trim());
+    }
     const telefonoNuevo = this.telefono(existente.telefono, new Faltantes(), "telefono");
     const { cambios, foto: fotoFaltante } = await this.completarJugador(existente, d, "", new Faltantes());
     // Otra solicitud ya la modificó y Mony no la decidió: no se pisa. En la práctica no se llega
@@ -414,6 +432,8 @@ class Proceso {
       .update(jugadores)
       .set({
         ...cambios,
+        // Sin fecha válida en la base, la ficha toma el nombre que escribió (ver arriba).
+        ...(!fechaBaseValida && { nombre: seguro(nombre), apellido: seguro(apellido) }),
         ...(fotoFaltante !== undefined && { foto_id: await this.foto(fotoFaltante) }),
         ...(telefonoNuevo !== undefined && { telefono: telefonoNuevo }),
         estado: "pendiente",

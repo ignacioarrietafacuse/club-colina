@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { dbTest } from "../../test/db";
-import { edad, esAdulto, faltantesJugador, primerNombre, SIN_NOMBRE } from "./consulta";
+import { edad, esAdulto, faltantesJugador, nombreDistinto, primerNombre, SIN_NOMBRE } from "./consulta";
 import { vaciarRegistro } from "./datos-prueba";
 
 const { db, cerrar } = dbTest();
@@ -8,6 +8,16 @@ afterAll(cerrar);
 beforeEach(() => vaciarRegistro(db));
 
 describe("consulta: piezas", () => {
+  it("nombre distinto de la base: la primera palabra, sin mayúsculas, tildes ni espacios de más; una base vacía no difiere", () => {
+    expect(nombreDistinto("José Tomás", "  JOSE   tomas ")).toBe(false);
+    expect(nombreDistinto("Valentina Andrea", "valentina")).toBe(false);
+    expect(nombreDistinto("Pérez González", "Perez")).toBe(false);
+    expect(nombreDistinto("Ana", "Anabel")).toBe(true);
+    expect(nombreDistinto("Antonia", "Valentina")).toBe(true);
+    expect(nombreDistinto(null, "Valentina")).toBe(false);
+    expect(nombreDistinto("  ", "Valentina")).toBe(false);
+  });
+
   it("edad cumplida según la fecha de hoy en Chile", () => {
     const ahora = new Date("2026-11-12T12:00:00Z");
     expect(edad("2008-11-12", ahora)).toBe(18);

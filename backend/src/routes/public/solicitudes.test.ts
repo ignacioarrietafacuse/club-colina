@@ -498,25 +498,151 @@ describe("POST /api/public/solicitudes", () => {
     await app.close();
   });
 
-  it("jugador adulto: un menor, un precargado sin fecha o con fecha inválida, uno con apoderado o un RUT de apoderado dan 409 sin tocar nada", async () => {
+  it("jugador adulto precargado con una fecha inválida en la base, de punta a punta: la consulta no lo revela, llena todo y su ficha queda completada", async () => {
+    // Adulto de la base sin teléfono, número ni foto, y con una fecha imposible.
+    const adulto = await crearJugador(db, {
+      nombre: "Valentina Andrea",
+      apellido: "Base",
+      fecha_nacimiento: "1850-01-01",
+      telefono: null,
+      numero_camiseta: null,
+    });
+    const app = await construirApp({ config: configTest(), db });
+    const consulta = await app.inject({ method: "POST", url: API.public.rutLookup, payload: { rut: adulto.rut } });
+    expect(consulta.json()).toEqual({ encontrado: false });
+    const jugadoresAntes = await contar("jugadores");
+
+    // Sin la consulta, el formulario pide todo. Escribe su nombre igual que la base (con otras mayúsculas y sin tilde).
+    const r = await enviar(app, { ...adultoCompleto(adulto.rut), nombre: "VALENTINA andrea", apellido: "base" }, { t: JPEG_PRUEBA });
+    expect(r.statusCode).toBe(201);
+    expect(await contar("jugadores")).toBe(jugadoresAntes);
+    const [s] = await solicitudes();
+    expect(s).toMatchObject({ coincide_base: true, titular_jugador_id: adulto.id });
+    expect([...(s?.avisos ?? [])].sort()).toEqual(["adulto_precargado_sin_fecha_en_base", "sin_telefono_en_base"]);
+    const j = await jugadorRut(adulto.rut);
+    // La misma ficha, completada con lo que escribió: la fecha inválida se reemplaza.
+    expect(j).toMatchObject({
+      id: adulto.id,
+      nombre: "VALENTINA andrea",
+      apellido: "base",
+      fecha_nacimiento: "2000-02-02",
+      telefono: "977777777",
+      numero_camiseta: "12",
+      estado: "pendiente",
+      solicitud_id: s?.id,
+    });
+    expect(j.foto_id).not.toBeNull();
+
+    // Su link de familia lo muestra, con el primer nombre que escribió.
+    const familia = await app.inject({ method: "GET", url: API.public.familia(r.json().token_acceso) });
+    expect(familia.json().personas).toEqual([{ nombre_completo: "VALENTINA", rol: "jugador", estado: "pendiente" }]);
+
+    // Solo cambió mayúsculas y tildes: sin aviso de nombre distinto ni nombre de la base en el panel.
+    const { app: panel, cookies } = await appConSesion(db);
+    const detalle = await panel.inject({ method: "GET", url: API.panel.solicitud(s?.id ?? ""), cookies });
+    expect(detalle.json().jugadores).toEqual([expect.objectContaining({ id: adulto.id, nombre_en_base: null })]);
+
+    // Mony lo aprueba y queda activo con su QR.
+    const aprobada = await panel.inject({
+      method: "POST",
+      url: API.panel.aprobar(s?.id ?? ""),
+      cookies,
+      payload: { jugadores: [{ id: adulto.id, numero_camiseta: "12", beca_mensualidad_pct: 0, beca_torneos_pct: 0, beca_campus_pct: 0 }] },
+    });
+    expect(aprobada.statusCode).toBe(200);
+    const activo = await jugadorRut(adulto.rut);
+    expect(activo.estado).toBe("activo");
+    expect(activo.credencial_token).not.toBeNull();
+    await panel.close();
+    await app.close();
+  });
+
+  it("precargado sin fecha válida: la respuesta y el link no dependen del nombre de la base (no se puede probar nombres); Mony ve el aviso y al rechazar vuelve la ficha de la base", async () => {
+    const coincide = await crearJugador(db, { nombre: "Valentina", apellido: "Prueba", fecha_nacimiento: null });
+    const distinto = await crearJugador(db, { nombre: "Antonia", apellido: "Real", fecha_nacimiento: "1850-01-01" });
+    const sinNombre = await crearJugador(db, { nombre: null, apellido: "Real", fecha_nacimiento: null });
+    const app = await construirApp({ config: configTest(), db });
+    const vistas = [];
+    for (const rut of [coincide.rut, distinto.rut, sinNombre.rut]) {
+      const r = await enviar(app, adultoCompleto(rut), { t: JPEG_PRUEBA });
+      expect(r.statusCode).toBe(201);
+      const familia = await app.inject({ method: "GET", url: API.public.familia(r.json().token_acceso) });
+      vistas.push(familia.json());
+    }
+    // Las tres respuestas del link son iguales: muestran lo que escribió, nunca el nombre de la base.
+    expect(vistas).toEqual(Array(3).fill({ estado_solicitud: "pendiente", personas: [{ nombre_completo: "Valentina", rol: "jugador", estado: "pendiente" }], otros_apoderados: [] }));
+    const avisos = (await solicitudes()).map((s) => [...s.avisos].filter((a) => a !== "sin_telefono_en_base").sort());
+    expect(avisos).toEqual([
+      ["adulto_precargado_sin_fecha_en_base"],
+      ["adulto_precargado_sin_fecha_en_base", "nombre_distinto_base"],
+      ["adulto_precargado_sin_fecha_en_base", "nombre_distinto_base"],
+    ]);
+    expect(await jugadorRut(distinto.rut)).toMatchObject({ nombre: "Valentina", apellido: "Prueba", fecha_nacimiento: "2000-02-02", estado: "pendiente" });
+
+    // Solo Mony ve con qué comparar: el nombre de la base en el detalle, y sin "coincide con la base".
+    const todas = await solicitudes();
+    // La tercera no tenía nombre en la base: no hubo con qué comparar el nombre, tampoco "coincide".
+    expect(todas.map((x) => x.coincide_base)).toEqual([true, false, false]);
+    const s2 = todas[1];
+    const { app: panel, cookies } = await appConSesion(db);
+    const detalle = await panel.inject({ method: "GET", url: API.panel.solicitud(s2?.id ?? ""), cookies });
+    expect(detalle.json().jugadores).toEqual([expect.objectContaining({ id: distinto.id, nombre_en_base: "Antonia Real" })]);
+    const detalle1 = await panel.inject({ method: "GET", url: API.panel.solicitud(todas[0]?.id ?? ""), cookies });
+    expect(detalle1.json().jugadores).toEqual([expect.objectContaining({ id: coincide.id, nombre_en_base: null })]);
+    const detalle3 = await panel.inject({ method: "GET", url: API.panel.solicitud(todas[2]?.id ?? ""), cookies });
+    expect(detalle3.json().jugadores).toEqual([expect.objectContaining({ id: sinNombre.id, nombre_en_base: "Real" })]);
+
+    // Mony rechaza la que no calza: vuelve la ficha de la base y sale del link.
+    const rechazo = await panel.inject({ method: "POST", url: API.panel.rechazar(s2?.id ?? ""), cookies, payload: {} });
+    expect(rechazo.statusCode).toBe(200);
+    expect(await jugadorRut(distinto.rut)).toMatchObject({
+      nombre: "Antonia",
+      apellido: "Real",
+      fecha_nacimiento: "1850-01-01",
+      estado: "precargado",
+      solicitud_id: null,
+      foto_id: null,
+    });
+    await panel.close();
+    await app.close();
+  });
+
+  it("precargado sin nombre, apellido ni fecha en la base: se completa, pero no \"coincide con la base\" (no hubo con qué comparar)", async () => {
+    const vacio = await crearJugador(db, { nombre: null, apellido: null, fecha_nacimiento: null });
+    const app = await construirApp({ config: configTest(), db });
+    const r = await enviar(app, adultoCompleto(vacio.rut), { t: JPEG_PRUEBA });
+    expect(r.statusCode).toBe(201);
+    const [s] = await solicitudes();
+    expect(s?.coincide_base).toBe(false);
+    expect(s?.avisos).toContain("adulto_precargado_sin_fecha_en_base");
+    expect(await jugadorRut(vacio.rut)).toMatchObject({ nombre: "Valentina", apellido: "Prueba", estado: "pendiente", solicitud_id: s?.id });
+    const { app: panel, cookies } = await appConSesion(db);
+    const detalle = await panel.inject({ method: "GET", url: API.panel.solicitud(s?.id ?? ""), cookies });
+    expect(detalle.json().jugadores).toEqual([expect.objectContaining({ id: vacio.id, nombre_en_base: null })]);
+    await panel.close();
+    await app.close();
+  });
+
+  it("jugador adulto: un menor, uno con apoderado o un RUT de apoderado dan 409 sin tocar nada", async () => {
     const apoderado = await crearApoderado(db);
-    const menor = await crearJugador(db, { fecha_nacimiento: "2013-01-01" });
-    const sinFecha = await crearJugador(db, { fecha_nacimiento: null, telefono: null });
-    const fechaInvalida = await crearJugador(db, { fecha_nacimiento: "1850-01-01", telefono: null });
+    const menor = await crearJugador(db, { nombre: "Valentina", fecha_nacimiento: "2013-01-01" });
+    // Sin fecha y con el mismo primer nombre, pero con apoderado: tampoco.
+    const sinFechaConApoderado = await crearJugador(db, { nombre: "Valentina", fecha_nacimiento: "1850-01-01" });
+    await vincular(db, sinFechaConApoderado.id, apoderado.id);
     const conApoderado = await crearJugador(db, { fecha_nacimiento: "2000-01-01" });
     await vincular(db, conApoderado.id, apoderado.id);
     const rutDoble = generarRutFicticio(8080);
     await crearApoderado(db, { rut: rutDoble });
     await crearJugador(db, { rut: rutDoble, fecha_nacimiento: "1990-01-01" });
     const app = await construirApp({ config: configTest(), db });
-    for (const rut of [menor.rut, sinFecha.rut, fechaInvalida.rut, conApoderado.rut, rutDoble]) {
+    for (const rut of [menor.rut, sinFechaConApoderado.rut, conApoderado.rut, rutDoble]) {
       const r = await enviar(app, adultoCompleto(rut), { t: JPEG_PRUEBA });
       expect(r.statusCode).toBe(409);
       expect(r.json().error.codigo).toBe("conflicto");
     }
     expect(await contar("solicitudes_registro")).toBe(0);
-    expect(await jugadorRut(sinFecha.rut)).toMatchObject({ fecha_nacimiento: null, telefono: null, estado: "precargado", solicitud_id: null });
-    expect(await jugadorRut(fechaInvalida.rut)).toMatchObject({ fecha_nacimiento: "1850-01-01", estado: "precargado", solicitud_id: null });
+    expect(await jugadorRut(menor.rut)).toMatchObject({ fecha_nacimiento: "2013-01-01", estado: "precargado", solicitud_id: null });
+    expect(await jugadorRut(sinFechaConApoderado.rut)).toMatchObject({ fecha_nacimiento: "1850-01-01", estado: "precargado", solicitud_id: null });
     await app.close();
   });
 

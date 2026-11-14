@@ -50,6 +50,13 @@
       "when": 1794668323707,
       "tag": "0006_categorias_por_edad",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794676403208,
+      "tag": "0007_aviso_adulto_sin_fecha",
+      "breakpoints": true
     }
   ]
 }
