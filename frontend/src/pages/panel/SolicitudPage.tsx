@@ -818,12 +818,6 @@ function TarjetaJugador({
             {nombreCompleto(j)}
           </Link>
           <EstadoBadge estado={j.estado} />
-          {j.nombre_en_base !== null && (
-            <span className="w-full text-xs text-destructive">
-              En la base estaba como «{j.nombre_en_base}». Si lo apruebas, queda con el nombre que
-              escribió; si lo rechazas, vuelve el de la base.
-            </span>
-          )}
           {j.faltantes.length > 0 && (
             <Badge tone="danger">Falta: {textoFaltantes(j.faltantes)}</Badge>
           )}
@@ -834,6 +828,12 @@ function TarjetaJugador({
           )}
           {soloSeMuestra && <NotaSoloSeMuestra />}
           {j.apoderados.length === 0 && <Badge tone="neutral">Adulto sin apoderado</Badge>}
+          {j.nombre_en_base !== null && (
+            <span className="w-full text-xs text-destructive">
+              En la base estaba como «{j.nombre_en_base}». Si lo apruebas, queda con el nombre de
+              arriba; si lo rechazas, vuelve el de la base.
+            </span>
+          )}
           {j.estado === "pendiente" &&
             j.faltantes.includes("telefono") &&
             (sinContactoPosible ? (

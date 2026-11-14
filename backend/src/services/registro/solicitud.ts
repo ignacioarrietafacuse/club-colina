@@ -418,11 +418,10 @@ class Proceso {
     this.coincideBase = true;
     if (!fechaBaseValida) {
       this.avisos.add("adulto_precargado_sin_fecha_en_base");
-      if (nombreDistinto(existente.nombre, seguro(nombre)) || nombreDistinto(existente.apellido, seguro(apellido))) {
-        this.avisos.add("nombre_distinto_base");
-        // No es "coincide con la base": el panel no muestra esa etiqueta junto a este aviso.
-        this.coincideBase = false;
-      }
+      const distinto = nombreDistinto(existente.nombre, seguro(nombre)) || nombreDistinto(existente.apellido, seguro(apellido));
+      if (distinto) this.avisos.add("nombre_distinto_base");
+      // "Coincide con la base" solo si hubo con qué comparar: la base traía nombre y apellido y calzan.
+      this.coincideBase = !distinto && Boolean(existente.nombre?.trim()) && Boolean(existente.apellido?.trim());
     }
     const telefonoNuevo = this.telefono(existente.telefono, new Faltantes(), "telefono");
     const { cambios, foto: fotoFaltante } = await this.completarJugador(existente, d, "", new Faltantes());

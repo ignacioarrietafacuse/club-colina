@@ -603,7 +603,8 @@ export const solicitudDetalle = z.object({
   // recordatorio, no muestra nada de más.
   //
   // `nombre_en_base`: el nombre completo que tenía la base cuando esta solicitud se lo cambió (solo
-  // un adulto sin fecha válida en la base, aviso `nombre_distinto_base`); null si no cambió. Solo
+  // el titular adulto sin fecha válida en la base, con el aviso `nombre_distinto_base`); null en
+  // cualquier otro caso. Solo
   // para el panel. Con default: un backend anterior al campo no lo manda.
   jugadores: z.array(
     jugadorDetalle.extend({

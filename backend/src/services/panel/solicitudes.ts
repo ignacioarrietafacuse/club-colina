@@ -296,7 +296,11 @@ export async function detalleSolicitud(db: Ejecutor, id: string): Promise<Solici
           .filter((j) => entraPorSolicitud(s, j))
           .map((j) => j.id),
   );
-  const nombresEnBase = await nombresCambiados(db, s.id);
+  // Solo cuando S2 vio que el nombre escrito no es el de la base, y solo para el titular adulto.
+  const nombresEnBase =
+    s.avisos.includes("nombre_distinto_base") && s.titular_jugador_id !== null
+      ? await nombresCambiados(db, s.id, s.titular_jugador_id)
+      : new Map<string, string>();
   return {
     id: s.id,
     creada_en: s.creada_en.toISOString(),
@@ -327,21 +331,23 @@ export async function detalleSolicitud(db: Ejecutor, id: string): Promise<Solici
 }
 
 /**
- * Jugadores a los que esta solicitud les cambió el nombre (el adulto sin fecha válida en la base
- * toma el que escribió): su nombre completo de la copia previa, para que Mony compare. La copia
+ * El titular adulto al que esta solicitud le cambió el nombre (solo con el aviso
+ * `nombre_distinto_base`: el adulto sin fecha válida en la base toma el que escribió):
+ * su nombre completo de la copia previa, si la base tenía alguno, para que Mony compare. La copia
  * se borra al decidir la solicitud; después ya no hay con qué comparar.
  */
-async function nombresCambiados(db: Ejecutor, solicitudId: string): Promise<Map<string, string>> {
+async function nombresCambiados(db: Ejecutor, solicitudId: string, jugadorId: string): Promise<Map<string, string>> {
   const copias = await db
     .select({ jugador_id: fichasPrevias.jugador_id, datos: fichasPrevias.datos, nombre: jugadores.nombre, apellido: jugadores.apellido })
     .from(fichasPrevias)
     .innerJoin(jugadores, eq(jugadores.id, fichasPrevias.jugador_id))
-    .where(eq(fichasPrevias.solicitud_id, solicitudId));
+    .where(and(eq(fichasPrevias.solicitud_id, solicitudId), eq(fichasPrevias.jugador_id, jugadorId)));
   const cambiados = new Map<string, string>();
   for (const c of copias) {
     const previo = previoJugador.pick({ nombre: true, apellido: true }).parse(c.datos);
     const antes = nombreCompleto(previo.nombre ?? null, previo.apellido ?? null);
-    if (c.jugador_id && antes !== nombreCompleto(c.nombre, c.apellido)) cambiados.set(c.jugador_id, antes);
+    const habia = Boolean(previo.nombre?.trim() || previo.apellido?.trim());
+    if (c.jugador_id && habia && antes !== nombreCompleto(c.nombre, c.apellido)) cambiados.set(c.jugador_id, antes);
   }
   return cambiados;
 }

@@ -537,8 +537,12 @@ describe("POST /api/public/solicitudes", () => {
     const familia = await app.inject({ method: "GET", url: API.public.familia(r.json().token_acceso) });
     expect(familia.json().personas).toEqual([{ nombre_completo: "VALENTINA", rol: "jugador", estado: "pendiente" }]);
 
-    // Mony lo aprueba y queda activo con su QR.
+    // Solo cambió mayúsculas y tildes: sin aviso de nombre distinto ni nombre de la base en el panel.
     const { app: panel, cookies } = await appConSesion(db);
+    const detalle = await panel.inject({ method: "GET", url: API.panel.solicitud(s?.id ?? ""), cookies });
+    expect(detalle.json().jugadores).toEqual([expect.objectContaining({ id: adulto.id, nombre_en_base: null })]);
+
+    // Mony lo aprueba y queda activo con su QR.
     const aprobada = await panel.inject({
       method: "POST",
       url: API.panel.aprobar(s?.id ?? ""),
@@ -577,6 +581,7 @@ describe("POST /api/public/solicitudes", () => {
 
     // Solo Mony ve con qué comparar: el nombre de la base en el detalle, y sin "coincide con la base".
     const todas = await solicitudes();
+    // La tercera no tenía nombre en la base: no hubo con qué comparar el nombre, tampoco "coincide".
     expect(todas.map((x) => x.coincide_base)).toEqual([true, false, false]);
     const s2 = todas[1];
     const { app: panel, cookies } = await appConSesion(db);
@@ -584,6 +589,8 @@ describe("POST /api/public/solicitudes", () => {
     expect(detalle.json().jugadores).toEqual([expect.objectContaining({ id: distinto.id, nombre_en_base: "Antonia Real" })]);
     const detalle1 = await panel.inject({ method: "GET", url: API.panel.solicitud(todas[0]?.id ?? ""), cookies });
     expect(detalle1.json().jugadores).toEqual([expect.objectContaining({ id: coincide.id, nombre_en_base: null })]);
+    const detalle3 = await panel.inject({ method: "GET", url: API.panel.solicitud(todas[2]?.id ?? ""), cookies });
+    expect(detalle3.json().jugadores).toEqual([expect.objectContaining({ id: sinNombre.id, nombre_en_base: "Real" })]);
 
     // Mony rechaza la que no calza: vuelve la ficha de la base y sale del link.
     const rechazo = await panel.inject({ method: "POST", url: API.panel.rechazar(s2?.id ?? ""), cookies, payload: {} });
@@ -596,6 +603,22 @@ describe("POST /api/public/solicitudes", () => {
       solicitud_id: null,
       foto_id: null,
     });
+    await panel.close();
+    await app.close();
+  });
+
+  it("precargado sin nombre, apellido ni fecha en la base: se completa, pero no \"coincide con la base\" (no hubo con qué comparar)", async () => {
+    const vacio = await crearJugador(db, { nombre: null, apellido: null, fecha_nacimiento: null });
+    const app = await construirApp({ config: configTest(), db });
+    const r = await enviar(app, adultoCompleto(vacio.rut), { t: JPEG_PRUEBA });
+    expect(r.statusCode).toBe(201);
+    const [s] = await solicitudes();
+    expect(s?.coincide_base).toBe(false);
+    expect(s?.avisos).toContain("adulto_precargado_sin_fecha_en_base");
+    expect(await jugadorRut(vacio.rut)).toMatchObject({ nombre: "Valentina", apellido: "Prueba", estado: "pendiente", solicitud_id: s?.id });
+    const { app: panel, cookies } = await appConSesion(db);
+    const detalle = await panel.inject({ method: "GET", url: API.panel.solicitud(s?.id ?? ""), cookies });
+    expect(detalle.json().jugadores).toEqual([expect.objectContaining({ id: vacio.id, nombre_en_base: null })]);
     await panel.close();
     await app.close();
   });
