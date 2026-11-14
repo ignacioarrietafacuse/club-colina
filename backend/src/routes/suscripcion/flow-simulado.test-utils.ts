@@ -46,7 +46,7 @@ export class FlowSimulado {
   /** Si es true, `invoice/retryToCollect` responde un error de negocio (401 con código). */
   rechazarReintento = false;
   /** Si se pone, `invoice/retryToCollect` responde este error (p. ej. las claves rechazadas). */
-  errorReintento: { status: number; code: number } | null = null;
+  errorReintento: { status: number; code: number; message?: string } | null = null;
   /** Si se pone, `subscription/get` devuelve este `next_invoice_date`. */
   proximoCobro = "2026-12-13 00:00:00";
   /**
@@ -110,7 +110,13 @@ export class FlowSimulado {
     if (!url.startsWith(`${this.base}/`)) return Response.json({ code: 404, message: "otro host" }, { status: 404 });
     const { s, ...sinFirma } = params;
     const firmados: ParametrosFlow = sinFirma;
-    if (params.apiKey !== this.apiKey) return Response.json({ code: 109, message: "Invalid ApiKey" }, { status: 400 });
+    if (params.apiKey !== this.apiKey) {
+      // Visto el 2026-11-14: producción responde una apiKey desconocida con 401 y código 501; sandbox,
+      // con 400 y código 109.
+      return this.base.startsWith("https://www.")
+        ? Response.json({ code: 501, message: "Internal Server Error - apiKey not found" }, { status: 401 })
+        : Response.json({ code: 109, message: "Invalid ApiKey" }, { status: 400 });
+    }
     if (s !== firmar(firmados, this.secretKey)) {
       return Response.json({ code: 108, message: "Invalid Signature" }, { status: 400 });
     }
@@ -125,7 +131,10 @@ export class FlowSimulado {
     this.n += 1;
     switch (servicio) {
       case "plans/get":
-        return p.planId?.toLowerCase() === this.plan.planId.toLowerCase() ? Response.json(this.plan) : error(404);
+        // Como sandbox: un plan que no existe es 401 con código 501 y el ID en el mensaje.
+        return p.planId?.toLowerCase() === this.plan.planId.toLowerCase()
+          ? Response.json(this.plan)
+          : Response.json({ code: 501, message: `Internal Server Error - the plan ${p.planId ?? ""} was not found` }, { status: 401 });
       case "customer/create": {
         if (this.errorCreacion) {
           return Response.json({ code: this.errorCreacion.code, message: "error" }, { status: this.errorCreacion.status });
@@ -213,7 +222,8 @@ export class FlowSimulado {
       }
       case "invoice/retryToCollect": {
         if (this.errorReintento) {
-          return Response.json({ code: this.errorReintento.code, message: "error" }, { status: this.errorReintento.status });
+          const { status, code, message = "error" } = this.errorReintento;
+          return Response.json({ code, message }, { status });
         }
         if (this.rechazarReintento) return Response.json({ code: 1105, message: "rechazo" }, { status: 401 });
         for (const s of this.suscripciones.values()) {

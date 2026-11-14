@@ -234,7 +234,14 @@ async function buscarClienteDelClub(
 
 /** Flow rechazó `customer/create` porque el externalId ya existe (401 con código 501). */
 function esExternalIdRepetido(error: unknown): error is ErrorFlow {
-  return error instanceof ErrorFlow && error.status === 401 && error.codigoFlow === CODIGO_EXTERNAL_ID_REPETIDO;
+  // Flow también responde 401 con 501 a una apiKey desconocida o a un plan que no existe: esos traen
+  // `configuracion` y nunca disparan la búsqueda del cliente.
+  return (
+    error instanceof ErrorFlow &&
+    error.status === 401 &&
+    error.codigoFlow === CODIGO_EXTERNAL_ID_REPETIDO &&
+    error.configuracion === undefined
+  );
 }
 
 // --- Fechas -----------------------------------------------------------------------------------

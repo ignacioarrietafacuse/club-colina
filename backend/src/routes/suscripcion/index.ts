@@ -25,7 +25,6 @@ import { LIMITES } from "../../lib/limite-intentos";
 import { respuesta, validarEntrada } from "../../lib/validar";
 import { exigirClaveAlDia, exigirSesion } from "../../services/panel/sesiones";
 import {
-  CLAVES_RECHAZADAS,
   type ClienteFlow,
   configFlow,
   crearClienteFlow,
@@ -86,14 +85,14 @@ function clienteFlow(request: FastifyRequest, plazo = PLAZO_FLOW_MS): ClienteFlo
 /**
  * Flow rechazó el reintento mismo (error de negocio de `invoice/retryToCollect`, que Flow responde
  * con 400 o 401 y su código). Un error de cualquier otro servicio no es culpa de la tarjeta, y
- * tampoco unas claves rechazadas (108, 109): eso es "no disponible", no "cambia la tarjeta".
+ * tampoco unas claves rechazadas: eso es configuración, no "cambia la tarjeta".
  */
 function esRechazoDelReintento(error: ErrorFlow): boolean {
   return (
     error.servicio === "invoice/retryToCollect" &&
     (error.status === 400 || error.status === 401) &&
     error.codigoFlow !== undefined &&
-    CLAVES_RECHAZADAS[error.codigoFlow] === undefined
+    error.configuracion === undefined
   );
 }
 
@@ -101,9 +100,15 @@ function noDisponible(): ErrorApi {
   return new ErrorApi(503, "no_disponible", "El servicio de pagos no está disponible. Intenta más tarde.");
 }
 
+/** Para la página: claves o plan mal configurados no son una caída de Flow. */
+function configuracionIncorrecta(error: ErrorFlow): "claves" | "plan" | null {
+  if (error.configuracion === "plan") return "plan";
+  return error.configuracion ? "claves" : null;
+}
+
 function registrarFallaFlow(request: FastifyRequest, error: ErrorFlow) {
   request.log.warn(
-    { flow: { servicio: error.servicio, status: error.status, codigo: error.codigoFlow } },
+    { flow: { servicio: error.servicio, status: error.status, codigo: error.codigoFlow, configuracion: error.configuracion } },
     "Flow no respondió como se esperaba",
   );
 }
@@ -171,7 +176,12 @@ export async function rutasSuscripcion(app: FastifyInstance) {
       } catch (error) {
         if (!(error instanceof ErrorFlow)) throw error;
         registrarFallaFlow(request, error);
-        return respuesta(suscripcionResponse, { ...vacio, estado: "no_disponible", modo: flow.modo });
+        return respuesta(suscripcionResponse, {
+          ...vacio,
+          estado: "no_disponible",
+          modo: flow.modo,
+          configuracion_incorrecta: configuracionIncorrecta(error),
+        });
       }
       // Ya que se leyó Flow, el aviso global queda al día.
       aviso.guardar(flow.modo, estado.estado === "cobro_fallido", generacion);

@@ -175,11 +175,49 @@ describe("GET /api/suscripcion", () => {
     expect((await estado(app2, c2)).estado).toBe("no_disponible");
   });
 
+  it("producción con las claves de sandbox (401, 501 'apiKey not found'): configuración incorrecta, no caída", async () => {
+    // Lo que pasó al pasar a producción: Flow de producción no conoce la apiKey de sandbox.
+    const flow = new FlowSimulado(URL_FLOW.produccion, CLAVES_PRUEBA.FLOW_PROD_API_KEY, CLAVES_PRUEBA.FLOW_PROD_SECRET_KEY);
+    const { app, cookies: c, logs } = await armar(flow, {
+      FLOW_MODO: "produccion",
+      FLOW_PROD_API_KEY: CLAVES_PRUEBA.FLOW_SANDBOX_API_KEY,
+      FLOW_PROD_SECRET_KEY: CLAVES_PRUEBA.FLOW_SANDBOX_SECRET_KEY,
+    });
+    flow.clientes.set("cus_club", { customerId: "cus_club", email: "x@ejemplo.test", name: "Club Colina", externalId: "club-colina", status: "1" });
+    const e = await estado(app, c);
+    expect(e).toMatchObject({ estado: "no_disponible", modo: "produccion", configuracion_incorrecta: "claves" });
+    expect(logs()).toContain("claves rechazadas por Flow");
+    expect(logs()).toContain('"motivo":"apiKey"');
+    // customer/create también responde 401 con 501, pero no es un externalId repetido: no se busca.
+    flow.llamadas = [];
+    const r = await app.inject({ method: "POST", url: "/api/suscripcion/inscribir-tarjeta", cookies: c, headers: { origin: BASE }, payload: { email: EMAIL } });
+    expect(r.statusCode).toBe(503);
+    expect(flow.servicios()).toEqual(["customer/create"]);
+    expect(await db.select().from(suscripcionServicio)).toHaveLength(0);
+    // Ni las claves ni el mensaje de Flow en los logs.
+    for (const v of Object.values(CLAVES_PRUEBA)) expect(logs()).not.toContain(v);
+    expect(logs()).not.toContain("apiKey not found");
+  });
+
+  it("un plan que no existe en Flow: configuración incorrecta 'plan', con su línea de log", async () => {
+    const flow = sandbox();
+    flow.plan.planId = "otro_plan";
+    const { app, cookies: c, logs } = await armar(flow);
+    const e = await estado(app, c);
+    expect(e).toMatchObject({ estado: "no_disponible", configuracion_incorrecta: "plan" });
+    expect(logs()).toContain("plan no encontrado en Flow");
+    expect(logs()).not.toContain("claves rechazadas por Flow");
+    expect(logs()).not.toContain("was not found");
+  });
+
   it("si Flow está caído o tarda, responde no_disponible sin romper", async () => {
     const flow = sandbox();
     flow.falla = "caido";
     const { app, cookies: c, logs } = await armar(flow);
-    expect((await estado(app, c)).estado).toBe("no_disponible");
+    const caido = await estado(app, c);
+    expect(caido.estado).toBe("no_disponible");
+    // Una caída no es configuración: la página dice "intenta más tarde".
+    expect(caido).toMatchObject({ configuracion_incorrecta: null });
     expect((await app.inject({ method: "GET", url: "/api/suscripcion/aviso", cookies: c })).json()).toEqual({ cobro_fallido: false });
     // Los logs dicen el modo, nunca las claves ni la firma.
     expect(logs()).toContain('"modo":"sandbox"');
@@ -605,10 +643,15 @@ describe("cobro fallido, reintento y aviso", () => {
     expect(r.json<{ error: { codigo: string } }>().error.codigo).toBe("conflicto");
   });
 
-  it.each([108, 109])("claves rechazadas (%i) en el reintento son 'no disponible', no 'cambia la tarjeta'", async (code) => {
+  it.each([
+    { status: 400, code: 108 },
+    { status: 400, code: 109 },
+    // Producción con una apiKey que no conoce: antes contaba como rechazo del reintento (409).
+    { status: 401, code: 501, message: "Internal Server Error - apiKey not found" },
+  ])("claves rechazadas ($status, $code) en el reintento son 'no disponible', no 'cambia la tarjeta'", async (errorReintento) => {
     const { app, cookies: c, flow, sus } = await conSuscripcion();
     sus.invoices.push({ id: 902, created: "2020-01-13 10:00:00", amount: 200000, status: 0, error: 1, due_date: "2020-01-16 00:00:00" });
-    flow.errorReintento = { status: 400, code };
+    flow.errorReintento = errorReintento;
     const r = await app.inject({ method: "POST", url: "/api/suscripcion/reintentar", cookies: c, headers: { origin: BASE } });
     expect(flow.servicios()).toContain("invoice/retryToCollect");
     expect(r.statusCode).toBe(503);

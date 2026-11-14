@@ -10,6 +10,7 @@ import {
   mensajeResultado,
   mostrarAviso,
   pagadoHasta,
+  textoNoDisponible,
   tonoResultado,
 } from "./suscripcion";
 
@@ -141,5 +142,36 @@ describe("contrato del historial", () => {
       historial: [{ fecha: "2026-11-13", monto: 200000, estado: "pagado" }],
     });
     expect(r.success).toBe(true);
+  });
+});
+
+describe("no disponible: caída o configuración", () => {
+  it("claves o plan mal configurados no dicen 'intenta más tarde'", () => {
+    expect(textoNoDisponible(null)).toContain("intenta más tarde");
+    expect(textoNoDisponible(undefined)).toContain("intenta más tarde");
+    for (const c of ["claves", "plan"] as const) {
+      expect(textoNoDisponible(c)).toContain("No es una caída de Flow");
+      expect(textoNoDisponible(c)).not.toContain("intenta más tarde");
+    }
+    expect(textoNoDisponible("claves")).toContain("claves");
+    expect(textoNoDisponible("plan")).toContain("plan");
+  });
+
+  it("el contrato acepta la respuesta del backend anterior, sin configuracion_incorrecta", () => {
+    const base = {
+      estado: "no_disponible",
+      modo: "produccion",
+      tiene_cliente: false,
+      puede_reintentar: false,
+      plan: null,
+      proximo_cobro: null,
+      tarjeta: null,
+      historial: [],
+    };
+    expect(suscripcionResponse.parse(base).configuracion_incorrecta).toBeUndefined();
+    expect(
+      suscripcionResponse.parse({ ...base, configuracion_incorrecta: "claves" })
+        .configuracion_incorrecta,
+    ).toBe("claves");
   });
 });

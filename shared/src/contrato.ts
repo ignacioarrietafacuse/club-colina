@@ -764,6 +764,11 @@ export const suscripcionResponse = z.object({
   /** Hay un importe vencido: "Reintentar cobro" puede servir. Si no, solo "Cambiar tarjeta". */
   puede_reintentar: z.boolean(),
   plan: z.object({ nombre: z.string(), monto: z.number().nonnegative(), moneda: z.string() }).nullable(),
+  /**
+   * Con `no_disponible`: Flow rechazó las claves o no encuentra el plan, no es una caída. Opcional:
+   * el backend anterior no lo manda.
+   */
+  configuracion_incorrecta: z.enum(["claves", "plan"]).nullish(),
   proximo_cobro: fecha.nullable(),
   tarjeta: z.object({ tipo: z.string(), ultimos4: z.string().regex(/^[0-9]{4}$/) }).nullable(),
   historial: z.array(

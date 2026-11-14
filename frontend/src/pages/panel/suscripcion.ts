@@ -97,6 +97,23 @@ export function formatoPeriodo(periodo: Cobro["periodo"]): string {
 }
 
 /**
+ * El mensaje de "no disponible": una caída de Flow (intentar más tarde) no es lo mismo que unas
+ * claves o un plan mal configurados, que no se arreglan esperando.
+ */
+export function textoNoDisponible(
+  configuracion: SuscripcionResponse["configuracion_incorrecta"],
+): string {
+  switch (configuracion) {
+    case "claves":
+      return "Flow no reconoce las claves de conexión configuradas en el sistema. No es una caída de Flow: hay que corregir la configuración, avisa a Ignacio. El resto del panel funciona normalmente.";
+    case "plan":
+      return "Flow no encuentra el plan de la suscripción. No es una caída de Flow: hay que corregir la configuración, avisa a Ignacio. El resto del panel funciona normalmente.";
+    default:
+      return "No pudimos consultar Flow en este momento. El resto del panel funciona normalmente; intenta más tarde.";
+  }
+}
+
+/**
  * Hasta qué día está pagado el servicio: el `period_end` del último cobro pagado, tal cual de Flow
  * (el historial viene del más nuevo al más viejo). null si no hay cobros pagados, o si el último no
  * trae su período: nunca se muestra el de un cobro anterior, que diría menos de lo pagado.
