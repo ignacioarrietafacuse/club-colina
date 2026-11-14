@@ -7,7 +7,7 @@ import { ErrorApi, reintentar } from "@/lib/api";
 import { crearRouter } from "@/router";
 import { CategoriasPage } from "./CategoriasPage";
 import { ConversacionesPage } from "./ConversacionesPage";
-import { INDICADORES_ETAPA_2, saludo } from "./dashboard";
+import { filasPorCategoria, INDICADORES_ETAPA_2, saludo } from "./dashboard";
 import { guardaPanel } from "./guarda";
 import { LeadsPage } from "./LeadsPage";
 import { mensajeLogin } from "./login";
@@ -318,6 +318,39 @@ describe("menú y secciones de la Etapa 2", () => {
 });
 
 describe("dashboard", () => {
+  it("jugadores por categoría: con nombre y rama, en el orden del servidor, y sin categoría al final", () => {
+    const categorias = [
+      {
+        id: 2,
+        nombre: "U11",
+        disciplina: "basketball" as const,
+        edad_min: 10,
+        edad_max: 11,
+        se_calcula: true,
+      },
+      {
+        id: 9,
+        nombre: "U12",
+        disciplina: "voleibol" as const,
+        edad_min: 11,
+        edad_max: 12,
+        se_calcula: true,
+      },
+    ];
+    const por = [
+      { categoria_id: 2, jugadores: 4 },
+      { categoria_id: 9, jugadores: 0 },
+      { categoria_id: null, jugadores: 3 },
+    ];
+    expect(filasPorCategoria(por, categorias)).toEqual([
+      { clave: "2", disciplina: "basketball", nombre: "U11", jugadores: 4 },
+      { clave: "9", disciplina: "voleibol", nombre: "U12", jugadores: 0 },
+      { clave: "sin", disciplina: null, nombre: "Sin categoría", jugadores: 3 },
+    ]);
+    // Sin la lista de categorías no se muestran ids sueltos.
+    expect(filasPorCategoria(por, undefined)).toEqual([]);
+  });
+
   it("saludo genérico según la hora", () => {
     expect(saludo(8)).toBe("Buenos días");
     expect(saludo(15)).toBe("Buenas tardes");

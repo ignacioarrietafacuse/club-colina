@@ -6,8 +6,8 @@ import { apoderados, entrenadores, jugadorApoderado, jugadores } from "../../db/
 import { ErrorApi, noEncontrado } from "../../lib/errores";
 import { borrarFoto, guardarFoto, leerFoto } from "../../lib/fotos";
 import { generarToken } from "../../lib/tokens";
-import { cargarCategorias, tieneApoderadoVigente } from "./personas";
-import { faltantesApoderado, faltantesJugador, requisitosJugador } from "./reglas";
+import { tieneApoderadoVigente } from "./personas";
+import { faltantesApoderado, faltantesJugador } from "./reglas";
 
 export type TipoPersona = (typeof TIPOS_PERSONA)[number];
 type CambioEstado = z.input<typeof cambioEstadoResponse>;
@@ -153,7 +153,6 @@ export async function activar(db: Ejecutor, tipo: TipoPersona, id: string): Prom
           nombre: jugadores.nombre,
           apellido: jugadores.apellido,
           fecha_nacimiento: jugadores.fecha_nacimiento,
-          categoria_id: jugadores.categoria_id,
           numero_camiseta: jugadores.numero_camiseta,
           telefono: jugadores.telefono,
           foto_id: jugadores.foto_id,
@@ -168,7 +167,7 @@ export async function activar(db: Ejecutor, tipo: TipoPersona, id: string): Prom
       // después falta algo, la transacción se deshace entera.
       if (j.estado === "precargado") await activarVinculosDeLaBase(tx, "jugador", id);
       const [contacto] = await tx.select({ si: tieneApoderadoVigente }).from(jugadores).where(eq(jugadores.id, id));
-      const faltan = requisitosJugador(faltantesJugador(j, contacto?.si ?? false, await cargarCategorias(tx)));
+      const faltan = faltantesJugador(j, contacto?.si ?? false);
       if (faltan.length > 0) throw incompleto(faltan);
       await tx
         .update(jugadores)

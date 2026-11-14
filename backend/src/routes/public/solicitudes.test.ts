@@ -3,7 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { construirApp } from "../../app";
-import { apoderados, categorias, fichasPrevias, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
+import { apoderados, fichasPrevias, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
 import { guardarFoto } from "../../lib/fotos";
 import { LIMITES } from "../../lib/limite-intentos";
 import { generarToken, hashToken } from "../../lib/tokens";
@@ -123,8 +123,6 @@ describe("POST /api/public/solicitudes", () => {
     expect(a.foto_id).not.toBeNull();
     const j = await jugadorRut(rutHijo);
     expect(j).toMatchObject({ estado: "pendiente", solicitud_id: s?.id, numero_camiseta: "00", credencial_token: null });
-    const [u13] = await db.select().from(categorias).where(eq(categorias.nombre, "U13"));
-    expect(j.categoria_id).toBe(u13?.id);
     const [v] = await db.select().from(jugadorApoderado).where(eq(jugadorApoderado.jugador_id, j.id));
     expect(v).toMatchObject({ apoderado_id: a.id, estado: "pendiente", paga_mensualidad: true, solicitud_id: s?.id });
     expect(await contar("fotos")).toBe(2);
@@ -234,39 +232,52 @@ describe("POST /api/public/solicitudes", () => {
     await app.close();
   });
 
-  it("si la categoría no se puede calcular y no la eligió, queda vacía para Mony", async () => {
+  it("la categoría no se pregunta; una fecha de nacimiento futura o anterior a 1900 es 400 y no escribe nada", async () => {
     const app = await construirApp({ config: configTest(), db });
+    for (const fecha_nacimiento of ["2999-01-01", "1899-12-31"]) {
+      const r = await enviar(
+        app,
+        { ...apoderadoNuevo(rutNuevo()), hijos: [{ ...hijoNuevo(rutNuevo()), fecha_nacimiento }] },
+        { titular: JPEG_PRUEBA, h0: JPEG_PRUEBA },
+      );
+      expect(r.statusCode).toBe(400);
+      expect(r.json().error).toEqual({ codigo: "validacion", mensaje: "Datos inválidos: hijos.0.fecha_nacimiento" });
+    }
+    expect(await contar("solicitudes_registro")).toBe(0);
+    expect(await contar("fotos")).toBe(0);
+    // Un nacido en 2016 en vóley no tiene categoría (no hay U10): igual se registra, sin preguntarla.
     const rutHijo = rutNuevo();
     const r = await enviar(
       app,
-      { ...apoderadoNuevo(rutNuevo()), hijos: [{ ...hijoNuevo(rutHijo), disciplina: "voleibol", fecha_nacimiento: "2017-01-01" }] },
+      { ...apoderadoNuevo(rutNuevo()), hijos: [{ ...hijoNuevo(rutHijo), disciplina: "voleibol", fecha_nacimiento: "2016-01-01" }] },
       { titular: JPEG_PRUEBA, h0: JPEG_PRUEBA },
     );
     expect(r.statusCode).toBe(201);
-    expect((await jugadorRut(rutHijo)).categoria_id).toBeNull();
+    expect(await jugadorRut(rutHijo)).toMatchObject({ estado: "pendiente", u11f_temporada: null });
     await app.close();
   });
 
-  it("la categoría elegida tiene que ser de la misma rama; si se puede calcular, manda la calculada", async () => {
-    const [u12] = await db.select().from(categorias).where(eq(categorias.nombre, "U12"));
-    const [u16] = await db.select().from(categorias).where(eq(categorias.nombre, "U16"));
-    const [u9] = await db.select().from(categorias).where(eq(categorias.nombre, "U9"));
+  it("un hijo precargado con una fecha inválida en la base: se le pide la fecha y se reemplaza", async () => {
+    const titular = await crearApoderado(db);
+    const hijo = await crearJugador(db, { nombre: "Tomás", fecha_nacimiento: "1850-01-01" });
+    await vincular(db, hijo.id, titular.id);
     const app = await construirApp({ config: configTest(), db });
-    const malo = await enviar(
+    const base = { rut: titular.rut, tipo: "apoderado" as const, consentimiento: true as const, telefono: "911111111", foto: "t" };
+    const ref = { precargado: 0, primer_nombre: "Tomás" };
+    const sinFecha = await enviar(
       app,
-      { ...apoderadoNuevo(rutNuevo()), hijos: [{ ...hijoNuevo(rutNuevo()), disciplina: "voleibol", fecha_nacimiento: "2017-01-01", categoria_id: u9?.id }] },
-      { titular: JPEG_PRUEBA, h0: JPEG_PRUEBA },
+      { ...base, hijos: [{ ref, foto: "h", numero_camiseta: "1" }] },
+      { t: JPEG_PRUEBA, h: JPEG_PRUEBA },
     );
-    expect(malo.statusCode).toBe(400);
-    expect(malo.json().error.mensaje).toContain("hijos.0.categoria_id");
-    const rutHijo = rutNuevo();
+    expect(sinFecha.statusCode).toBe(400);
+    expect(sinFecha.json().error.mensaje).toBe("Datos inválidos: hijos.0.fecha_nacimiento");
     const r = await enviar(
       app,
-      { ...apoderadoNuevo(rutNuevo()), hijos: [{ ...hijoNuevo(rutHijo), disciplina: "voleibol", fecha_nacimiento: "2015-01-01", categoria_id: u16?.id }] },
-      { titular: JPEG_PRUEBA, h0: JPEG_PRUEBA },
+      { ...base, hijos: [{ ref, foto: "h", numero_camiseta: "1", fecha_nacimiento: "2014-05-10" }] },
+      { t: JPEG_PRUEBA, h: JPEG_PRUEBA },
     );
     expect(r.statusCode).toBe(201);
-    expect((await jugadorRut(rutHijo)).categoria_id).toBe(u12?.id);
+    expect((await jugadorRut(hijo.rut)).fecha_nacimiento).toBe("2014-05-10");
     await app.close();
   });
 
@@ -463,7 +474,7 @@ describe("POST /api/public/solicitudes", () => {
     expect(menor.json().error.mensaje).toContain("fecha_nacimiento");
     const r = await enviar(app, datos, { t: JPEG_PRUEBA });
     expect(r.statusCode).toBe(201);
-    expect(await jugadorRut(datos.rut)).toMatchObject({ estado: "pendiente", categoria_id: null, numero_camiseta: "99" });
+    expect(await jugadorRut(datos.rut)).toMatchObject({ estado: "pendiente", numero_camiseta: "99" });
     // Ya registrado: no puede volver a enviar como adulto.
     expect((await enviar(app, datos, { t: JPEG_PRUEBA })).statusCode).toBe(409);
     await app.close();
@@ -487,23 +498,25 @@ describe("POST /api/public/solicitudes", () => {
     await app.close();
   });
 
-  it("jugador adulto: un menor, un precargado sin fecha, uno con apoderado o un RUT de apoderado dan 409 sin tocar nada", async () => {
+  it("jugador adulto: un menor, un precargado sin fecha o con fecha inválida, uno con apoderado o un RUT de apoderado dan 409 sin tocar nada", async () => {
     const apoderado = await crearApoderado(db);
     const menor = await crearJugador(db, { fecha_nacimiento: "2013-01-01" });
     const sinFecha = await crearJugador(db, { fecha_nacimiento: null, telefono: null });
+    const fechaInvalida = await crearJugador(db, { fecha_nacimiento: "1850-01-01", telefono: null });
     const conApoderado = await crearJugador(db, { fecha_nacimiento: "2000-01-01" });
     await vincular(db, conApoderado.id, apoderado.id);
     const rutDoble = generarRutFicticio(8080);
     await crearApoderado(db, { rut: rutDoble });
     await crearJugador(db, { rut: rutDoble, fecha_nacimiento: "1990-01-01" });
     const app = await construirApp({ config: configTest(), db });
-    for (const rut of [menor.rut, sinFecha.rut, conApoderado.rut, rutDoble]) {
+    for (const rut of [menor.rut, sinFecha.rut, fechaInvalida.rut, conApoderado.rut, rutDoble]) {
       const r = await enviar(app, adultoCompleto(rut), { t: JPEG_PRUEBA });
       expect(r.statusCode).toBe(409);
       expect(r.json().error.codigo).toBe("conflicto");
     }
     expect(await contar("solicitudes_registro")).toBe(0);
     expect(await jugadorRut(sinFecha.rut)).toMatchObject({ fecha_nacimiento: null, telefono: null, estado: "precargado", solicitud_id: null });
+    expect(await jugadorRut(fechaInvalida.rut)).toMatchObject({ fecha_nacimiento: "1850-01-01", estado: "precargado", solicitud_id: null });
     await app.close();
   });
 
@@ -719,7 +732,6 @@ describe("POST /api/public/solicitudes", () => {
         apellido: "Inventado",
         fecha_nacimiento: "2014-05-10",
         disciplina: "basketball",
-        categoria_id: null,
         numero_camiseta: null,
         telefono: null,
         email: null,

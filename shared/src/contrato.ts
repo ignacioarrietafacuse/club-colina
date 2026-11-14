@@ -173,7 +173,6 @@ export const faltanteJugador = z.enum([
   "nombre",
   "apellido",
   "fecha_nacimiento",
-  "categoria",
   "numero_camiseta",
   "telefono",
   "foto",
@@ -213,10 +212,6 @@ export const rutLookupResponse = z.union([
   }),
 ]);
 
-/** GET /api/public/categorias */
-export const categoriaPublica = z.object({ id: categoriaId, nombre: z.string(), disciplina });
-export const categoriasPublicasResponse = z.array(categoriaPublica);
-
 /**
  * Un hijo dentro de la solicitud. `precargado` es la `posicion` que devolvió `rut-lookup` para
  * el RUT de quien llena, junto con el `primer_nombre` que se mostró. El servidor recalcula la
@@ -236,7 +231,6 @@ export const hijoSolicitud = z.object({
   fecha_nacimiento: fecha.optional(),
   disciplina: disciplina.optional(),
   numero_camiseta: numeroCamiseta.optional(),
-  categoria_id: categoriaId.optional(),
   foto: claveFoto.optional(),
 });
 
@@ -261,7 +255,6 @@ export const solicitudDatos = z
     fecha_nacimiento: fecha.optional(),
     disciplina: disciplina.optional(),
     numero_camiseta: numeroCamiseta.optional(),
-    categoria_id: categoriaId.optional(),
     hijos: z.array(hijoSolicitud).max(HIJOS_MAX_POR_SOLICITUD).default([]),
     otro_apoderado: z
       .object({
@@ -400,6 +393,14 @@ export const dashboardResponse = z.object({
     jugadores: z.int().min(0),
     apoderados: z.int().min(0),
   }),
+  /**
+   * Jugadores activos por categoría, calculada hoy: todas las categorías en el orden de
+   * `GET /api/panel/categorias` (también con 0) y al final `categoria_id: null` (sin categoría).
+   */
+  // Con valor por defecto, igual que arriba: un frontend nuevo con un backend anterior.
+  jugadores_por_categoria: z
+    .array(z.object({ categoria_id: categoriaId.nullable(), jugadores: z.int().min(0) }))
+    .default([]),
 });
 
 const becas = {
@@ -421,6 +422,7 @@ export const jugadorResumen = z.object({
   apellido: z.string().nullable(),
   rut,
   disciplina,
+  /** Calculada por edad de temporada al responder (o U11 F marcada esta temporada); no se guarda. */
   categoria_id: categoriaId.nullable(),
   numero_camiseta: numeroCamiseta.nullable(),
   estado: estadoPersona,
@@ -431,6 +433,9 @@ export const jugadorResumen = z.object({
 });
 
 export const jugadorDetalle = jugadorResumen.extend({
+  /** Mony la marcó U11 F en la temporada actual (solo básquet). */
+  // Con valor por defecto: un frontend nuevo con un backend anterior (despliegue a medias).
+  u11f: z.boolean().default(false),
   fecha_nacimiento: fecha.nullable(),
   /** Calculada; no se guarda. */
   edad: z.int().min(0).nullable(),
@@ -490,7 +495,10 @@ const booleanoQuery = z.enum(["true", "false"]).transform((v) => v === "true");
 export const jugadoresQuery = z.object({
   estado: estadoPersona.optional(),
   disciplina: disciplina.optional(),
+  /** Por la categoría calculada hoy. */
   categoria_id: z.coerce.number().pipe(categoriaId).optional(),
+  /** Sin categoría: sin fecha válida, o su edad no calza con ninguna categoría de su rama. */
+  sin_categoria: booleanoQuery.optional(),
   faltan_datos: booleanoQuery.optional(),
   /** Número "99". */
   sin_numero: booleanoQuery.optional(),
@@ -508,7 +516,8 @@ export const jugadorPatch = z
     rut: rutEntrada,
     fecha_nacimiento: fecha.nullable(),
     disciplina,
-    categoria_id: categoriaId.nullable(),
+    /** Marca U11 F para la temporada actual (solo básquet; pasar a vóley la quita). */
+    u11f: z.boolean(),
     numero_camiseta: numeroCamiseta.nullable(),
     postula_beca: z.boolean(),
     ...becas,
@@ -609,7 +618,6 @@ export const aprobarRequest = z.object({
     .array(
       z.object({
         id,
-        categoria_id: categoriaId.nullable(),
         numero_camiseta: numeroCamiseta,
         ...becas,
         metodo_pago: metodoPago.optional(),
@@ -659,8 +667,11 @@ export const categoriaPanel = z.object({
   id: categoriaId,
   nombre: z.string(),
   disciplina,
-  anio_desde: z.int(),
-  anio_hasta: z.int(),
+  /** Edades de temporada (temporada − año de nacimiento) que cubre: UN cubre N−1 y N. */
+  // Opcionales solo para que un frontend nuevo lea la lista de un backend anterior; el panel no las usa.
+  edad_min: z.int().optional(),
+  edad_max: z.int().optional(),
+  /** false en U11 F: no se calcula, la marca Mony en la ficha. */
   se_calcula: z.boolean(),
 });
 export const categoriasPanelResponse = z.array(categoriaPanel);
@@ -677,7 +688,6 @@ export const API = {
   health: "/api/health",
   public: {
     rutLookup: "/api/public/rut-lookup",
-    categorias: "/api/public/categorias",
     solicitudes: "/api/public/solicitudes",
     familia: (tokenAcceso: string) => `/api/public/familia/${seg(tokenAcceso)}`,
     completar: (t: string) => `/api/public/completar/${seg(t)}`,
@@ -831,7 +841,6 @@ export type EstadoPersona = z.infer<typeof estadoPersona>;
 export type MetodoPago = z.infer<typeof metodoPago>;
 export type RutLookupRequest = z.input<typeof rutLookupRequest>;
 export type RutLookupResponse = z.infer<typeof rutLookupResponse>;
-export type CategoriaPublica = z.infer<typeof categoriaPublica>;
 export type SolicitudDatos = z.input<typeof solicitudDatos>;
 export type SolicitudCreadaResponse = z.infer<typeof solicitudCreadaResponse>;
 export type FamiliaResponse = z.infer<typeof familiaResponse>;

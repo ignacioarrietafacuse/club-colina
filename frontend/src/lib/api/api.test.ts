@@ -104,7 +104,7 @@ describe("errores", () => {
 
   it("sin red: sin_conexion con status 0", async () => {
     responder(new TypeError("Failed to fetch"));
-    const error = await errorDe(api.publico.categoriasPublicas());
+    const error = await errorDe(api.publico.consultarRut("11111111-1"));
     expect(error.status).toBe(0);
     expect(error.codigo).toBe("sin_conexion");
   });
@@ -132,11 +132,12 @@ describe("cuerpos y URLs", () => {
       faltan_datos: true,
       sin_numero: false,
       categoria_id: 3,
+      sin_categoria: true,
       q: "",
       disciplina: undefined,
     });
     expect(llamadas[0]?.url).toBe(
-      "/api/panel/jugadores?estado=activo&faltan_datos=true&sin_numero=false&categoria_id=3",
+      "/api/panel/jugadores?estado=activo&faltan_datos=true&sin_numero=false&categoria_id=3&sin_categoria=true",
     );
   });
 
@@ -294,6 +295,7 @@ describe("cada función llama al método y la URL del contrato", () => {
       rut: generarRutFicticio(5),
       disciplina: "basketball",
       categoria_id: null,
+      u11f: false,
       numero_camiseta: null,
       estado: "activo",
       origen: "base_2026",

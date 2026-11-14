@@ -43,6 +43,13 @@
       "when": 1794606217775,
       "tag": "0005_suscripcion_servicio",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794668323707,
+      "tag": "0006_categorias_por_edad",
+      "breakpoints": true
     }
   ]
 }

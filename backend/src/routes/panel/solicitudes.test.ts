@@ -3,7 +3,6 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { API } from "@club-colina/shared";
 import {
   apoderados,
-  categorias,
   fichasPrevias,
   fotos,
   jugadorApoderado,
@@ -65,15 +64,6 @@ async function familia(extra: Partial<typeof solicitudesRegistro.$inferInsert> =
   await db.update(solicitudesRegistro).set({ titular_apoderado_id: apo }).where(eq(solicitudesRegistro.id, s.id));
   await db.insert(jugadorApoderado).values({ jugador_id: hijo, apoderado_id: apo, solicitud_id: s.id, paga_mensualidad: true });
   return { s, apo, hijo, apellido };
-}
-
-async function u14(): Promise<number> {
-  const [c] = await db
-    .select()
-    .from(categorias)
-    .where(and(eq(categorias.nombre, "U14"), eq(categorias.disciplina, "voleibol")));
-  if (!c) throw new Error("sin U14");
-  return c.id;
 }
 
 async function estadoJ(id: string) {
@@ -174,7 +164,7 @@ describe("solicitudes: aprobar", () => {
       app.inject({ method: "POST", url: `/api/panel/solicitudes/${s.id}/aprobar`, cookies, payload });
 
     let r = await aprobar({
-      jugadores: [{ id: hijo, categoria_id: await u14(), numero_camiseta: "00", ...becas }],
+      jugadores: [{ id: hijo, numero_camiseta: "00", ...becas }],
       apoderados: [{ id: apo, metodo_pago: "forpay_mensual" }],
     });
     expect(r.statusCode).toBe(200);
@@ -200,7 +190,7 @@ describe("solicitudes: aprobar", () => {
       method: "POST",
       url: `/api/panel/solicitudes/${s.id}/aprobar`,
       cookies,
-      payload: { apoderados: [{ id: apo }], jugadores: [{ id: hijo, categoria_id: null, numero_camiseta: "99", ...becas }] },
+      payload: { apoderados: [{ id: apo }], jugadores: [{ id: hijo, numero_camiseta: "99", ...becas }] },
     });
     expect(r.statusCode).toBe(422);
     expect(r.json().error).toEqual({ codigo: "requisitos_incompletos", mensaje: "Faltan datos: foto" });
@@ -217,7 +207,7 @@ describe("solicitudes: aprobar", () => {
       method: "POST",
       url: `/api/panel/solicitudes/${s.id}/aprobar`,
       cookies,
-      payload: { jugadores: [{ id: hijo, categoria_id: null, numero_camiseta: "7", ...becas }] },
+      payload: { jugadores: [{ id: hijo, numero_camiseta: "7", ...becas }] },
     });
     expect(r.statusCode).toBe(200);
     expect(await estadoJ(hijo)).toMatchObject({ estado: "activo", marcado_retiro_en: marca });
@@ -256,7 +246,7 @@ describe("solicitudes: aprobar", () => {
 
     // El apoderado sigue pendiente: el vínculo no se aprueba.
     let r = await aprobar({
-      jugadores: [{ id: hijo, categoria_id: null, numero_camiseta: "1", ...becas }],
+      jugadores: [{ id: hijo, numero_camiseta: "1", ...becas }],
       vinculos: [{ jugador_id: hijo, apoderado_id: apo }],
     });
     expect(r.statusCode).toBe(409);
@@ -274,7 +264,7 @@ describe("solicitudes: aprobar", () => {
 
     // Persona y vínculo en el mismo pedido: vale, porque los vínculos van al final.
     r = await aprobar({
-      jugadores: [{ id: hijo, categoria_id: null, numero_camiseta: "1", ...becas }],
+      jugadores: [{ id: hijo, numero_camiseta: "1", ...becas }],
       vinculos: [{ jugador_id: hijo, apoderado_id: apo }],
     });
     expect(r.statusCode).toBe(200);
@@ -298,7 +288,7 @@ describe("solicitudes: solo desde la propia", () => {
     const desdeFalsa = (accion: string, payload: object) =>
       app.inject({ method: "POST", url: `/api/panel/solicitudes/${falsa.s.id}/${accion}`, cookies, payload });
     expect(
-      (await desdeFalsa("aprobar", { jugadores: [{ id: real.hijo, categoria_id: null, numero_camiseta: "5", ...becas }] })).statusCode,
+      (await desdeFalsa("aprobar", { jugadores: [{ id: real.hijo, numero_camiseta: "5", ...becas }] })).statusCode,
     ).toBe(409);
     expect((await desdeFalsa("rechazar", { personas: [{ rol: "jugador", id: real.hijo }] })).statusCode).toBe(409);
 
@@ -369,7 +359,7 @@ describe("solicitudes: solo desde la propia", () => {
       cookies,
       payload: {
         apoderados: [{ id: apo }],
-        jugadores: [{ id: hijo, categoria_id: null, numero_camiseta: "2", ...becas }],
+        jugadores: [{ id: hijo, numero_camiseta: "2", ...becas }],
         vinculos: [{ jugador_id: hijo, apoderado_id: apo }],
       },
     });
@@ -441,7 +431,7 @@ describe("solicitudes: rechazar vuelve a como estaba", () => {
       method: "POST",
       url: `/api/panel/solicitudes/${s.id}/aprobar`,
       cookies,
-      payload: { apoderados: [{ id: apo }], jugadores: [{ id: hijo, categoria_id: null, numero_camiseta: "4", ...becas }] },
+      payload: { apoderados: [{ id: apo }], jugadores: [{ id: hijo, numero_camiseta: "4", ...becas }] },
     });
     expect(await db.select().from(fichasPrevias).where(eq(fichasPrevias.solicitud_id, s.id))).toHaveLength(0);
     await app.close();
@@ -627,7 +617,7 @@ describe("solicitudes: dos solicitudes sobre un precargado y casos sin copia", (
     const desdeY = (accion: string, payload: object) =>
       app.inject({ method: "POST", url: `/api/panel/solicitudes/${y.s.id}/${accion}`, cookies, payload });
     expect(
-      (await desdeY("aprobar", { jugadores: [{ id: hijo, categoria_id: null, numero_camiseta: "8", ...becas }] })).statusCode,
+      (await desdeY("aprobar", { jugadores: [{ id: hijo, numero_camiseta: "8", ...becas }] })).statusCode,
     ).toBe(409);
     expect((await desdeY("rechazar", { personas: [{ rol: "jugador", id: hijo }] })).statusCode).toBe(409);
     // El rechazo total de Y solo quita su vínculo: el hijo y su copia siguen para X.
@@ -723,13 +713,13 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
     const hijo = await crearJugador(db, { foto_id: fotoBase });
     const antes = await estadoJ(hijo);
     if (!antes) throw new Error("sin jugador");
-    // Las 13 llaves, con la fecha como texto ISO, igual que copiaPrevia de S2.
+    // Las 12 llaves, con la fecha como texto ISO, igual que copiaPrevia de S2.
     await db.insert(fichasPrevias).values({
       solicitud_id: s.id,
       jugador_id: hijo,
       datos: {
         nombre: antes.nombre, apellido: antes.apellido, fecha_nacimiento: antes.fecha_nacimiento,
-        disciplina: antes.disciplina, categoria_id: antes.categoria_id, numero_camiseta: antes.numero_camiseta,
+        disciplina: antes.disciplina, numero_camiseta: antes.numero_camiseta,
         telefono: antes.telefono, email: antes.email, metodo_pago: antes.metodo_pago, foto_id: fotoBase,
         estado: "precargado", solicitud_id: null, marcado_retiro_en: null,
       },
@@ -896,7 +886,7 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
       method: "POST",
       url: `/api/panel/solicitudes/${s.id}/aprobar`,
       cookies,
-      payload: { apoderados: [{ id: apo }], jugadores: [{ id: hijo, categoria_id: null, numero_camiseta: "8", ...becas }] },
+      payload: { apoderados: [{ id: apo }], jugadores: [{ id: hijo, numero_camiseta: "8", ...becas }] },
     });
     expect(await estadoS(s.id)).toBe("pendiente");
     r = await rechazar({ vinculos: [{ jugador_id: hijo, apoderado_id: apo }] });
@@ -1025,7 +1015,7 @@ describe("solicitudes: pedidos de S2 (#25) y rechazo de un vínculo", () => {
     const { app, cookies } = await appConSesion(db);
     const { s, apo, hijo } = await familia();
     await db.update(jugadores).set({ fecha_nacimiento: "1990-01-01", telefono: null }).where(eq(jugadores.id, hijo));
-    const jugador = { id: hijo, categoria_id: null, numero_camiseta: "9", ...becas };
+    const jugador = { id: hijo, numero_camiseta: "9", ...becas };
     const vinculos = [{ jugador_id: hijo, apoderado_id: apo }];
     const aprobar = (payload: object) =>
       app.inject({ method: "POST", url: `/api/panel/solicitudes/${s.id}/aprobar`, cookies, payload });

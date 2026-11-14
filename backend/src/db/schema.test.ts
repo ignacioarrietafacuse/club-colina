@@ -10,12 +10,27 @@ const { db, cerrar } = dbTest();
 afterAll(cerrar);
 
 describe("esquema y migraciones", () => {
-  it("trae las 11 categorías del diseño; U11 F no se calcula", async () => {
+  it("trae las 12 categorías del club por edad de temporada; U11 F no se calcula", async () => {
     const filas = await db.select().from(categorias);
-    expect(filas).toHaveLength(11);
-    expect(filas.filter((c) => c.disciplina === "basketball")).toHaveLength(7);
-    expect(filas.find((c) => c.nombre === "U11 F")?.se_calcula).toBe(false);
-    expect(filas.find((c) => c.nombre === "U21")).toMatchObject({ anio_desde: 2005, anio_hasta: 2008 });
+    const tabla = filas
+      .map((c) => `${c.disciplina} ${c.nombre} ${c.edad_min}-${c.edad_max}${c.se_calcula ? "" : " a mano"}`)
+      .sort();
+    expect(tabla).toEqual(
+      [
+        "basketball U9 8-9",
+        "basketball U11 10-11",
+        "basketball U11 F 10-11 a mano",
+        "basketball U13 12-13",
+        "basketball U15 14-15",
+        "basketball U17 16-17",
+        "basketball U19 18-19",
+        "basketball U21 20-21",
+        "voleibol U12 11-12",
+        "voleibol U14 13-14",
+        "voleibol U16 15-16",
+        "voleibol U18 17-18",
+      ].sort(),
+    );
   });
 
   it("la solicitud guarda solo el hash del link y avisos conocidos", async () => {

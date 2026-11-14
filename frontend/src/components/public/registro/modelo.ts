@@ -19,7 +19,6 @@ export type CampoPersona =
   | "fecha_nacimiento"
   | "disciplina"
   | "numero_camiseta"
-  | "categoria"
   | "foto";
 
 export interface DatosPersona {
@@ -29,8 +28,6 @@ export interface DatosPersona {
   fecha_nacimiento: string;
   disciplina: Disciplina | "";
   numero_camiseta: string;
-  /** "" = que el servidor la calcule por el año de nacimiento. */
-  categoria_id: string;
 }
 
 export const DATOS_VACIOS: DatosPersona = {
@@ -40,14 +37,11 @@ export const DATOS_VACIOS: DatosPersona = {
   fecha_nacimiento: "",
   disciplina: "",
   numero_camiseta: "",
-  categoria_id: "",
 };
 
 /**
- * Qué se le pregunta a una persona. La categoría se pregunta solo cuando el servidor dice que
- * falta (`faltantes` de un apoderado o hijo precargado): a una persona nueva, y al jugador adulto
- * precargado (que llena el formulario completo), el servidor se la calcula por año de
- * nacimiento, y si no calza, la completa Mony al aprobar.
+ * Qué se le pregunta a una persona. La categoría nunca se pregunta: el servidor la calcula con la
+ * fecha de nacimiento, así que si falta (o la de la base es inválida) se pide la fecha.
  */
 export interface Campos {
   pedir: ReadonlySet<CampoPersona>;
@@ -325,9 +319,6 @@ function validarPersona(
     errores[p("numero_camiseta")] =
       "Escribe un número de 1 o 2 dígitos. Si aún no tiene, escribe 99.";
   }
-  if (c.pedir.has("categoria") && !datos.categoria_id) {
-    errores[p("categoria_id")] = "Elige la categoría.";
-  }
   if (c.pedir.has("foto") && !foto) errores[p("foto")] = "Falta la foto.";
 }
 
@@ -451,7 +442,6 @@ interface DatosEnviados {
   fecha_nacimiento?: string;
   disciplina?: Disciplina;
   numero_camiseta?: string;
-  categoria_id?: number;
   foto?: string;
 }
 
@@ -471,8 +461,6 @@ function datosPersona(c: Campos, d: DatosPersona, claveFoto: string | undefined)
   if (c.pedir.has("disciplina") && d.disciplina) r.disciplina = d.disciplina;
   const numero = texto("numero_camiseta", d.numero_camiseta);
   if (numero !== undefined) r.numero_camiseta = numero;
-  const categoria = texto("categoria", d.categoria_id);
-  if (categoria !== undefined) r.categoria_id = Number(categoria);
   if (c.pedir.has("foto") && claveFoto !== undefined) r.foto = claveFoto;
   return r;
 }

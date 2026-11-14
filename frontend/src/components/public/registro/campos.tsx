@@ -1,4 +1,3 @@
-import type { CategoriaPublica } from "@club-colina/shared";
 import { NUMERO_SIN_ASIGNAR } from "@club-colina/shared";
 import { useId, type ReactNode } from "react";
 import { Input } from "@/components/ui/input";
@@ -72,7 +71,6 @@ export function CamposPersona({
   onFoto,
   errores,
   prefijo = "",
-  categorias,
   etiquetaFoto,
 }: {
   c: Campos;
@@ -82,13 +80,9 @@ export function CamposPersona({
   onFoto: (foto: File | null) => void;
   errores: Errores;
   prefijo?: string;
-  categorias: CategoriaPublica[] | undefined;
   etiquetaFoto: string;
 }) {
   const e = (campo: string) => errores[`${prefijo}${campo}`];
-  const opcionesCategoria = (categorias ?? []).filter(
-    (cat) => !datos.disciplina || cat.disciplina === datos.disciplina,
-  );
   return (
     <div className="space-y-4">
       {c.pedir.has("nombre") && (
@@ -158,7 +152,7 @@ export function CamposPersona({
               onChange={(ev) => {
                 const v = ev.target.value;
                 const disciplina = v === "basketball" || v === "voleibol" ? v : "";
-                onDatos({ disciplina, categoria_id: "" });
+                onDatos({ disciplina });
               }}
             >
               <option value="">Elige una rama</option>
@@ -184,33 +178,6 @@ export function CamposPersona({
               maxLength={2}
               onChange={(ev) => onDatos({ numero_camiseta: ev.target.value.replace(/\D/g, "") })}
             />
-          )}
-        </Campo>
-      )}
-      {c.pedir.has("categoria") && (
-        <Campo
-          etiqueta="Categoría"
-          error={e("categoria_id")}
-          ayuda={
-            c.pedir.has("fecha_nacimiento")
-              ? "Si no la sabes, elige la que corresponde a su año de nacimiento."
-              : "No pudimos calcularla con la fecha de nacimiento que tenemos."
-          }
-        >
-          {(id) => (
-            <select
-              id={id}
-              className={SELECT}
-              value={datos.categoria_id}
-              onChange={(ev) => onDatos({ categoria_id: ev.target.value })}
-            >
-              <option value="">Elige una categoría</option>
-              {opcionesCategoria.map((cat) => (
-                <option key={cat.id} value={String(cat.id)}>
-                  {cat.nombre} · {NOMBRE_DISCIPLINA[cat.disciplina]}
-                </option>
-              ))}
-            </select>
           )}
         </Campo>
       )}

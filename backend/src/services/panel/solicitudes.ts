@@ -43,8 +43,8 @@ import { generarToken, hashToken } from "../../lib/tokens";
 import { incompleto } from "./acciones";
 import { entraPorSolicitud } from "../registro/links";
 import { conRestricciones } from "./errores-db";
-import { cargarCategorias, detalleApoderado, detalleJugador, marcadoSinResolver, tieneApoderadoVigente, verificarCategoria } from "./personas";
-import { faltantesApoderado, faltantesJugador, nombreCompleto, requisitosJugador } from "./reglas";
+import { detalleApoderado, detalleJugador, marcadoSinResolver, tieneApoderadoVigente } from "./personas";
+import { faltantesApoderado, faltantesJugador, nombreCompleto } from "./reglas";
 
 type SolicitudResumen = z.input<typeof solicitudResumen>;
 type SolicitudDetalle = z.input<typeof solicitudDetalle>;
@@ -412,7 +412,7 @@ async function borrarFichasPrevias(tx: Ejecutor, tipo: "jugador" | "apoderado", 
 
 /**
  * Aprobación total o parcial. Cada persona tiene que ser propia de la solicitud y estar
- * pendiente; Mony completa número, categoría, becas y método de pago. Los vínculos se aprueban
+ * pendiente; Mony completa número, becas y método de pago. Los vínculos se aprueban
  * solo si vienen listados, y solo si al final el jugador y el apoderado quedan activos. Si algo
  * no se cumple, no se aprueba nada.
  */
@@ -427,7 +427,6 @@ export async function aprobarSolicitud(
     const m = await miembros(tx, s);
     const propiosJ = new Set(m.propiosJ);
     const propiosA = new Set(m.propiosA);
-    const cats = await cargarCategorias(tx);
 
     // Los apoderados van primero: un apoderado aprobado en este mismo pedido ya cuenta como
     // contacto del jugador adulto (solo cuenta uno activo).
@@ -476,22 +475,17 @@ export async function aprobarSolicitud(
         .where(eq(jugadores.id, pj.id))
         .for("update");
       if (!j || j.estado !== "pendiente") throw fueraDeLaSolicitud();
-      if (pj.categoria_id !== null) await verificarCategoria(tx, pj.categoria_id, j.disciplina);
       // Un vínculo listado en este pedido puede darle contacto: se confirma al final.
       const contactoEnPedido = pedido.vinculos.some((v) => v.jugador_id === pj.id);
-      const faltan = requisitosJugador(
-        faltantesJugador(
-          { ...j, categoria_id: pj.categoria_id, numero_camiseta: pj.numero_camiseta },
-          j.tiene_apoderado || contactoEnPedido,
-          cats,
-        ),
+      const faltan = faltantesJugador(
+        { ...j, numero_camiseta: pj.numero_camiseta },
+        j.tiene_apoderado || contactoEnPedido,
       );
       if (faltan.length > 0) throw incompleto(faltan);
       await conRestricciones(() =>
         tx
           .update(jugadores)
           .set({
-            categoria_id: pj.categoria_id,
             numero_camiseta: pj.numero_camiseta,
             beca_mensualidad_pct: pj.beca_mensualidad_pct,
             beca_torneos_pct: pj.beca_torneos_pct,
@@ -547,7 +541,6 @@ export async function aprobarSolicitud(
           nombre: jugadores.nombre,
           apellido: jugadores.apellido,
           fecha_nacimiento: jugadores.fecha_nacimiento,
-          categoria_id: jugadores.categoria_id,
           numero_camiseta: jugadores.numero_camiseta,
           telefono: jugadores.telefono,
           foto_id: jugadores.foto_id,
@@ -557,7 +550,7 @@ export async function aprobarSolicitud(
         .from(jugadores)
         .where(eq(jugadores.id, jugadorId));
       if (!j) throw noEncontrado();
-      const faltan = requisitosJugador(faltantesJugador(j, j.tiene_apoderado, cats));
+      const faltan = faltantesJugador(j, j.tiene_apoderado);
       if (faltan.length > 0) throw incompleto(faltan);
     }
     await borrarFichasPrevias(tx, "jugador", aprobadosJ);
@@ -579,7 +572,6 @@ const previoJugador = z
     apellido: textoONulo,
     fecha_nacimiento: z.iso.date().nullable(),
     disciplina: z.enum(DISCIPLINAS),
-    categoria_id: z.number().int().positive().nullable(),
     numero_camiseta: z.string().regex(/^[0-9]{1,2}$/).nullable(),
     telefono: z.string().regex(/^[0-9]{9}$/).nullable(),
     email: textoONulo,

@@ -187,7 +187,7 @@ Cada jugador tendrá una ficha.
 - Fecha de nacimiento.
 - Edad (calculada).
 - Disciplina (rama).
-- Categoría.
+- Categoría (calculada por edad de temporada; la U11 F la marca el club).
 - Número de camiseta (obligatorio para aprobar; vacío solo en los precargados desde la base 2026; 99 = sin número asignado).
 - Foto.
 - Estado (precargado / pendiente / activo / rechazado / inactivo).
@@ -237,7 +237,7 @@ Funcionalidad pedida por el club para identificar a jugadores, apoderados y entr
 
 **Aprobación**
 - Ningún registro queda activo hasta que el club lo aprueba en el panel.
-- Al aprobar, el club completa las becas y puede corregir categoría, número y método de pago. El método de pago es uno de tres: Forpay mensual, Transferencia anual o Tarjeta de crédito anual (confirmados por el club, 2026-11-11). Viene de la base 2026 cuando existe; si no, lo completa el club.
+- Al aprobar, el club completa las becas y puede corregir número y método de pago. La categoría se calcula por edad de temporada y no se corrige (desde el 2026-11-14; ver `diseno-credenciales-qr.md`). El método de pago es uno de tres: Forpay mensual, Transferencia anual o Tarjeta de crédito anual (confirmados por el club, 2026-11-11). Viene de la base 2026 cuando existe; si no, lo completa el club.
 
 **Credencial**
 - Cada jugador y apoderado aprobado tiene un QR. Los entrenadores lo tienen desde que el club los crea.
@@ -282,7 +282,7 @@ Debe contener:
 - Lugar.
 - Entrenador responsable (elegido de la sección Entrenadores).
 
-**En la Etapa 1** solo existe la lista mínima (nombre y disciplina) que alimenta el desplegable del formulario de registro. La sección completa, con horarios, lugar y entrenador, es de la Etapa 2.
+**En la Etapa 1** solo existe la lista mínima (nombre, disciplina y edades de temporada) con la que se calcula la categoría de cada jugador; el formulario ya no la pregunta (2026-11-14, ver `diseno-credenciales-qr.md`). La sección completa, con horarios, lugar y entrenador, es de la Etapa 2.
 
 ## 11. Torneos y campus [v1.1 — Etapa 2]
 
@@ -765,7 +765,7 @@ El desarrollo se divide en dos etapas. La Etapa 1 es urgente y no depende de inf
 
 **1.5 Panel**
 - Login.
-- Solicitudes pendientes: aprobar, rechazar, corregir categoría y número, asignar becas.
+- Solicitudes pendientes: aprobar, rechazar, corregir número, asignar becas (la categoría se calcula).
 - Secciones Jugadores y Apoderados con datos reales.
 - Sección Entrenadores: crear entrenador a mano (con foto) y descargar su QR.
 - Dashboard con los indicadores disponibles y el resto como "Pendiente".

@@ -92,7 +92,7 @@ describe("POST /api/public/rut-lookup", () => {
           posicion: 1,
           primer_nombre: "Camila",
           ya_registrado: false,
-          faltantes: ["fecha_nacimiento", "categoria", "numero_camiseta", "foto"],
+          faltantes: ["fecha_nacimiento", "numero_camiseta", "foto"],
         },
       ],
     });
@@ -149,14 +149,14 @@ describe("POST /api/public/rut-lookup", () => {
     });
     const app = await construirApp({ config: configTest(), db });
     const r = await consultar(app, jugador.rut);
-    // Vóley no tiene categoría para el año 2000: hay que preguntarla.
+    // Vóley no tiene categoría para el año 2000: queda sin categoría y no se pregunta.
     expect(r.json()).toEqual({
       encontrado: true,
       tipo: "jugador",
       primer_nombre: "Valentina",
       adulto: true,
       ya_registrado: false,
-      faltantes: ["categoria", "numero_camiseta", "telefono", "foto"],
+      faltantes: ["numero_camiseta", "telefono", "foto"],
     });
     sinDatos(r.body, [jugador.rut, jugador.id]);
     await app.close();
@@ -171,13 +171,14 @@ describe("POST /api/public/rut-lookup", () => {
     await app.close();
   });
 
-  it("un jugador sin fecha en la base (puede ser menor) tampoco revela su nombre", async () => {
+  it("un jugador sin fecha, o con una fecha inválida, en la base (puede ser menor) tampoco revela su nombre", async () => {
     const apoderado = await crearApoderado(db);
     const sinFecha = await crearJugador(db, { nombre: "Emilia", fecha_nacimiento: null });
     await vincular(db, sinFecha.id, apoderado.id);
     const huerfano = await crearJugador(db, { nombre: "Josefa", fecha_nacimiento: null });
+    const fechaInvalida = await crearJugador(db, { nombre: "Antonia", fecha_nacimiento: "1850-01-01" });
     const app = await construirApp({ config: configTest(), db });
-    for (const rut of [sinFecha.rut, huerfano.rut]) {
+    for (const rut of [sinFecha.rut, huerfano.rut, fechaInvalida.rut]) {
       const r = await consultar(app, rut);
       expect(r.json()).toEqual({ encontrado: false });
     }

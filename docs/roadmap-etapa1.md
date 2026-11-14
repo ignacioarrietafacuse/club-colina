@@ -42,7 +42,7 @@ agregan `GET /api/public/categorias` y `POST /api/panel/:tipo/:id/activar`, y
 - `POST /api/public/rut-lookup` `{rut}` → si está precargado, el tipo y qué campos faltan, más el primer nombre de los hijos y sus faltantes. Nunca devuelve datos guardados ni ids: los hijos precargados van por posición, que el servidor recalcula desde el RUT al recibir la solicitud. Con límite de intentos. Un jugador que no es adulto con certeza responde como RUT desconocido (2026-11-12).
 - `POST /api/public/solicitudes` (multipart: datos + fotos) → `{token_acceso, otros_apoderados}` con los links de `/completar`. Es la única vez que se entregan: la base guarda solo su hash. Calcula los avisos de suplantación para el panel.
 - `GET /api/public/familia/:token_acceso` → estado de la solicitud y de cada persona que llegó en ella, nunca el resto de la familia de la base (nombre, rol, estado y `credencial_token` si está activa).
-- `GET /api/public/categorias` → `[{id, nombre, disciplina}]`, para cuando el formulario tiene que preguntar la categoría.
+- `GET /api/public/categorias` → `[{id, nombre, disciplina}]`, para cuando el formulario tiene que preguntar la categoría. Se quitó el 2026-11-14: la categoría se calcula por edad de temporada y el formulario ya no la pregunta (ver `diseno-credenciales-qr.md`).
 - `GET|POST /api/public/completar/:token` → link personal del segundo apoderado para subir su foto.
 - `GET /api/public/credencial/:credencial_token` → `{nombre, rol}` solo si está activa; si no, 404 genérico.
 - `GET /api/public/credencial/:credencial_token/foto`.
@@ -52,7 +52,7 @@ agregan `GET /api/public/categorias` y `POST /api/panel/:tipo/:id/activar`, y
 
 **Panel** (con login)
 - `GET /api/panel/dashboard`: jugadores activos, apoderados, entrenadores, solicitudes pendientes y precargados sin registrarse.
-- `GET /api/panel/solicitudes`, `GET /api/panel/solicitudes/:id`, `POST .../:id/aprobar` (por persona: categoría, número, becas, método de pago), `POST .../:id/rechazar`, `POST .../:id/link` (genera un link privado nuevo, anula el anterior y lo devuelve para copiarlo). Listado y detalle traen los `avisos` de posible suplantación.
+- `GET /api/panel/solicitudes`, `GET /api/panel/solicitudes/:id`, `POST .../:id/aprobar` (por persona: número, becas, método de pago; la categoría se calcula desde el 2026-11-14), `POST .../:id/rechazar`, `POST .../:id/link` (genera un link privado nuevo, anula el anterior y lo devuelve para copiarlo). Listado y detalle traen los `avisos` de posible suplantación.
 - `GET|PATCH /api/panel/jugadores[/:id]`, con filtros por estado, "faltan datos" y "sin número (99)".
 - `GET|PATCH /api/panel/apoderados[/:id]`.
 - `GET|POST|PATCH /api/panel/entrenadores[/:id]`.

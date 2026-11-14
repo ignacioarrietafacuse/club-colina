@@ -1,7 +1,8 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { API, FOTO_MAX_BYTES, generarRutFicticio } from "@club-colina/shared";
+import { API, dashboardResponse, FOTO_MAX_BYTES, generarRutFicticio } from "@club-colina/shared";
 import { apoderados, categorias, entrenadores, fotos, jugadorApoderado, jugadores, solicitudesRegistro } from "../../db/schema";
+import { temporada } from "../../lib/categorias";
 import { generarToken, hashToken } from "../../lib/tokens";
 import { dbTest, JPEG_PRUEBA, PNG_PRUEBA } from "../../test/db";
 import {
@@ -77,8 +78,29 @@ describe("dashboard y categorías", () => {
     expect(despues.precargados_sin_registrar.jugadores).toBe(antes.precargados_sin_registrar.jugadores + 1);
     expect(despues.precargados_sin_registrar.apoderados).toBe(antes.precargados_sin_registrar.apoderados + 1);
     const cats = (await app.inject({ method: "GET", url: "/api/panel/categorias", cookies })).json();
-    expect(cats.length).toBeGreaterThanOrEqual(11);
-    expect(cats.find((c: { nombre: string }) => c.nombre === "U11 F").se_calcula).toBe(false);
+    expect(cats).toHaveLength(12);
+    expect(cats.find((c: { nombre: string }) => c.nombre === "U11 F")).toMatchObject({ se_calcula: false });
+    expect(cats.find((c: { nombre: string }) => c.nombre === "U19")).toMatchObject({ edad_min: 18, edad_max: 19 });
+    // Por categoría: todas, en el orden de /categorias, y al final los sin categoría.
+    const porCategoria = dashboardResponse.parse(despues).jugadores_por_categoria;
+    expect(porCategoria.map((c) => c.categoria_id)).toEqual([...cats.map((c: { id: number }) => c.id), null]);
+    const total = porCategoria.reduce((suma, c) => suma + c.jugadores, 0);
+    expect(total).toBe(despues.jugadores_activos);
+    // Cada activo cuenta en su categoría calculada; la U11 F marcada, en U11 F; uno que no calza, en null.
+    const t = temporada();
+    await crearJugadorActivo(db, { disciplina: "basketball", fecha_nacimiento: `${t - 13}-01-01` });
+    await crearJugadorActivo(db, { disciplina: "basketball", fecha_nacimiento: `${t - 11}-01-01`, u11f_temporada: t });
+    await crearJugadorActivo(db, { disciplina: "voleibol", fecha_nacimiento: `${t - 10}-01-01` });
+    await crearJugador(db, { disciplina: "voleibol", fecha_nacimiento: `${t - 10}-01-01` });
+    const cuenta = (r: { categoria_id: number | null; jugadores: number }[], id: number | null) =>
+      r.find((c) => c.categoria_id === id)?.jugadores ?? 0;
+    const ahora = dashboardResponse.parse(
+      (await app.inject({ method: "GET", url: "/api/panel/dashboard", cookies })).json(),
+    ).jugadores_por_categoria;
+    expect(cuenta(ahora, await categoria("basketball", "U13"))).toBe(cuenta(porCategoria, await categoria("basketball", "U13")) + 1);
+    expect(cuenta(ahora, await categoria("basketball", "U11 F"))).toBe(cuenta(porCategoria, await categoria("basketball", "U11 F")) + 1);
+    // Vóley con edad 10 (no hay U10): sin categoría. El precargado no cuenta: solo activos.
+    expect(cuenta(ahora, null)).toBe(cuenta(porCategoria, null) + 1);
     await app.close();
   });
 });
@@ -92,7 +114,6 @@ describe("jugadores", () => {
       apellido,
       numero_camiseta: "99",
       rut,
-      categoria_id: await categoria("voleibol", "U14"),
     });
     const precargado = await crearJugador(db, { apellido });
     const listar = async (query: string): Promise<Array<{ id: string }>> =>
@@ -133,14 +154,14 @@ describe("jugadores", () => {
     const sinApoderado = r.json();
     expect(sinApoderado.edad).toBeGreaterThanOrEqual(26);
     // Adulto sin apoderado: le falta su teléfono.
-    expect(sinApoderado.faltantes).toEqual(["categoria", "numero_camiseta", "telefono", "foto"]);
+    expect(sinApoderado.faltantes).toEqual(["numero_camiseta", "telefono", "foto"]);
     await vincular(db, id, apo, { paga_mensualidad: true });
     // Solo un apoderado activo es contacto: precargado o pendiente, el adulto sigue necesitando
     // su teléfono (decisión de Ignacio, 2026-11-12).
     for (const estado of ["precargado", "pendiente"] as const) {
       await db.update(apoderados).set({ estado }).where(eq(apoderados.id, apo));
       r = await app.inject({ method: "GET", url: `/api/panel/jugadores/${id}`, cookies });
-      expect(r.json().faltantes).toEqual(["categoria", "numero_camiseta", "telefono", "foto"]);
+      expect(r.json().faltantes).toEqual(["numero_camiseta", "telefono", "foto"]);
     }
     await db
       .update(apoderados)
@@ -148,10 +169,10 @@ describe("jugadores", () => {
       .where(eq(apoderados.id, apo));
     // Apoderado activo, pero el vínculo sin aprobar: tampoco cuenta.
     r = await app.inject({ method: "GET", url: `/api/panel/jugadores/${id}`, cookies });
-    expect(r.json().faltantes).toEqual(["categoria", "numero_camiseta", "telefono", "foto"]);
+    expect(r.json().faltantes).toEqual(["numero_camiseta", "telefono", "foto"]);
     await db.update(jugadorApoderado).set({ estado: "activo" }).where(eq(jugadorApoderado.jugador_id, id));
     r = await app.inject({ method: "GET", url: `/api/panel/jugadores/${id}`, cookies });
-    expect(r.json().faltantes).toEqual(["categoria", "numero_camiseta", "foto"]);
+    expect(r.json().faltantes).toEqual(["numero_camiseta", "foto"]);
     expect(r.json().apoderados).toEqual([
       { id: apo, nombre_completo: "Ana Prueba", paga_mensualidad: true, estado_vinculo: "activo" },
     ]);
@@ -161,24 +182,43 @@ describe("jugadores", () => {
     await app.close();
   });
 
-  it("PATCH edita, valida la categoría contra la rama y traduce las restricciones", async () => {
+  it("PATCH edita, marca U11 F solo en básquet y traduce las restricciones", async () => {
     const { app, cookies } = await appConSesion(db);
-    const id = await crearJugador(db);
-    const u14 = await categoria("voleibol", "U14");
-    const u13 = await categoria("basketball", "U13");
+    // Edad de temporada 11: U12 en vóley, U11 en básquet.
+    const id = await crearJugador(db, { fecha_nacimiento: `${temporada() - 11}-05-10` });
+    const u12 = await categoria("voleibol", "U12");
+    const u11 = await categoria("basketball", "U11");
+    const u11f = await categoria("basketball", "U11 F");
     const patch = (payload: object, jugador = id) =>
       app.inject({ method: "PATCH", url: `/api/panel/jugadores/${jugador}`, cookies, payload });
 
-    let r = await patch({ numero_camiseta: "00", categoria_id: u14, beca_mensualidad_pct: 50, telefono: "+56 9 1234 5678" });
+    let r = await patch({ numero_camiseta: "00", beca_mensualidad_pct: 50, telefono: "+56 9 1234 5678" });
     expect(r.statusCode).toBe(200);
-    expect(r.json()).toMatchObject({ numero_camiseta: "00", categoria_id: u14, beca_mensualidad_pct: 50, telefono: "912345678" });
+    expect(r.json()).toMatchObject({ numero_camiseta: "00", categoria_id: u12, u11f: false, beca_mensualidad_pct: 50, telefono: "912345678" });
 
-    // Categoría de otra rama, o cambiar de rama sin corregir la categoría: 400.
-    expect((await patch({ categoria_id: u13 })).statusCode).toBe(400);
-    expect((await patch({ disciplina: "basketball" })).statusCode).toBe(400);
-    expect((await patch({ disciplina: "basketball", categoria_id: u13 })).statusCode).toBe(200);
-    expect((await patch({ categoria_id: 32000 })).statusCode).toBe(400);
+    // La categoría ya no se edita: se calcula. La marca U11 F solo vale en básquet.
+    expect((await patch({ categoria_id: u12 })).json()).toMatchObject({ categoria_id: u12 });
+    expect((await patch({ u11f: true })).statusCode).toBe(400);
+    expect((await patch({ disciplina: "basketball" })).json()).toMatchObject({ categoria_id: u11, u11f: false });
+    expect((await patch({ u11f: true })).json()).toMatchObject({ categoria_id: u11f, u11f: true });
+    const [marcada] = await db.select().from(jugadores).where(eq(jugadores.id, id));
+    expect(marcada?.u11f_temporada).toBe(temporada());
+    // Una marca de otra temporada no vale: vuelve a la calculada.
+    await db.update(jugadores).set({ u11f_temporada: temporada() - 1 }).where(eq(jugadores.id, id));
+    expect((await app.inject({ method: "GET", url: `/api/panel/jugadores/${id}`, cookies })).json()).toMatchObject({ categoria_id: u11, u11f: false });
+    await patch({ u11f: true });
+    // Pasar a vóley quita la marca: al volver a básquet no reaparece.
+    expect((await patch({ disciplina: "voleibol" })).json()).toMatchObject({ categoria_id: u12, u11f: false });
+    expect((await patch({ disciplina: "basketball" })).json()).toMatchObject({ categoria_id: u11, u11f: false });
+    expect((await patch({ u11f: true, disciplina: "voleibol" })).statusCode).toBe(400);
+    expect((await patch({ u11f: false })).json()).toMatchObject({ categoria_id: u11, u11f: false });
     expect((await patch({ beca_torneos_pct: 101 })).statusCode).toBe(400);
+    // Una fecha imposible no se guarda: sin ella no se calcula la categoría.
+    for (const fecha_nacimiento of ["2999-01-01", "1850-01-01"]) {
+      const malo = await patch({ fecha_nacimiento });
+      expect(malo.statusCode).toBe(400);
+      expect(malo.json().error.mensaje).toBe("Datos inválidos: fecha_nacimiento");
+    }
 
     // RUT repetido: 409.
     const otro = generarRutFicticio();
@@ -330,7 +370,7 @@ describe("fotos y credenciales", () => {
     expect((await accion("regenerar-token")).statusCode).toBe(409);
 
     // Mony completa la ficha en el panel: número y foto. La categoría no es requisito.
-    await app.inject({ method: "PATCH", url: `/api/panel/jugadores/${id}`, cookies, payload: { numero_camiseta: "99", categoria_id: null } });
+    await app.inject({ method: "PATCH", url: `/api/panel/jugadores/${id}`, cookies, payload: { numero_camiseta: "99" } });
     await app.inject({ method: "POST", url: `/api/panel/jugadores/${id}/foto`, cookies, ...multipart([{ nombre: "foto", archivo: JPEG_PRUEBA }]) });
     r = await accion("activar");
     expect(r.statusCode).toBe(200);
@@ -444,29 +484,40 @@ describe("fotos y credenciales", () => {
 });
 
 describe("casos que pidió la revisión", () => {
-  it("un categoria_id fuera de smallint es 400 o lista vacía, nunca 500", async () => {
+  it("un categoria_id que no existe da lista vacía, nunca 500", async () => {
     const { app, cookies } = await appConSesion(db);
-    const id = await crearJugador(db);
-    let r = await app.inject({ method: "GET", url: "/api/panel/jugadores?categoria_id=40000", cookies });
+    await crearJugador(db);
+    const r = await app.inject({ method: "GET", url: "/api/panel/jugadores?categoria_id=40000", cookies });
     expect(r.statusCode).toBe(200);
     expect(r.json()).toEqual([]);
-    r = await app.inject({ method: "PATCH", url: `/api/panel/jugadores/${id}`, cookies, payload: { categoria_id: 40000 } });
-    expect(r.statusCode).toBe(400);
-    expect(r.json().error.codigo).toBe("validacion");
     await app.close();
   });
 
-  it("filtros por rama y categoría de jugadores, y por estado de apoderados", async () => {
+  it("filtros por rama, categoría calculada y sin categoría de jugadores, y por estado de apoderados", async () => {
     const { app, cookies } = await appConSesion(db);
     const apellido = `Rama${Date.now()}`;
+    const t = temporada();
     const u14 = await categoria("voleibol", "U14");
-    const voley = await crearJugador(db, { apellido, categoria_id: u14 });
-    const basket = await crearJugador(db, { apellido, disciplina: "basketball", fecha_nacimiento: "2015-02-02" });
+    const u11 = await categoria("basketball", "U11");
+    const u11f = await categoria("basketball", "U11 F");
+    const voley = await crearJugador(db, { apellido, fecha_nacimiento: `${t - 13}-05-10` });
+    const basket = await crearJugador(db, { apellido, disciplina: "basketball", fecha_nacimiento: `${t - 11}-02-02` });
+    const marcada = await crearJugador(db, { apellido, disciplina: "basketball", fecha_nacimiento: `${t - 11}-03-03`, u11f_temporada: t });
+    // Edad de temporada 10 en vóley (no hay U10) y uno sin fecha: sin categoría.
+    const sinCategoria = await crearJugador(db, { apellido, fecha_nacimiento: `${t - 10}-01-01` });
+    const sinFecha = await crearJugador(db, { apellido, fecha_nacimiento: null });
     const ids = async (q: string) =>
-      (await app.inject({ method: "GET", url: `/api/panel/jugadores?q=${apellido}&${q}`, cookies })).json().map((j: { id: string }) => j.id);
-    expect(await ids("disciplina=voleibol")).toEqual([voley]);
-    expect(await ids("disciplina=basketball")).toEqual([basket]);
+      (await app.inject({ method: "GET", url: `/api/panel/jugadores?q=${apellido}&${q}`, cookies }))
+        .json()
+        .map((j: { id: string }) => j.id)
+        .sort();
+    expect(await ids("disciplina=voleibol")).toEqual([voley, sinCategoria, sinFecha].sort());
+    expect(await ids("disciplina=basketball")).toEqual([basket, marcada].sort());
     expect(await ids(`categoria_id=${u14}`)).toEqual([voley]);
+    expect(await ids(`categoria_id=${u11}`)).toEqual([basket]);
+    expect(await ids(`categoria_id=${u11f}`)).toEqual([marcada]);
+    expect(await ids("sin_categoria=true")).toEqual([sinCategoria, sinFecha].sort());
+    expect(await ids("sin_categoria=false")).toEqual([voley, basket, marcada].sort());
 
     const activo = await crearApoderado(db, { apellido, estado: "activo", foto_id: await fotoPrueba(db), credencial_token: generarToken() });
     const precargado = await crearApoderado(db, { apellido });

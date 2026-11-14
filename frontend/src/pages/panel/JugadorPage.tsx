@@ -22,12 +22,7 @@ import {
 } from "@/components/panel/textos";
 import { Badge, Button, PageHeader } from "@/components/panel/ui";
 import { api, mensajeDeError } from "@/lib/api";
-import {
-  cambiosJugador,
-  categoriaAlCambiarDisciplina,
-  formJugador,
-  type FormJugadorFicha,
-} from "./edicion";
+import { cambiosJugador, formJugador, type FormJugadorFicha } from "./edicion";
 
 export function JugadorPage() {
   const { id } = useParams({ from: "/_panel/jugadores/$id" });
@@ -106,7 +101,12 @@ function FichaJugador({
   });
   const cambiar = (c: Partial<FormJugadorFicha>) => setForm((f) => ({ ...f, ...c }));
   const nombre = nombreCompleto(j);
-  const delaDisciplina = (categorias ?? []).filter((c) => c.disciplina === form.disciplina);
+  // La categoría se calcula en el servidor (edad de temporada o U11 F marcada): solo se muestra.
+  const nombreCategoria =
+    j.categoria_id === null
+      ? "Sin categoría"
+      : (categorias?.find((c) => c.id === j.categoria_id)?.nombre ??
+        (estadoCategorias === "cargando" ? "Cargando…" : "—"));
 
   function enviar() {
     const r = cambiosJugador(j, form);
@@ -165,28 +165,28 @@ function FichaJugador({
               id="disciplina"
               etiqueta="Disciplina"
               valor={form.disciplina}
-              onChange={(v) =>
-                cambiar({
-                  disciplina: v,
-                  categoria_id: categoriaAlCambiarDisciplina(j, form.categoria_id, v, categorias),
-                })
-              }
+              // La marca se conserva en el formulario: ir y volver a básquet sin guardar no la
+              // borra. Si se guarda en vóley, `cambiosJugador` la manda apagada.
+              onChange={(v) => cambiar({ disciplina: v })}
               opciones={DISCIPLINAS.map((d) => [d, TEXTO_DISCIPLINA[d]] as const)}
             />
-            <CampoSelect
-              id="categoria"
-              etiqueta="Categoría"
-              valor={categorias ? form.categoria_id : ""}
-              onChange={(v) => cambiar({ categoria_id: v })}
-              opciones={delaDisciplina.map((c) => [String(c.id), c.nombre] as const)}
-              vacio={
-                estadoCategorias === "ok"
-                  ? "Sin categoría"
-                  : estadoCategorias === "cargando"
-                    ? "Cargando…"
-                    : "No se pudieron cargar"
-              }
-            />
+            <div className="space-y-2">
+              <Dato etiqueta="Categoría (esta temporada)">{nombreCategoria}</Dato>
+              {form.disciplina === "basketball" && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.u11f}
+                    onChange={(e) => cambiar({ u11f: e.target.checked })}
+                  />
+                  U11 F esta temporada
+                </label>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Se calcula por año de nacimiento y cambia sola el 1 de enero. La U11 F vale solo la
+                temporada en que se marca.
+              </p>
+            </div>
             <Campo
               id="numero"
               etiqueta="Número de camiseta"
