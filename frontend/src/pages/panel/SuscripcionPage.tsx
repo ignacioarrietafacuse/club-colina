@@ -14,6 +14,7 @@ import {
   formatoPeriodo,
   mensajeResultado,
   mostrarAviso,
+  textoNoDisponible,
   tonoResultado,
   pagadoHasta,
   TEXTO_ESTADO_COBRO,
@@ -115,9 +116,7 @@ function Contenido({
         <MensajeSimple texto="La suscripción está pendiente de configuración. El resto del panel funciona normalmente." />
       );
     case "no_disponible":
-      return (
-        <MensajeSimple texto="No pudimos consultar Flow en este momento. El resto del panel funciona normalmente; intenta más tarde." />
-      );
+      return <MensajeSimple texto={textoNoDisponible(datos.configuracion_incorrecta)} />;
     case "sin_tarjeta":
       return <SinTarjeta datos={datos} alRecuperar={alRecuperar} />;
     case "activa":

@@ -49,12 +49,19 @@ Ignacio.
   suscripción real, que seguiría cobrando sin que el panel la viera.
 - Las claves nunca van en el repo, los logs, los PRs ni las respuestas. Los logs registran el modo,
   el servicio y el estado HTTP de cada llamada a Flow; nunca claves, firma ni parámetros.
-- **Claves rechazadas:** Flow las distingue por el código de error, no por el HTTP (visto en
-  sandbox, 2026-11-14): apiKey desconocida, 400 con código 109; secretKey que no corresponde, firma
-  mala, 400 con código 108. Con cualquiera de los dos, el backend deja una línea en nivel error
-  "claves rechazadas por Flow: revisar la apiKey y la secretKey de este modo", con el modo, el
-  servicio, el código y `motivo` (`apiKey` o `firma`), y la página queda "no disponible". El 401
-  con código 501 es el externalId repetido y nunca se confunde con esto.
+- **Configuración rechazada (claves o plan):** Flow no la distingue por el HTTP ni siempre por el
+  código (vistos el 2026-11-14):
+  - sandbox, apiKey desconocida: 400 con código 109; secretKey equivocada: 400 con código 108;
+  - producción, apiKey desconocida (p. ej. la de sandbox): 401 con código 501, "apiKey not found";
+  - `plans/get` de un plan que no existe: 401 con código 501, "the plan ... was not found".
+
+  El 501 también es el externalId repetido, así que con 501 decide el mensaje
+  (`configuracionRechazada` en `flow-pagos.ts`; el mensaje nunca se loguea). Con claves rechazadas
+  queda una línea en nivel error "claves rechazadas por Flow: revisar la apiKey y la secretKey de
+  este modo" (`motivo` `apiKey` o `firma`); con el plan, "plan no encontrado en Flow". La página no
+  dice "intenta más tarde" sino que no es una caída y hay que corregir la configuración
+  (`configuracion_incorrecta`: `claves` o `plan`). Un rechazo de configuración nunca dispara la
+  búsqueda del cliente ni cuenta como rechazo del reintento.
 - **Firma** (verificada contra developers.flow.cl/api, "¿Cómo firmar con su SecretKey?"):
   HMAC-SHA256 con la secret key del modo activo, sobre todos los parámetros menos `s`, ordenados
   alfabéticamente por nombre y concatenados como nombre+valor, en hexadecimal. Va en el parámetro
@@ -176,15 +183,18 @@ Lo hace Ignacio; los agentes no tocan las variables.
 
 1. **Flow producción (www.flow.cl):** el plan existe con el ID `suscripcion_clubcolina` (las
    mayúsculas no importan), $200.000 CLP, mensual, sin período de prueba, y la cuenta de cobro es la
-   de DYNAMIX AI SpA. Copiar la apiKey y la secretKey de Integraciones de **producción**.
+   de DYNAMIX AI SpA. Copiar la apiKey y la secretKey de Integraciones de **producción** (www.flow.cl,
+   no sandbox.flow.cl: el 2026-11-14 quedaron en `FLOW_PROD_*` las mismas claves de sandbox).
 2. **Railway, servicio `club-colina`:** `FLOW_PROD_API_KEY` y `FLOW_PROD_SECRET_KEY` con esas claves,
    y `FLOW_MODO=produccion`. Railway redespliega solo.
 3. **Verificar sin cobrar:** abrir Suscripción en el panel. Con el modo producción y sin fila de
    producción, la página solo llama a `plans/get`, que no crea ni cobra nada.
    - Bien: "Sin tarjeta", $200.000, sin la etiqueta "Modo de prueba"; en los logs, "llamada a Flow"
      con `"modo":"produccion","servicio":"plans/get","status":200`.
-   - Claves mal pegadas: "no disponible" y la línea "claves rechazadas por Flow" con `motivo`
-     `apiKey` (código 109) o `firma` (108, la secretKey no es la de esa apiKey).
-   - Plan que no existe con ese ID: "no disponible" y `plans/get` con un estado 4xx, sin la línea de
-     claves.
+   - Claves equivocadas (mal pegadas, o las de sandbox): la página dice que Flow no reconoce las
+     claves y que no es una caída; en los logs, "claves rechazadas por Flow" con `motivo` `apiKey`
+     (la apiKey no existe en ese Flow) o `firma` (la secretKey no es la de esa apiKey).
+   - Plan que no existe con ese ID: la página dice que Flow no encuentra el plan; en los logs,
+     "plan no encontrado en Flow".
+   - "No pudimos consultar Flow… intenta más tarde" queda solo para caídas y plazos vencidos.
 4. Recién con eso, Mony inscribe la tarjeta: el primer cobro es ese mismo día.

@@ -70,6 +70,8 @@ export class ErrorFlow extends Error {
     readonly status: number,
     /** El `code` del cuerpo de error de Flow, si vino. */
     readonly codigoFlow?: number,
+    /** Flow rechazó la configuración (claves o plan), no es una caída: ver `configuracionRechazada`. */
+    readonly configuracion?: ConfiguracionRechazada,
   ) {
     super(`Flow ${servicio}: ${status}`);
     this.name = "ErrorFlow";
@@ -84,13 +86,36 @@ export interface ClienteFlow {
   post(servicio: string, parametros: ParametrosFlow): Promise<unknown>;
 }
 
+/** Qué parte de la configuración rechazó Flow: la apiKey, la firma (la secretKey) o el plan. */
+export type ConfiguracionRechazada = "apiKey" | "firma" | "plan";
+
 /**
- * Los códigos con que Flow rechaza las claves (vistos en sandbox, 2026-11-14): una apiKey que no
- * conoce es 400 con código 109 ("Invalid ApiKey"); una secretKey que no es la de esa apiKey deja la
- * firma mal y es 400 con código 108 ("Invalid Signature"). Se distinguen por el código, no por el
- * HTTP: el 401 con código 501 es un externalId repetido, no un problema de claves.
+ * Si el error de Flow es de configuración y no una caída. Visto el 2026-11-14:
+ * - sandbox, apiKey desconocida: 400 con código 109 ("Invalid ApiKey");
+ * - sandbox, secretKey que no es la de esa apiKey: 400 con código 108 ("Invalid Signature");
+ * - producción, apiKey desconocida (p. ej. la de sandbox): 401 con código 501 y el mensaje
+ *   "Internal Server Error - apiKey not found";
+ * - sandbox, `plans/get` de un plan que no existe: 401 con código 501 y "... the plan X was not found".
+ * Flow usa el 501 para errores distintos (también el externalId repetido), así que con 501 decide
+ * el mensaje. El mensaje solo se mira aquí: nunca se loguea ni se guarda.
  */
-export const CLAVES_RECHAZADAS: Readonly<Record<number, "apiKey" | "firma">> = { 109: "apiKey", 108: "firma" };
+export function configuracionRechazada(
+  servicio: string,
+  codigo: number | undefined,
+  mensaje: string | undefined,
+): ConfiguracionRechazada | undefined {
+  if (codigo === 109) return "apiKey";
+  if (codigo === 108) return "firma";
+  if (mensaje === undefined) return undefined;
+  if (/\bapikey not found\b/i.test(mensaje)) return "apiKey";
+  if (servicio === "plans/get" && /\bplan\b.*\bnot found\b/i.test(mensaje)) return "plan";
+  return undefined;
+}
+
+function mensajeDe(cuerpo: unknown): string | undefined {
+  if (typeof cuerpo !== "object" || cuerpo === null || !("message" in cuerpo)) return undefined;
+  return typeof cuerpo.message === "string" ? cuerpo.message : undefined;
+}
 
 function codigoDe(cuerpo: unknown): number | undefined {
   if (typeof cuerpo !== "object" || cuerpo === null || !("code" in cuerpo)) return undefined;
@@ -125,15 +150,21 @@ export function crearClienteFlow(
       const cuerpo: unknown = await res.json().catch(() => undefined);
       if (!res.ok || cuerpo === undefined) {
         const codigo = codigoDe(cuerpo);
-        const motivo = codigo === undefined ? undefined : CLAVES_RECHAZADAS[codigo];
-        // Una línea propia y en nivel error: unas claves mal pegadas se notan en la primera llamada.
-        if (motivo) {
+        const motivo = configuracionRechazada(servicio, codigo, mensajeDe(cuerpo));
+        // Una línea propia y en nivel error: unas claves mal pegadas o un plan que falta se notan en
+        // la primera llamada. Sin el mensaje de Flow (puede traer datos): solo el motivo.
+        if (motivo === "apiKey" || motivo === "firma") {
           opciones.log.error(
             { flow: { modo: cfg.modo, servicio, status, codigo, motivo } },
             "claves rechazadas por Flow: revisar la apiKey y la secretKey de este modo",
           );
+        } else if (motivo === "plan") {
+          opciones.log.error(
+            { flow: { modo: cfg.modo, servicio, status, codigo, motivo } },
+            "plan no encontrado en Flow: revisar que el plan de la suscripción exista en este modo",
+          );
         }
-        throw new ErrorFlow(servicio, status, codigo);
+        throw new ErrorFlow(servicio, status, codigo, motivo);
       }
       return cuerpo;
     } catch (error) {

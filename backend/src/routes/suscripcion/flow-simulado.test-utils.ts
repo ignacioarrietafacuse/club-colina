@@ -110,7 +110,13 @@ export class FlowSimulado {
     if (!url.startsWith(`${this.base}/`)) return Response.json({ code: 404, message: "otro host" }, { status: 404 });
     const { s, ...sinFirma } = params;
     const firmados: ParametrosFlow = sinFirma;
-    if (params.apiKey !== this.apiKey) return Response.json({ code: 109, message: "Invalid ApiKey" }, { status: 400 });
+    if (params.apiKey !== this.apiKey) {
+      // Visto el 2026-11-14: producción responde una apiKey desconocida con 401 y código 501; sandbox,
+      // con 400 y código 109.
+      return this.base.startsWith("https://www.")
+        ? Response.json({ code: 501, message: "Internal Server Error - apiKey not found" }, { status: 401 })
+        : Response.json({ code: 109, message: "Invalid ApiKey" }, { status: 400 });
+    }
     if (s !== firmar(firmados, this.secretKey)) {
       return Response.json({ code: 108, message: "Invalid Signature" }, { status: 400 });
     }
@@ -125,7 +131,10 @@ export class FlowSimulado {
     this.n += 1;
     switch (servicio) {
       case "plans/get":
-        return p.planId?.toLowerCase() === this.plan.planId.toLowerCase() ? Response.json(this.plan) : error(404);
+        // Como sandbox: un plan que no existe es 401 con código 501 y el ID en el mensaje.
+        return p.planId?.toLowerCase() === this.plan.planId.toLowerCase()
+          ? Response.json(this.plan)
+          : Response.json({ code: 501, message: `Internal Server Error - the plan ${p.planId ?? ""} was not found` }, { status: 401 });
       case "customer/create": {
         if (this.errorCreacion) {
           return Response.json({ code: this.errorCreacion.code, message: "error" }, { status: this.errorCreacion.status });
