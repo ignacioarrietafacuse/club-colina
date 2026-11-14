@@ -199,5 +199,6 @@ Lo hace Ignacio; los agentes no tocan las variables.
      "plan no encontrado en Flow". Si producción lo responde distinto que sandbox, la página dirá
      "intenta más tarde", pero el log igual muestra `plans/get` con un estado 4xx y su código: con
      un 4xx no es una caída.
-   - "No pudimos consultar Flow… intenta más tarde" queda solo para caídas y plazos vencidos.
+   - "No pudimos consultar Flow… intenta más tarde" sale en caídas y plazos vencidos; si el log
+     muestra un 4xx de Flow, no es una caída: mirar el servicio y el código.
 4. Recién con eso, Mony inscribe la tarjeta: el primer cobro es ese mismo día.
