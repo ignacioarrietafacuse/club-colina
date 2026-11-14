@@ -57,6 +57,8 @@ export class FlowSimulado {
   demoraCreacionMs = 0;
   /** Como en sandbox: el ID del plan se guardó con mayúscula y `plans/get` lo busca sin distinguirlas. */
   plan = { planId: "Suscripcion_clubcolina", name: "Suscripción Club Colina", amount: 200000, currency: "CLP" };
+  /** Si es true, `customer/getSubscriptions` no manda `planExternalId` (solo el número interno). */
+  sinPlanEnLista = false;
   /** Número interno de Flow del plan: es el `planId` que devuelve `customer/getSubscriptions`. */
   planNumero = 2711;
   clientes = new Map<
@@ -166,11 +168,12 @@ export class FlowSimulado {
             ...s,
             planId: planId.toLowerCase() === this.plan.planId.toLowerCase() ? this.planNumero : 9999,
             planExternalId: planId.toLowerCase() === this.plan.planId.toLowerCase() ? this.plan.planId : planId,
-          }));
+          }))
+          .map((s) => (this.sinPlanEnLista ? { ...s, planExternalId: undefined } : s));
         const start = Number(p.start ?? 0);
         const limit = Number(p.limit ?? 10);
         const data = todas.slice(start, start + limit);
-        return Response.json({ total: todas.length, hasMore: start + limit < todas.length ? 1 : 0, data });
+        return Response.json({ total: todas.length, hasMore: start + limit < todas.length, data });
       }
       case "subscription/create": {
         const subscriptionId = `sus_${this.n}`;

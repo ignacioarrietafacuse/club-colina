@@ -11,7 +11,8 @@ cliente de la API, `flow-pagos` (`backend/src/services/suscripcion/flow-pagos.ts
 Decisiones de Ignacio (2026-11-13). Son fijas: cambiarlas es otro PR.
 
 - **Plan en Flow:** la constante `suscripcion_clubcolina` (`PLAN_SUSCRIPCION` en `shared/`), que
-  existe con ese ID en sandbox y en producción. $200.000 mensual, IVA incluido. El monto lo define el
+  existe con ese ID en sandbox y en producción (Flow lo guarda con sus mayúsculas; en sandbox,
+  "Suscripcion_clubcolina": ver "Verificado en sandbox"). $200.000 mensual, IVA incluido. El monto lo define el
   plan en Flow; el panel lo muestra leyéndolo de Flow (`plans/get`), nunca escrito en el código.
 - **Primer cobro el día en que se inscribe la tarjeta:** `subscription/create` con
   `subscription_start` = hoy (America/Santiago) y `trial_period_days = 0`.
@@ -148,7 +149,8 @@ actual" es el período del último cobro pagado. Sin las dos fechas de Flow, el 
   y el ID del plan viene en `planExternalId`; en `subscription/get`, `planId` es el ID como texto.
   Flow guardó el plan como "Suscripcion_clubcolina" (con mayúscula) y `plans/get` lo encuentra sin
   distinguirlas, así que el plan se reconoce por `planExternalId` sin distinguir mayúsculas
-  (`esDelPlan`). Antes la lista entera se rechazaba: la recuperación y el retorno de "Cambiar
+  (`esDelPlan`). Una suscripción viva que no traiga el ID del plan como texto cuenta como Flow no
+  disponible: nunca se supone ajena, porque eso crearía una segunda. Antes la lista entera se rechazaba: la recuperación y el retorno de "Cambiar
   tarjeta" terminaban en "no disponible".
 - **Página de registro de tarjeta:** `customer/register` devuelve una URL en `sandbox.flow.cl`
   (https), que la validación acepta.

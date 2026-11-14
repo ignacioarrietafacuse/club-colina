@@ -891,9 +891,31 @@ describe("forma real de customer/getSubscriptions (sandbox, 2026-11-14)", () => 
   it("reconoce el plan por planExternalId sin distinguir mayúsculas, con planId numérico", () => {
     expect(esDelPlan(itemReal)).toBe(true);
     expect(esDelPlan({ ...itemReal, planExternalId: "otro_plan" })).toBe(false);
-    expect(esDelPlan({ ...itemReal, planExternalId: undefined })).toBe(false);
+    // Sin el ID del plan como texto no se sabe (ver el test de abajo).
+    expect(esDelPlan({ ...itemReal, planExternalId: undefined })).toBeUndefined();
+    expect(esDelPlan({ ...itemReal, planExternalId: null })).toBeUndefined();
+    // planExternalId manda sobre planId.
+    expect(esDelPlan({ ...itemReal, planExternalId: "otro_plan", planId: "Suscripcion_clubcolina" })).toBe(false);
     // Si Flow mandara el ID como texto en planId (como en subscription/get), también sirve.
     expect(esDelPlan({ ...itemReal, planId: "Suscripcion_clubcolina", planExternalId: undefined })).toBe(true);
+  });
+
+  it("si la lista no trae el ID del plan, el retorno no crea otra suscripción: termina en error", async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    const { token } = await inscribir(app, c, flow);
+    flow.completarRegistro(token);
+    await retorno(app, token);
+    flow.sinPlanEnLista = true;
+    const cambio = await inscribir(app, c, flow, undefined);
+    flow.completarRegistro(cambio.token);
+    expect((await retorno(app, cambio.token)).headers.location).toBe(`${BASE}/suscripcion?resultado=error`);
+    expect(flow.suscripciones.size).toBe(1);
+    expect(flow.servicios().filter((x) => x === "subscription/create")).toHaveLength(1);
+    // Y la recuperación del cliente tampoco crea nada: 503.
+    await db.delete(suscripcionServicio);
+    const r = await app.inject({ method: "POST", url: "/api/suscripcion/inscribir-tarjeta", cookies: c, headers: { origin: BASE }, payload: { email: EMAIL } });
+    expect(r.statusCode).toBe(503);
   });
 
   it("con esa forma, inscribir recupera la suscripción vigente y el retorno de un cambio de tarjeta no crea otra", async () => {

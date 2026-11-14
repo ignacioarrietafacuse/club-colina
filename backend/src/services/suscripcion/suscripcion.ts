@@ -85,11 +85,13 @@ const listaSuscripciones = z.object({
 /**
  * Si un ítem de la lista es del plan del club. Flow guarda el ID con las mayúsculas con que se creó
  * (en sandbox, "Suscripcion_clubcolina") y `plans/get` lo encuentra sin distinguirlas: se compara
- * igual, sin mayúsculas.
+ * igual, sin mayúsculas. `undefined` si el ítem no trae el ID del plan como texto: no se sabe, y
+ * suponer "ajeno" podría terminar creando una segunda suscripción.
  */
-export function esDelPlan(item: z.infer<typeof itemSuscripcion>): boolean {
+export function esDelPlan(item: z.infer<typeof itemSuscripcion>): boolean | undefined {
   const id = item.planExternalId ?? (typeof item.planId === "string" ? item.planId : undefined);
-  return id?.toLowerCase() === PLAN_SUSCRIPCION.toLowerCase();
+  if (!id) return undefined;
+  return id.toLowerCase() === PLAN_SUSCRIPCION.toLowerCase();
 }
 const importeCobrado = z.object({ status: numero });
 /** Página de `customer/list`. Solo lo necesario para reconocer al cliente del club. */
@@ -185,7 +187,11 @@ async function buscarVigente(flow: ClienteFlow, customerId: string): Promise<str
     const lista = deFlow(listaSuscripciones, "customer/getSubscriptions")(
       await flow.get("customer/getSubscriptions", { customerId, start: pagina * 100, limit: 100 }),
     );
-    const vigente = lista.data.find((s) => esDelPlan(s) && s.status !== SUSCRIPCION_CANCELADA);
+    const vivas = lista.data.filter((s) => s.status !== SUSCRIPCION_CANCELADA);
+    // Una suscripción viva sin el ID del plan: no se puede descartar que sea la del club. Cuenta
+    // como Flow no disponible (503, sin cobrar), nunca como "no hay" (que crearía otra).
+    if (vivas.some((s) => esDelPlan(s) === undefined)) throw new ErrorFlow("customer/getSubscriptions", 200);
+    const vigente = vivas.find((s) => esDelPlan(s) === true);
     if (vigente) return vigente.subscriptionId;
     if (!lista.hasMore || lista.data.length === 0) return undefined;
   }
