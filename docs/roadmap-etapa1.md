@@ -127,3 +127,11 @@ Reglas para todas:
 6. Mony carga a los entrenadores y lanza el link en los grupos.
 
 **No se reparte ningún QR antes del paso 2:** la URL queda grabada en el código QR.
+
+### Pendiente para después del piloto
+
+- Aviso de rechazo previo (decisión de Ignacio, 2026-11-14): cuando Mony rechaza la solicitud de un
+  jugador adulto que tomó una ficha precargada sin fecha válida, la ficha vuelve a la base y se
+  puede volver a tomar de inmediato sin que Mony vea que ese RUT ya tuvo una solicitud rechazada.
+  Agregar un aviso (por ejemplo `ficha_rechazada_antes`) cuando el jugador ya fue titular de una
+  solicitud rechazada. Revisión de seguridad del PR #54.
