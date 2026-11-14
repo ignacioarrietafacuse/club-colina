@@ -23,7 +23,7 @@ import {
   hijosDeApoderado,
   type Jugador,
   jugadorPorRut,
-  mismoPrimerNombre,
+  nombreDistinto,
   primerNombre,
 } from "./consulta";
 
@@ -354,11 +354,13 @@ class Proceso {
    * certeza; si no, 409 sin tocar nada.
    *
    * Precargado sin fecha, o con una fecha inválida en la base (decisión de Ignacio, 2026-11-14):
-   * la consulta respondió `encontrado: false`, así que llenó el formulario completo. Se completa
-   * con la fecha que escribió (adulta, ya revisada) y lo demás que falte, y Mony recibe el aviso
-   * `adulto_precargado_sin_fecha_en_base` para confirmar que es él. Solo si su primer nombre es el
-   * de la base: `/familia` muestra el primer nombre de la ficha, y así no revela el nombre de un
-   * posible menor a quien solo tiene su RUT. Si no coincide, 409 como antes.
+   * la consulta respondió `encontrado: false`, así que llenó el formulario completo. Su ficha se
+   * completa con lo que escribió: nombre, apellido y fecha (adulta, ya revisada) reemplazan los de
+   * la base, y lo demás que falte se completa. Así ni la respuesta ni `/familia` dependen de lo que
+   * tenía la base: quien solo tiene el RUT de un posible menor no puede probar nombres hasta
+   * acertar, y el link muestra lo que él escribió (revisión de seguridad). La copia previa guarda
+   * la ficha de la base y se restaura si Mony rechaza. Mony recibe `adulto_precargado_sin_fecha_en_base`
+   * y, si el nombre o el apellido no son los de la base, `nombre_distinto_base`.
    */
   private async jugadorAdulto() {
     const d = this.datos;
@@ -406,12 +408,17 @@ class Proceso {
     if (
       existente.estado !== "precargado" ||
       existente.solicitud_id !== null ||
-      (fechaBaseValida ? !esAdulto(existente) : !mismoPrimerNombre(existente.nombre, seguro(nombre))) ||
+      (fechaBaseValida && !esAdulto(existente)) ||
       (await this.cantidadApoderados(existente.id)) > 0
     ) {
       throw conflicto();
     }
-    if (!fechaBaseValida) this.avisos.add("adulto_precargado_sin_fecha_en_base");
+    if (!fechaBaseValida) {
+      this.avisos.add("adulto_precargado_sin_fecha_en_base");
+      if (nombreDistinto(existente.nombre, seguro(nombre)) || nombreDistinto(existente.apellido, seguro(apellido))) {
+        this.avisos.add("nombre_distinto_base");
+      }
+    }
     this.jugadoresInvolucrados.add(existente.id);
     this.titularJugadorId = existente.id;
     this.coincideBase = true;
@@ -424,6 +431,8 @@ class Proceso {
       .update(jugadores)
       .set({
         ...cambios,
+        // Sin fecha válida en la base, la ficha toma el nombre que escribió (ver arriba).
+        ...(!fechaBaseValida && { nombre: seguro(nombre), apellido: seguro(apellido) }),
         ...(fotoFaltante !== undefined && { foto_id: await this.foto(fotoFaltante) }),
         ...(telefonoNuevo !== undefined && { telefono: telefonoNuevo }),
         estado: "pendiente",

@@ -512,19 +512,19 @@ describe("POST /api/public/solicitudes", () => {
     expect(consulta.json()).toEqual({ encontrado: false });
     const jugadoresAntes = await contar("jugadores");
 
-    // Sin la consulta, el formulario pide todo; el primer nombre se escribe distinto (tildes, mayúsculas).
-    const r = await enviar(app, { ...adultoCompleto(adulto.rut), nombre: "  VALENTINA", apellido: "Otro" }, { t: JPEG_PRUEBA });
+    // Sin la consulta, el formulario pide todo. Escribe su nombre igual que la base (con otras mayúsculas y sin tilde).
+    const r = await enviar(app, { ...adultoCompleto(adulto.rut), nombre: "VALENTINA andrea", apellido: "base" }, { t: JPEG_PRUEBA });
     expect(r.statusCode).toBe(201);
     expect(await contar("jugadores")).toBe(jugadoresAntes);
     const [s] = await solicitudes();
     expect(s).toMatchObject({ coincide_base: true, titular_jugador_id: adulto.id });
-    expect(s?.avisos).toEqual(expect.arrayContaining(["adulto_precargado_sin_fecha_en_base", "sin_telefono_en_base"]));
+    expect([...(s?.avisos ?? [])].sort()).toEqual(["adulto_precargado_sin_fecha_en_base", "sin_telefono_en_base"]);
     const j = await jugadorRut(adulto.rut);
-    // Se completa lo que faltaba (la fecha inválida se reemplaza); lo que la base sí tenía no se pisa.
+    // La misma ficha, completada con lo que escribió: la fecha inválida se reemplaza.
     expect(j).toMatchObject({
       id: adulto.id,
-      nombre: "Valentina Andrea",
-      apellido: "Base",
+      nombre: "VALENTINA andrea",
+      apellido: "base",
       fecha_nacimiento: "2000-02-02",
       telefono: "977777777",
       numero_camiseta: "12",
@@ -533,9 +533,9 @@ describe("POST /api/public/solicitudes", () => {
     });
     expect(j.foto_id).not.toBeNull();
 
-    // Su link de familia lo muestra (con el primer nombre que él mismo escribió).
+    // Su link de familia lo muestra, con el primer nombre que escribió.
     const familia = await app.inject({ method: "GET", url: API.public.familia(r.json().token_acceso) });
-    expect(familia.json().personas).toEqual([{ nombre_completo: "Valentina", rol: "jugador", estado: "pendiente" }]);
+    expect(familia.json().personas).toEqual([{ nombre_completo: "VALENTINA", rol: "jugador", estado: "pendiente" }]);
 
     // Mony lo aprueba y queda activo con su QR.
     const { app: panel, cookies } = await appConSesion(db);
@@ -553,13 +553,42 @@ describe("POST /api/public/solicitudes", () => {
     await app.close();
   });
 
-  it("jugador adulto precargado sin fecha en la base cuyo primer nombre no es el que escribió: 409 sin tocar nada (el link no revela el nombre de la base)", async () => {
-    const sinFecha = await crearJugador(db, { nombre: "Antonia", fecha_nacimiento: null, telefono: null });
+  it("precargado sin fecha válida: la respuesta y el link no dependen del nombre de la base (no se puede probar nombres); Mony ve el aviso y al rechazar vuelve la ficha de la base", async () => {
+    const coincide = await crearJugador(db, { nombre: "Valentina", apellido: "Prueba", fecha_nacimiento: null });
+    const distinto = await crearJugador(db, { nombre: "Antonia", apellido: "Real", fecha_nacimiento: "1850-01-01" });
+    const sinNombre = await crearJugador(db, { nombre: null, apellido: "Real", fecha_nacimiento: null });
     const app = await construirApp({ config: configTest(), db });
-    const r = await enviar(app, adultoCompleto(sinFecha.rut), { t: JPEG_PRUEBA });
-    expect(r.statusCode).toBe(409);
-    expect(await contar("solicitudes_registro")).toBe(0);
-    expect(await jugadorRut(sinFecha.rut)).toMatchObject({ fecha_nacimiento: null, telefono: null, estado: "precargado", solicitud_id: null });
+    const vistas = [];
+    for (const rut of [coincide.rut, distinto.rut, sinNombre.rut]) {
+      const r = await enviar(app, adultoCompleto(rut), { t: JPEG_PRUEBA });
+      expect(r.statusCode).toBe(201);
+      const familia = await app.inject({ method: "GET", url: API.public.familia(r.json().token_acceso) });
+      vistas.push(familia.json());
+    }
+    // Las tres respuestas del link son iguales: muestran lo que escribió, nunca el nombre de la base.
+    expect(vistas).toEqual(Array(3).fill({ estado_solicitud: "pendiente", personas: [{ nombre_completo: "Valentina", rol: "jugador", estado: "pendiente" }], otros_apoderados: [] }));
+    const avisos = (await solicitudes()).map((s) => [...s.avisos].filter((a) => a !== "sin_telefono_en_base").sort());
+    expect(avisos).toEqual([
+      ["adulto_precargado_sin_fecha_en_base"],
+      ["adulto_precargado_sin_fecha_en_base", "nombre_distinto_base"],
+      ["adulto_precargado_sin_fecha_en_base", "nombre_distinto_base"],
+    ]);
+    expect(await jugadorRut(distinto.rut)).toMatchObject({ nombre: "Valentina", apellido: "Prueba", fecha_nacimiento: "2000-02-02", estado: "pendiente" });
+
+    // Mony rechaza la que no calza: vuelve la ficha de la base y sale del link.
+    const s2 = (await solicitudes())[1];
+    const { app: panel, cookies } = await appConSesion(db);
+    const rechazo = await panel.inject({ method: "POST", url: API.panel.rechazar(s2?.id ?? ""), cookies, payload: {} });
+    expect(rechazo.statusCode).toBe(200);
+    expect(await jugadorRut(distinto.rut)).toMatchObject({
+      nombre: "Antonia",
+      apellido: "Real",
+      fecha_nacimiento: "1850-01-01",
+      estado: "precargado",
+      solicitud_id: null,
+      foto_id: null,
+    });
+    await panel.close();
     await app.close();
   });
 

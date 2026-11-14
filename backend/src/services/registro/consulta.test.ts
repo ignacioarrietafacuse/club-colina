@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { dbTest } from "../../test/db";
-import { edad, esAdulto, faltantesJugador, mismoPrimerNombre, primerNombre, SIN_NOMBRE } from "./consulta";
+import { edad, esAdulto, faltantesJugador, nombreDistinto, primerNombre, SIN_NOMBRE } from "./consulta";
 import { vaciarRegistro } from "./datos-prueba";
 
 const { db, cerrar } = dbTest();
@@ -8,13 +8,12 @@ afterAll(cerrar);
 beforeEach(() => vaciarRegistro(db));
 
 describe("consulta: piezas", () => {
-  it("mismo primer nombre: sin mayúsculas, tildes ni espacios; una base sin nombre no se compara", () => {
-    expect(mismoPrimerNombre("José Tomás", "  JOSE")).toBe(true);
-    expect(mismoPrimerNombre("Valentina", "valentina andrea")).toBe(true);
-    expect(mismoPrimerNombre("Antonia", "Valentina")).toBe(false);
-    expect(mismoPrimerNombre("Ana", "Anabel")).toBe(false);
-    expect(mismoPrimerNombre(null, "Valentina")).toBe(true);
-    expect(mismoPrimerNombre("  ", "Valentina")).toBe(true);
+  it("nombre distinto de la base: sin mayúsculas, tildes ni espacios de más; una base vacía no difiere", () => {
+    expect(nombreDistinto("José Tomás", "  JOSE   tomas ")).toBe(false);
+    expect(nombreDistinto("Valentina", "Valentina Andrea")).toBe(true);
+    expect(nombreDistinto("Antonia", "Valentina")).toBe(true);
+    expect(nombreDistinto(null, "Valentina")).toBe(false);
+    expect(nombreDistinto("  ", "Valentina")).toBe(false);
   });
 
   it("edad cumplida según la fecha de hoy en Chile", () => {

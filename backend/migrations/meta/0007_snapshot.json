@@ -1,5 +1,5 @@
 {
-  "id": "65302aaa-1ba9-42f7-8379-d9cdc5b53d80",
+  "id": "b9ffdb5a-aeb4-4874-bec2-f3db223ace56",
   "prevId": "fcd7bc93-393b-47a0-b24e-d63f72b16934",
   "version": "7",
   "dialect": "postgresql",
@@ -1273,7 +1273,7 @@
         },
         "solicitudes_avisos_check": {
           "name": "solicitudes_avisos_check",
-          "value": "\"avisos\" <@ ARRAY['titular_ya_registrado', 'telefono_distinto_base', 'hijo_con_otro_apoderado', 'apoderado_nuevo_para_hijo_registrado', 'hijo_marcado_ya_no_esta', 'otro_apoderado_ya_registrado', 'sin_telefono_en_base', 'hay_solicitud_posterior', 'hijo_precargado_completado_por_rut', 'cambios_bloqueados_por_otra_solicitud', 'adulto_precargado_sin_fecha_en_base']::text[]"
+          "value": "\"avisos\" <@ ARRAY['titular_ya_registrado', 'telefono_distinto_base', 'hijo_con_otro_apoderado', 'apoderado_nuevo_para_hijo_registrado', 'hijo_marcado_ya_no_esta', 'otro_apoderado_ya_registrado', 'sin_telefono_en_base', 'hay_solicitud_posterior', 'hijo_precargado_completado_por_rut', 'cambios_bloqueados_por_otra_solicitud', 'adulto_precargado_sin_fecha_en_base', 'nombre_distinto_base']::text[]"
         },
         "solicitudes_consentimiento_check": {
           "name": "solicitudes_consentimiento_check",

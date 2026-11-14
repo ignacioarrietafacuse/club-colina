@@ -25,17 +25,13 @@ export function primerNombre(nombre: string | null): string {
 
 /** Para comparar nombres: sin mayúsculas, tildes ni espacios de más. */
 function normalizarNombre(valor: string): string {
-  return valor.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
+  return valor.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim().replace(/\s+/g, " ");
 }
 
-/**
- * Si el primer nombre escrito en el formulario es el de la base (o la base no tiene nombre). Se
- * usa antes de dejar que un formulario tome una ficha cuyo nombre `/familia` mostraría: así el
- * link nunca revela un nombre que quien llenó no escribió.
- */
-export function mismoPrimerNombre(base: string | null, enviado: string): boolean {
-  if (base === null || base.trim() === "") return true;
-  return normalizarNombre(primerNombre(base)) === normalizarNombre(primerNombre(enviado));
+/** Si lo escrito difiere de lo que tenía la base (sin mayúsculas, tildes ni espacios de más). Una base vacía no difiere. */
+export function nombreDistinto(base: string | null, enviado: string): boolean {
+  if (base === null || base.trim() === "") return false;
+  return normalizarNombre(base) !== normalizarNombre(enviado);
 }
 
 export function nombreCompleto(p: { nombre: string | null; apellido: string | null }): string {

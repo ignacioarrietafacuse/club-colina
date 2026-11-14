@@ -68,9 +68,12 @@ export const AVISOS_SOLICITUD = [
   "cambios_bloqueados_por_otra_solicitud",
   /**
    * Un jugador adulto completó su ficha precargada, que en la base no tenía fecha de nacimiento
-   * (o la tenía inválida): la fecha es la que escribió. Mony confirma que es él y que es adulto.
+   * (o la tenía inválida): nombre, apellido y fecha son los que escribió (la ficha de la base se
+   * restaura si Mony rechaza). Mony confirma que es él y que es adulto.
    */
   "adulto_precargado_sin_fecha_en_base",
+  /** Junto al anterior: el nombre o el apellido escritos no son los que tenía la base. */
+  "nombre_distinto_base",
 ] as const;
 /** Segmento de URL de `/api/panel/:tipo/:id/...`. */
 export const TIPOS_PERSONA = ["jugadores", "apoderados", "entrenadores"] as const;
