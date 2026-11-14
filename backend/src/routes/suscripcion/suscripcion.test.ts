@@ -800,6 +800,27 @@ describe("cliente del club ya creado en Flow (externalId repetido)", () => {
     expect(fila?.flow_subscription_id).toBe("sus_vigente");
   });
 
+  it("con más páginas de las que recorre (clientes o suscripciones), no decide: 503 y no guarda nada", async () => {
+    const flow = sandbox();
+    const { app, cookies: c } = await armar(flow);
+    flow.clientes.set("cus_club", { customerId: "cus_club", email: "x@ejemplo.test", name: "Club Colina", externalId: "club-colina", status: "1" });
+    const base = { customerId: "cus_club", planId: "suscripcion_clubcolina", start: "2026-01-01", trial: "0", morose: 0, invoices: [] };
+    for (let i = 0; i < 501; i++) flow.suscripciones.set(`sus_c${i}`, { ...base, subscriptionId: `sus_c${i}`, status: 4 });
+    expect((await pedirInscripcion(app, c)).statusCode).toBe(503);
+    expect(await db.select().from(suscripcionServicio)).toHaveLength(0);
+    expect(flow.servicios()).not.toContain("customer/register");
+    expect(flow.servicios()).not.toContain("subscription/create");
+
+    // 501 clientes que calzan con el nombre: el del club está en la primera página, pero podría
+    // haber otro más allá.
+    flow.suscripciones.clear();
+    for (let i = 0; i < 500; i++) {
+      flow.clientes.set(`cus_otro${i}`, { customerId: `cus_otro${i}`, email: "o@ejemplo.test", name: `Club Colina ${i}`, externalId: `otro-${i}`, status: "1" });
+    }
+    expect((await pedirInscripcion(app, c)).statusCode).toBe(503);
+    expect(await db.select().from(suscripcionServicio)).toHaveLength(0);
+  });
+
   it("solo un 401 con código 501 dispara la búsqueda; otro error de customer/create no", async () => {
     const flow = sandbox();
     const { app, cookies: c, logs } = await armar(flow);

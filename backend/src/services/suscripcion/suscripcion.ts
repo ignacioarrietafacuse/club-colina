@@ -165,7 +165,8 @@ async function buscarVigente(flow: ClienteFlow, customerId: string): Promise<str
     if (vigente) return vigente.subscriptionId;
     if (!lista.hasMore || lista.data.length === 0) return undefined;
   }
-  // Más páginas de las que se recorren: no se puede asegurar que no exista. Flow "no responde".
+  // Más páginas de las que se recorren: no se puede asegurar que no exista, así que cuenta como Flow
+  // no disponible (en el log sale con estado 200: la respuesta llegó, pero no alcanza para decidir).
   throw new ErrorFlow("customer/getSubscriptions", 200);
 }
 
@@ -180,6 +181,7 @@ async function buscarClienteDelClub(
 ): Promise<{ customerId: string | undefined; coincidencias: number; activos: number }> {
   const coincidencias = new Set<string>();
   const activos = new Set<string>();
+  let incompleta = true;
   for (let pagina = 0; pagina < PAGINAS_MAX; pagina++) {
     const lista = deFlow(listaClientes, "customer/list")(
       await flow.get("customer/list", { filter: CLIENTE_FLOW.name, start: pagina * 100, limit: 100 }),
@@ -189,10 +191,15 @@ async function buscarClienteDelClub(
       coincidencias.add(c.customerId);
       if (c.status === "1") activos.add(c.customerId);
     }
-    if (!lista.hasMore || lista.data.length === 0) break;
+    if (!lista.hasMore || lista.data.length === 0) {
+      incompleta = false;
+      break;
+    }
   }
+  // Si quedaron páginas sin ver, puede haber otro: no se adivina.
   const [unico] = activos;
-  return { customerId: activos.size === 1 ? unico : undefined, coincidencias: coincidencias.size, activos: activos.size };
+  const customerId = activos.size === 1 && !incompleta ? unico : undefined;
+  return { customerId, coincidencias: coincidencias.size, activos: activos.size };
 }
 
 /** Flow rechazó `customer/create` porque el externalId ya existe (401 con código 501). */
@@ -352,7 +359,11 @@ export async function inscribirTarjeta(
         if (!esExternalIdRepetido(error)) throw error;
         // Sin un cliente reconocible (o si Flow falla al buscarlo), se mantiene el error de
         // customer/create: nunca otro externalId.
-        const busqueda = await buscarClienteDelClub(flow).catch(() => null);
+        // Solo un error de Flow se convierte en "no encontrado"; cualquier otro sigue de largo.
+        const busqueda = await buscarClienteDelClub(flow).catch((e: unknown) => {
+          if (e instanceof ErrorFlow) return null;
+          throw e;
+        });
         opciones.log?.warn(
           { flow: { modo: flow.modo, recuperar_cliente: busqueda ? { coincidencias: busqueda.coincidencias, activos: busqueda.activos } : "fallo" } },
           "externalId repetido en Flow: buscando al cliente del club",
