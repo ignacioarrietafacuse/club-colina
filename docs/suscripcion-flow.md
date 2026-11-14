@@ -49,6 +49,12 @@ Ignacio.
   suscripción real, que seguiría cobrando sin que el panel la viera.
 - Las claves nunca van en el repo, los logs, los PRs ni las respuestas. Los logs registran el modo,
   el servicio y el estado HTTP de cada llamada a Flow; nunca claves, firma ni parámetros.
+- **Claves rechazadas:** Flow las distingue por el código de error, no por el HTTP (visto en
+  sandbox, 2026-11-14): apiKey desconocida, 400 con código 109; secretKey que no corresponde, firma
+  mala, 400 con código 108. Con cualquiera de los dos, el backend deja una línea en nivel error
+  "claves rechazadas por Flow: revisar la apiKey y la secretKey de este modo", con el modo, el
+  servicio, el código y `motivo` (`apiKey` o `firma`), y la página queda "no disponible". El 401
+  con código 501 es el externalId repetido y nunca se confunde con esto.
 - **Firma** (verificada contra developers.flow.cl/api, "¿Cómo firmar con su SecretKey?"):
   HMAC-SHA256 con la secret key del modo activo, sobre todos los parámetros menos `s`, ordenados
   alfabéticamente por nombre y concatenados como nombre+valor, en hexadecimal. Va en el parámetro
@@ -126,7 +132,8 @@ simple para no disponible o pendiente de configuración. En sandbox, la etiqueta
 El aviso de `?resultado=ok|error` (o "recuperada") se muestra una sola vez: se quita de la URL al
 llegar, y nunca encima de un estado que lo contradiga ("Listo" solo con una suscripción viva; un
 error encima de una suscripción viva dice que falló el cambio de tarjeta y que la suscripción
-sigue).
+sigue). "Listo" y "recuperada" usan el estilo de éxito (verde); el error, el rojo
+(`tonoResultado`).
 
 `inscribirTarjetaResponse` sin `resultado` cuenta como `flow`: el frontend nuevo entiende al backend
 anterior mientras Vercel y Railway publican por separado.
@@ -135,8 +142,10 @@ bloquea nada. Sin "Cancelar suscripción" ni cambio de plan.
 
 El historial tiene la columna "Período" ("13-11-2026 al 12-12-2026") con `period_start` y
 `period_end` del importe, tal cual los devuelve Flow: Flow ya termina el período el día anterior al
-cobro siguiente (verificado en sandbox), así que no se ajusta nada. Bajo "Próximo cobro", "Período
-actual" es el período del último cobro pagado. Sin las dos fechas de Flow, el período queda "—".
+cobro siguiente (verificado en sandbox), así que no se ajusta nada. Bajo "Próximo cobro", "Pagado
+hasta: DD-MM-AAAA" es el `period_end` del último cobro pagado, igual con la suscripción activa o
+con un cobro fallido; sin cobros pagados, o si el último pagado no trae su período, no se muestra
+(decisión de Ignacio, 2026-11-14). Sin las dos fechas de Flow, el período queda "—".
 
 ## Verificado en sandbox (2026-11-13 y 14)
 
@@ -145,6 +154,12 @@ actual" es el período del último cobro pagado. Sin las dos fechas de Flow, el 
 - **Período del importe:** `period_start` 2026-11-13 y `period_end` 2026-12-12: Flow ya termina el
   período el día anterior al cobro siguiente.
 - **externalId repetido:** Flow lo rechaza (401, código 501). Ver "Cliente ya creado en Flow".
+- **Claves equivocadas:** apiKey desconocida, 400 con código 109 ("Invalid ApiKey"); apiKey buena
+  con otra secretKey, 400 con código 108 ("Invalid Signature"), también en un POST, sin crear nada.
+- **Recuperación y cambio de tarjeta de punta a punta** (2026-11-14, con la tabla vacía): la
+  recuperación hizo `customer/create` 401, `customer/list` y `customer/getSubscriptions`, sin
+  `customer/register` ni `subscription/create`; "Cambiar tarjeta" hizo `customer/register` y, al
+  volver, `customer/getRegisterStatus` y `customer/getSubscriptions`, sin una segunda suscripción.
 - **`customer/getSubscriptions`** (2026-11-14): en esa lista `planId` es un número interno de Flow
   y el ID del plan viene en `planExternalId`; en `subscription/get`, `planId` es el ID como texto.
   Flow guardó el plan como "Suscripcion_clubcolina" (con mayúscula) y `plans/get` lo encuentra sin
@@ -154,3 +169,22 @@ actual" es el período del último cobro pagado. Sin las dos fechas de Flow, el 
   tarjeta" terminaban en "no disponible".
 - **Página de registro de tarjeta:** `customer/register` devuelve una URL en `sandbox.flow.cl`
   (https), que la validación acepta.
+
+## Paso a producción
+
+Lo hace Ignacio; los agentes no tocan las variables.
+
+1. **Flow producción (www.flow.cl):** el plan existe con el ID `suscripcion_clubcolina` (las
+   mayúsculas no importan), $200.000 CLP, mensual, sin período de prueba, y la cuenta de cobro es la
+   de DYNAMIX AI SpA. Copiar la apiKey y la secretKey de Integraciones de **producción**.
+2. **Railway, servicio `club-colina`:** `FLOW_PROD_API_KEY` y `FLOW_PROD_SECRET_KEY` con esas claves,
+   y `FLOW_MODO=produccion`. Railway redespliega solo.
+3. **Verificar sin cobrar:** abrir Suscripción en el panel. Con el modo producción y sin fila de
+   producción, la página solo llama a `plans/get`, que no crea ni cobra nada.
+   - Bien: "Sin tarjeta", $200.000, sin la etiqueta "Modo de prueba"; en los logs, "llamada a Flow"
+     con `"modo":"produccion","servicio":"plans/get","status":200`.
+   - Claves mal pegadas: "no disponible" y la línea "claves rechazadas por Flow" con `motivo`
+     `apiKey` (código 109) o `firma` (108, la secretKey no es la de esa apiKey).
+   - Plan que no existe con ese ID: "no disponible" y `plans/get` con un estado 4xx, sin la línea de
+     claves.
+4. Recién con eso, Mony inscribe la tarjeta: el primer cobro es ese mismo día.

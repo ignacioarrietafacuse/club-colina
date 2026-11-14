@@ -14,7 +14,8 @@ import {
   formatoPeriodo,
   mensajeResultado,
   mostrarAviso,
-  periodoActual,
+  tonoResultado,
+  pagadoHasta,
   TEXTO_ESTADO_COBRO,
   type AvisoResultado,
 } from "./suscripcion";
@@ -64,8 +65,8 @@ export function SuscripcionPage() {
 
       {resultado && mostrarAviso(resultado, consulta.data?.estado) && (
         <p
-          role={resultado === "ok" ? "status" : "alert"}
-          className={`rounded-lg px-4 py-3 text-sm ${resultado === "ok" ? "bg-success/10" : "bg-destructive/10 text-destructive"}`}
+          role={tonoResultado(resultado) === "exito" ? "status" : "alert"}
+          className={`rounded-lg px-4 py-3 text-sm ${tonoResultado(resultado) === "exito" ? "bg-success/10" : "bg-destructive/10 text-destructive"}`}
         >
           {mensajeResultado(resultado, consulta.data?.estado)}
         </p>
@@ -232,7 +233,7 @@ function Activa({
     onSettled: alCambiar,
   });
   const fallido = datos.estado === "cobro_fallido";
-  const actual = periodoActual(datos.historial);
+  const hasta = pagadoHasta(datos.historial);
   const botonCambiar = (
     <Button
       variant="outline"
@@ -302,9 +303,9 @@ function Activa({
           </Dato>
           <Dato titulo="Próximo cobro">
             {datos.proximo_cobro ? formatoFecha(datos.proximo_cobro) : "—"}
-            {actual && (
+            {hasta && (
               <div className="mt-1 text-xs font-normal text-muted-foreground">
-                Período actual: {formatoPeriodo(actual)}
+                Pagado hasta: {formatoFecha(hasta)}
               </div>
             )}
           </Dato>

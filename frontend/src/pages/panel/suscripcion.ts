@@ -36,6 +36,20 @@ export function mensajeResultado(
 }
 
 /**
+ * El estilo de cada aviso: verde (`exito`) o rojo (`error`). Un `Record` para que un resultado
+ * nuevo no compile sin decidir su estilo.
+ */
+const TONO_RESULTADO: Record<AvisoResultado, "exito" | "error"> = {
+  ok: "exito",
+  recuperada: "exito",
+  error: "error",
+};
+
+export function tonoResultado(resultado: AvisoResultado): "exito" | "error" {
+  return TONO_RESULTADO[resultado];
+}
+
+/**
  * Si el aviso se muestra con el estado que se ve ahora: nunca uno que lo contradiga. "Listo" (o
  * "recuperada") solo con una suscripción viva; ninguno mientras carga ni si Flow no responde.
  */
@@ -82,9 +96,13 @@ export function formatoPeriodo(periodo: Cobro["periodo"]): string {
   return periodo ? `${formatoFecha(periodo.desde)} al ${formatoFecha(periodo.hasta)}` : "—";
 }
 
-/** El período del último cobro pagado (el historial viene del más nuevo al más viejo). */
-export function periodoActual(historial: Cobro[]): NonNullable<Cobro["periodo"]> | null {
-  return historial.find((c) => c.estado === "pagado" && c.periodo)?.periodo ?? null;
+/**
+ * Hasta qué día está pagado el servicio: el `period_end` del último cobro pagado, tal cual de Flow
+ * (el historial viene del más nuevo al más viejo). null si no hay cobros pagados, o si el último no
+ * trae su período: nunca se muestra el de un cobro anterior, que diría menos de lo pagado.
+ */
+export function pagadoHasta(historial: Cobro[]): string | null {
+  return historial.find((c) => c.estado === "pagado")?.periodo?.hasta ?? null;
 }
 
 export const TEXTO_ESTADO_COBRO = {

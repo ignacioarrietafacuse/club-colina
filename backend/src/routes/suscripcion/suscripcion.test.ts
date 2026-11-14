@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { Writable } from "node:stream";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
@@ -604,6 +605,15 @@ describe("cobro fallido, reintento y aviso", () => {
     expect(r.json<{ error: { codigo: string } }>().error.codigo).toBe("conflicto");
   });
 
+  it.each([108, 109])("claves rechazadas (%i) en el reintento son 'no disponible', no 'cambia la tarjeta'", async (code) => {
+    const { app, cookies: c, flow, sus } = await conSuscripcion();
+    sus.invoices.push({ id: 902, created: "2020-01-13 10:00:00", amount: 200000, status: 0, error: 1, due_date: "2020-01-16 00:00:00" });
+    flow.errorReintento = { status: 400, code };
+    const r = await app.inject({ method: "POST", url: "/api/suscripcion/reintentar", cookies: c, headers: { origin: BASE } });
+    expect(flow.servicios()).toContain("invoice/retryToCollect");
+    expect(r.statusCode).toBe(503);
+  });
+
   it("sin tarjeta informada en Flow, una suscripción morosa sigue siendo cobro fallido", async () => {
     const { app, cookies: c, flow, sus } = await conSuscripcion();
     sus.morose = 1;
@@ -840,6 +850,44 @@ describe("cliente del club ya creado en Flow (externalId repetido)", () => {
     expect(logs()).toContain('"recuperar_cliente":{"coincidencias":1,"activos":1}');
     expect(logs()).not.toContain("cus_club");
     expect(logs()).not.toContain("x@ejemplo.test");
+  });
+
+  it("claves rechazadas por Flow (apiKey o secretKey mal pegadas): línea de log clara, sin buscar al cliente", async () => {
+    for (const [extra, codigo, motivo] of [
+      [{ FLOW_SANDBOX_API_KEY: "apiKey-mal-pegada" }, 109, "apiKey"],
+      [{ FLOW_SANDBOX_SECRET_KEY: "secretKey-mal-pegada" }, 108, "firma"],
+    ] as const) {
+      const flow = sandbox();
+      const { app, cookies: c, logs } = await armar(flow, extra);
+      flow.clientes.set("cus_club", { customerId: "cus_club", email: "x@ejemplo.test", name: "Club Colina", externalId: "club-colina", status: "1" });
+      expect((await estado(app, c)).estado).toBe("no_disponible");
+      expect((await pedirInscripcion(app, c)).statusCode).toBe(503);
+      // Un 400 con 108/109 no es un externalId repetido: nunca se busca ni se recupera nada.
+      expect(flow.servicios()).not.toContain("customer/list");
+      expect(await db.select().from(suscripcionServicio)).toHaveLength(0);
+      const lineas = logs()
+        .split("\n")
+        .filter((l) => l.includes("claves rechazadas por Flow"));
+      expect(lineas.length).toBeGreaterThan(0);
+      const linea = z
+        .object({ level: z.number(), flow: z.record(z.string(), z.unknown()) })
+        .parse(JSON.parse(lineas[0] ?? "{}"));
+      expect(linea.level).toBe(50);
+      expect(linea.flow).toMatchObject({ modo: "sandbox", status: 400, codigo, motivo });
+      // Ni las claves (las buenas ni la mal pegada) ni la firma.
+      for (const v of [...Object.values(CLAVES_PRUEBA), ...Object.values(extra)]) expect(logs()).not.toContain(v);
+      expect(logs()).not.toMatch(/"s":|[0-9a-f]{64}/);
+    }
+  });
+
+  it("el externalId repetido (401 con código 501) no se confunde con claves rechazadas", async () => {
+    const flow = sandbox();
+    const { app, cookies: c, logs } = await armar(flow);
+    flow.clientes.set("cus_club", { customerId: "cus_club", email: "x@ejemplo.test", name: "Club Colina", externalId: "club-colina", status: "1" });
+    flow.errorCreacion = { status: 401, code: 501 };
+    await pedirInscripcion(app, c);
+    expect(flow.servicios()).toContain("customer/list");
+    expect(logs()).not.toContain("claves rechazadas por Flow");
   });
 
   it("un cliente inactivo (status 0) con el mismo externalId no se recupera", async () => {

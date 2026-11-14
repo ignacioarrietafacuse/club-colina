@@ -25,6 +25,7 @@ import { LIMITES } from "../../lib/limite-intentos";
 import { respuesta, validarEntrada } from "../../lib/validar";
 import { exigirClaveAlDia, exigirSesion } from "../../services/panel/sesiones";
 import {
+  CLAVES_RECHAZADAS,
   type ClienteFlow,
   configFlow,
   crearClienteFlow,
@@ -84,13 +85,15 @@ function clienteFlow(request: FastifyRequest, plazo = PLAZO_FLOW_MS): ClienteFlo
 
 /**
  * Flow rechazó el reintento mismo (error de negocio de `invoice/retryToCollect`, que Flow responde
- * con 400 o 401 y su código). Un error de cualquier otro servicio no es culpa de la tarjeta.
+ * con 400 o 401 y su código). Un error de cualquier otro servicio no es culpa de la tarjeta, y
+ * tampoco unas claves rechazadas (108, 109): eso es "no disponible", no "cambia la tarjeta".
  */
 function esRechazoDelReintento(error: ErrorFlow): boolean {
   return (
     error.servicio === "invoice/retryToCollect" &&
     (error.status === 400 || error.status === 401) &&
-    error.codigoFlow !== undefined
+    error.codigoFlow !== undefined &&
+    CLAVES_RECHAZADAS[error.codigoFlow] === undefined
   );
 }
 

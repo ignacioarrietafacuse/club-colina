@@ -9,7 +9,8 @@ import {
   formatoPeriodo,
   mensajeResultado,
   mostrarAviso,
-  periodoActual,
+  pagadoHasta,
+  tonoResultado,
 } from "./suscripcion";
 
 describe("suscripción", () => {
@@ -55,6 +56,12 @@ describe("aviso de resultado", () => {
     expect(mensajeResultado("ok", "cobro_fallido")).toContain("El cobro pendiente sigue abajo");
   });
 
+  it("cada resultado usa su estilo: 'Listo' y 'recuperada' de éxito, el error en rojo", () => {
+    expect(tonoResultado("ok")).toBe("exito");
+    expect(tonoResultado("recuperada")).toBe("exito");
+    expect(tonoResultado("error")).toBe("error");
+  });
+
   it("el error de inscripción se muestra con sin tarjeta o con una suscripción viva", () => {
     expect(mostrarAviso("error", "sin_tarjeta")).toBe(true);
     expect(mostrarAviso("error", "activa")).toBe(true);
@@ -90,7 +97,7 @@ describe("período de cada cobro", () => {
     expect(formatoPeriodo(undefined)).toBe("—");
   });
 
-  it("el período actual es el del último cobro pagado, saltando pendientes, fallidos y sin período", () => {
+  it("'Pagado hasta' es el fin del período del último cobro pagado, saltando pendientes, fallidos y sin período", () => {
     const pagadoNov = {
       fecha: "2026-11-13",
       monto: 200000,
@@ -103,15 +110,21 @@ describe("período de cada cobro", () => {
       estado: "fallido" as const,
       periodo: { desde: "2026-12-13", hasta: "2027-01-12" },
     };
+    const pendienteDic = { ...fallidoDic, estado: "pendiente" as const };
     const pagadoSinPeriodo = {
       fecha: "2026-12-14",
       monto: 200000,
       estado: "pagado" as const,
       periodo: null,
     };
-    expect(periodoActual([pagadoSinPeriodo, fallidoDic, pagadoNov])).toEqual(pagadoNov.periodo);
-    expect(periodoActual([fallidoDic])).toBeNull();
-    expect(periodoActual([])).toBeNull();
+    // El último pagado sin período: no se muestra el de noviembre, que diría menos de lo pagado.
+    expect(pagadoHasta([pagadoSinPeriodo, fallidoDic, pagadoNov])).toBeNull();
+    expect(pagadoHasta([fallidoDic, pagadoNov])).toBe("2026-12-12");
+    expect(pagadoHasta([pendienteDic, pagadoNov])).toBe("2026-12-12");
+    expect(formatoFecha(pagadoHasta([pagadoNov]) ?? "")).toBe("12-12-2026");
+    // Sin cobros pagados no se muestra.
+    expect(pagadoHasta([fallidoDic, pendienteDic])).toBeNull();
+    expect(pagadoHasta([])).toBeNull();
   });
 });
 

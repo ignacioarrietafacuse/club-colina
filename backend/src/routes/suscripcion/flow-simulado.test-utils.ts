@@ -1,6 +1,7 @@
 /**
  * Flow simulado para los tests de la suscripción. Solo lo importan los `*.test.ts`. Verifica la
- * apiKey y la firma de cada llamada igual que Flow (si no calzan, 401), y guarda qué se llamó.
+ * apiKey y la firma de cada llamada igual que Flow (visto en sandbox: apiKey desconocida, 400 con
+ * código 109; firma que no calza, 400 con código 108), y guarda qué se llamó.
  * Todo ficticio: claves inventadas y un correo de ejemplo.
  */
 import { firmar, type FetchFlow, type ParametrosFlow } from "../../services/suscripcion/flow-pagos";
@@ -44,6 +45,8 @@ export class FlowSimulado {
   falla: "caido" | "lento" | null = null;
   /** Si es true, `invoice/retryToCollect` responde un error de negocio (401 con código). */
   rechazarReintento = false;
+  /** Si se pone, `invoice/retryToCollect` responde este error (p. ej. las claves rechazadas). */
+  errorReintento: { status: number; code: number } | null = null;
   /** Si se pone, `subscription/get` devuelve este `next_invoice_date`. */
   proximoCobro = "2026-12-13 00:00:00";
   /**
@@ -107,8 +110,9 @@ export class FlowSimulado {
     if (!url.startsWith(`${this.base}/`)) return Response.json({ code: 404, message: "otro host" }, { status: 404 });
     const { s, ...sinFirma } = params;
     const firmados: ParametrosFlow = sinFirma;
-    if (params.apiKey !== this.apiKey || s !== firmar(firmados, this.secretKey)) {
-      return Response.json({ code: 401, message: "firma" }, { status: 401 });
+    if (params.apiKey !== this.apiKey) return Response.json({ code: 109, message: "Invalid ApiKey" }, { status: 400 });
+    if (s !== firmar(firmados, this.secretKey)) {
+      return Response.json({ code: 108, message: "Invalid Signature" }, { status: 400 });
     }
     if (servicio === "subscription/create" && this.demoraCreacionMs > 0) {
       await new Promise((listo) => setTimeout(listo, this.demoraCreacionMs));
@@ -208,6 +212,9 @@ export class FlowSimulado {
         return s ? Response.json({ ...s, next_invoice_date: this.proximoCobro }) : error(404);
       }
       case "invoice/retryToCollect": {
+        if (this.errorReintento) {
+          return Response.json({ code: this.errorReintento.code, message: "error" }, { status: this.errorReintento.status });
+        }
         if (this.rechazarReintento) return Response.json({ code: 1105, message: "rechazo" }, { status: 401 });
         for (const s of this.suscripciones.values()) {
           const i = s.invoices.find((x) => String(x.id) === p.invoiceId);

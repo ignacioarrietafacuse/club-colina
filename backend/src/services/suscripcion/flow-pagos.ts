@@ -84,6 +84,14 @@ export interface ClienteFlow {
   post(servicio: string, parametros: ParametrosFlow): Promise<unknown>;
 }
 
+/**
+ * Los códigos con que Flow rechaza las claves (vistos en sandbox, 2026-11-14): una apiKey que no
+ * conoce es 400 con código 109 ("Invalid ApiKey"); una secretKey que no es la de esa apiKey deja la
+ * firma mal y es 400 con código 108 ("Invalid Signature"). Se distinguen por el código, no por el
+ * HTTP: el 401 con código 501 es un externalId repetido, no un problema de claves.
+ */
+export const CLAVES_RECHAZADAS: Readonly<Record<number, "apiKey" | "firma">> = { 109: "apiKey", 108: "firma" };
+
 function codigoDe(cuerpo: unknown): number | undefined {
   if (typeof cuerpo !== "object" || cuerpo === null || !("code" in cuerpo)) return undefined;
   const codigo = Number(cuerpo.code);
@@ -115,7 +123,18 @@ export function crearClienteFlow(
       });
       status = res.status;
       const cuerpo: unknown = await res.json().catch(() => undefined);
-      if (!res.ok || cuerpo === undefined) throw new ErrorFlow(servicio, status, codigoDe(cuerpo));
+      if (!res.ok || cuerpo === undefined) {
+        const codigo = codigoDe(cuerpo);
+        const motivo = codigo === undefined ? undefined : CLAVES_RECHAZADAS[codigo];
+        // Una línea propia y en nivel error: unas claves mal pegadas se notan en la primera llamada.
+        if (motivo) {
+          opciones.log.error(
+            { flow: { modo: cfg.modo, servicio, status, codigo, motivo } },
+            "claves rechazadas por Flow: revisar la apiKey y la secretKey de este modo",
+          );
+        }
+        throw new ErrorFlow(servicio, status, codigo);
+      }
       return cuerpo;
     } catch (error) {
       if (error instanceof ErrorFlow) throw error;
