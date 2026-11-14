@@ -53,7 +53,8 @@ Ignacio.
   código (vistos el 2026-11-14):
   - sandbox, apiKey desconocida: 400 con código 109; secretKey equivocada: 400 con código 108;
   - producción, apiKey desconocida (p. ej. la de sandbox): 401 con código 501, "apiKey not found";
-  - `plans/get` de un plan que no existe: 401 con código 501, "the plan ... was not found".
+  - `plans/get` de un plan que no existe (visto en sandbox; en producción no se pudo probar sin
+    claves válidas): 401 con código 501, "the plan ... was not found".
 
   El 501 también es el externalId repetido, así que con 501 decide el mensaje
   (`configuracionRechazada` en `flow-pagos.ts`; el mensaje nunca se loguea). Con claves rechazadas
@@ -195,6 +196,8 @@ Lo hace Ignacio; los agentes no tocan las variables.
      claves y que no es una caída; en los logs, "claves rechazadas por Flow" con `motivo` `apiKey`
      (la apiKey no existe en ese Flow) o `firma` (la secretKey no es la de esa apiKey).
    - Plan que no existe con ese ID: la página dice que Flow no encuentra el plan; en los logs,
-     "plan no encontrado en Flow".
+     "plan no encontrado en Flow". Si producción lo responde distinto que sandbox, la página dirá
+     "intenta más tarde", pero el log igual muestra `plans/get` con un estado 4xx y su código: con
+     un 4xx no es una caída.
    - "No pudimos consultar Flow… intenta más tarde" queda solo para caídas y plazos vencidos.
 4. Recién con eso, Mony inscribe la tarjeta: el primer cobro es ese mismo día.

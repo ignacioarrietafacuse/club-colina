@@ -643,10 +643,15 @@ describe("cobro fallido, reintento y aviso", () => {
     expect(r.json<{ error: { codigo: string } }>().error.codigo).toBe("conflicto");
   });
 
-  it.each([108, 109])("claves rechazadas (%i) en el reintento son 'no disponible', no 'cambia la tarjeta'", async (code) => {
+  it.each([
+    { status: 400, code: 108 },
+    { status: 400, code: 109 },
+    // Producción con una apiKey que no conoce: antes contaba como rechazo del reintento (409).
+    { status: 401, code: 501, message: "Internal Server Error - apiKey not found" },
+  ])("claves rechazadas ($status, $code) en el reintento son 'no disponible', no 'cambia la tarjeta'", async (errorReintento) => {
     const { app, cookies: c, flow, sus } = await conSuscripcion();
     sus.invoices.push({ id: 902, created: "2020-01-13 10:00:00", amount: 200000, status: 0, error: 1, due_date: "2020-01-16 00:00:00" });
-    flow.errorReintento = { status: 400, code };
+    flow.errorReintento = errorReintento;
     const r = await app.inject({ method: "POST", url: "/api/suscripcion/reintentar", cookies: c, headers: { origin: BASE } });
     expect(flow.servicios()).toContain("invoice/retryToCollect");
     expect(r.statusCode).toBe(503);

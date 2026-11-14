@@ -105,7 +105,7 @@ export function textoNoDisponible(
 ): string {
   switch (configuracion) {
     case "claves":
-      return "Flow no reconoce las claves de pago configuradas. No es una caída de Flow: hay que corregir la configuración, avisa a Ignacio. El resto del panel funciona normalmente.";
+      return "Flow no reconoce las claves de conexión configuradas en el sistema. No es una caída de Flow: hay que corregir la configuración, avisa a Ignacio. El resto del panel funciona normalmente.";
     case "plan":
       return "Flow no encuentra el plan de la suscripción. No es una caída de Flow: hay que corregir la configuración, avisa a Ignacio. El resto del panel funciona normalmente.";
     default:
